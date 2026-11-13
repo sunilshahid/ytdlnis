@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.lyrics.LyricsDocument
 import com.deniscerri.ytdl.lyrics.LyricsRepository
+import com.deniscerri.ytdl.lyrics.model.LyricsCandidate
+import com.deniscerri.ytdl.lyrics.model.LyricsQuery
 import com.deniscerri.ytdl.playback.model.PlaybackItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,6 +55,7 @@ class LyricsViewModel(application: Application) : AndroidViewModel(application) 
     private var current: PlaybackItem? = null
     private var durationMs = 0L
     private var loadJob: Job? = null
+    private var applyJob: Job? = null
 
     fun onItemChanged(item: PlaybackItem?, durationMs: Long) {
         if (durationMs > 0L) this.durationMs = durationMs
@@ -60,6 +63,7 @@ class LyricsViewModel(application: Application) : AndroidViewModel(application) 
             if (current != null) {
                 current = null
                 loadJob?.cancel()
+                applyJob?.cancel()
                 _state.value = LyricsUiState()
             }
             return
@@ -67,6 +71,7 @@ class LyricsViewModel(application: Application) : AndroidViewModel(application) 
         if (item.mediaId == current?.mediaId) return
         current = item
         loadJob?.cancel()
+        applyJob?.cancel()
         _state.value = LyricsUiState(item = item, status = LyricsLoadStatus.LOADING_LOCAL)
         loadLocal(item)
     }
@@ -110,6 +115,36 @@ class LyricsViewModel(application: Application) : AndroidViewModel(application) 
                 } else {
                     _state.update { it.copy(status = LyricsLoadStatus.NOT_FOUND) }
                 }
+                _messages.emit(R.string.lyrics_not_found)
+            }
+        }
+    }
+
+    suspend fun findCandidates(customTitle: String? = null, customArtist: String? = null): List<LyricsCandidate> {
+        val item = current ?: return emptyList()
+        val query = LyricsQuery(
+            mediaId = item.mediaId,
+            title = customTitle?.takeIf { it.isNotBlank() } ?: item.title,
+            artist = customArtist?.takeIf { it.isNotBlank() } ?: item.artist,
+            album = item.album,
+            durationMs = durationMs,
+            localUri = item.localUri
+        )
+        return repository.searchCandidates(query)
+    }
+
+    fun applyCandidate(candidate: LyricsCandidate) {
+        val item = current ?: return
+        loadJob?.cancel()
+        applyJob?.cancel()
+        applyJob = viewModelScope.launch {
+            val document = repository.applyCandidate(item, candidate, durationMs)
+            if (document != null && document.lines.isNotEmpty()) {
+                if (current?.mediaId != item.mediaId) return@launch
+                _state.value = LyricsUiState(item, document, LyricsLoadStatus.READY)
+                _messages.emit(R.string.lyrics_imported)
+            } else {
+                if (current?.mediaId != item.mediaId) return@launch
                 _messages.emit(R.string.lyrics_not_found)
             }
         }

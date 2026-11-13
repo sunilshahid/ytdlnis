@@ -1,6 +1,8 @@
 package com.deniscerri.ytdl.vault
 
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -73,23 +75,28 @@ object VaultSessionManager {
      */
     fun lockAndZeroize() {
         val playerToRelease: ExoPlayer?
+        val isOnMainThread = Looper.myLooper() == Looper.getMainLooper()
         synchronized(lock) {
             _isUnlocked.value = false
             isDecoySession = false
             vaultKeyBytes?.fill(0)
             vaultKeyBytes = null
             playerToRelease = activePlayer
+            // Field is cleared synchronously so a racing registerPlayer() can never resurrect it.
             activePlayer = null
         }
 
-        // Player stop/release must run if we happen to be on main thread; otherwise stop signal safely.
         if (playerToRelease != null) {
-            runCatching {
-                playerToRelease.playWhenReady = false
-                playerToRelease.volume = 0f
-                playerToRelease.stop()
-                playerToRelease.clearMediaItems()
-                playerToRelease.release()
+            val player = playerToRelease
+            if (isOnMainThread) {
+                releasePlayer(player)
+            } else {
+                // ExoPlayer may only be touched on the main thread. Crash handlers and
+                // onTrimMemory can reach us from a background thread, so defer only the player
+                // release to the main looper; all key material above was zeroed synchronously.
+                Handler(Looper.getMainLooper()).post {
+                    releasePlayer(player)
+                }
             }
         }
 
@@ -103,6 +110,16 @@ object VaultSessionManager {
                 }
             }
             decryptedBitmaps.clear()
+        }
+    }
+
+    private fun releasePlayer(player: ExoPlayer) {
+        runCatching {
+            player.playWhenReady = false
+            player.volume = 0f
+            player.stop()
+            player.clearMediaItems()
+            player.release()
         }
     }
 }

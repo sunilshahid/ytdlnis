@@ -25,16 +25,19 @@ object LyricsParserRegistry {
     private val assOverride = Regex("""\{[^}]*\}""")
 
     fun detect(raw: String): LyricsFormat {
-        val trimmed = raw.trimStart()
+        // Strip a UTF-8 BOM before sniffing: trimStart() doesn't remove \uFEFF, so a BOM-prefixed
+        // "WEBVTT"/"<tt" file would misdetect as PLAIN and the TTML pull-parser would choke.
+        val cleaned = raw.removePrefix("\uFEFF")
+        val trimmed = cleaned.trimStart()
         return when {
-            raw.contains("[Script Info]") || Regex("""(?m)^Dialogue:""").containsMatchIn(raw) -> LyricsFormat.ASS
+            cleaned.contains("[Script Info]") || Regex("""(?m)^Dialogue:""").containsMatchIn(cleaned) -> LyricsFormat.ASS
             trimmed.startsWith("WEBVTT", ignoreCase = true) -> LyricsFormat.VTT
-            Regex("""(?m)^\d{2}:\d{2}:\d{2},\d{1,3}\s*-->\s*""").containsMatchIn(raw) -> LyricsFormat.SRT
-            trimmed.startsWith("<tt") || raw.contains("<tt:tt") -> LyricsFormat.TTML
-            isYrc(raw) -> LyricsFormat.YRC
-            isQrc(raw) -> LyricsFormat.QRC
-            lrcWordStamp.containsMatchIn(raw) && lrcStamp.containsMatchIn(raw) -> LyricsFormat.LRC_A2
-            lrcStamp.containsMatchIn(raw) -> LyricsFormat.LRC
+            Regex("""(?m)^\d{2}:\d{2}:\d{2},\d{1,3}\s*-->\s*""").containsMatchIn(cleaned) -> LyricsFormat.SRT
+            trimmed.startsWith("<tt") || cleaned.contains("<tt:tt") -> LyricsFormat.TTML
+            isYrc(cleaned) -> LyricsFormat.YRC
+            isQrc(cleaned) -> LyricsFormat.QRC
+            lrcWordStamp.containsMatchIn(cleaned) && lrcStamp.containsMatchIn(cleaned) -> LyricsFormat.LRC_A2
+            lrcStamp.containsMatchIn(cleaned) -> LyricsFormat.LRC
             else -> LyricsFormat.PLAIN
         }
     }
@@ -48,6 +51,7 @@ object LyricsParserRegistry {
         album: String? = null,
         source: LyricsSource = LyricsSource.CACHE,
         providerId: String? = null,
+        providerName: String? = null,
         offsetMs: Long = 0L
     ): LyricsDocument {
         val format = when {
@@ -55,21 +59,23 @@ object LyricsParserRegistry {
             formatHint == LyricsFormat.PLAIN && detect(raw) != LyricsFormat.PLAIN -> detect(raw)
             else -> formatHint
         }
+        // The pull-based TTML parser throws on a leading BOM; every parser gets BOM-free text.
+        val cleanedRaw = raw.removePrefix("\uFEFF")
         val lines = try {
             when (format) {
-                LyricsFormat.LRC, LyricsFormat.LRC_A2 -> parseLrc(raw)
-                LyricsFormat.YRC -> parseYrc(raw)
-                LyricsFormat.QRC -> parseQrc(raw)
-                LyricsFormat.ASS -> parseAss(raw)
-                LyricsFormat.TTML -> parseTtml(raw)
-                LyricsFormat.VTT -> parseVtt(raw)
-                LyricsFormat.SRT -> parseSrt(raw)
-                LyricsFormat.SPL -> parseLrc(raw)
-                LyricsFormat.SYLT -> parseLrc(raw)
-                LyricsFormat.PLAIN -> parsePlain(raw)
+                LyricsFormat.LRC, LyricsFormat.LRC_A2 -> parseLrc(cleanedRaw)
+                LyricsFormat.YRC -> parseYrc(cleanedRaw)
+                LyricsFormat.QRC -> parseQrc(cleanedRaw)
+                LyricsFormat.ASS -> parseAss(cleanedRaw)
+                LyricsFormat.TTML -> parseTtml(cleanedRaw)
+                LyricsFormat.VTT -> parseVtt(cleanedRaw)
+                LyricsFormat.SRT -> parseSrt(cleanedRaw)
+                LyricsFormat.SPL -> parseLrc(cleanedRaw)
+                LyricsFormat.SYLT -> parseLrc(cleanedRaw)
+                LyricsFormat.PLAIN -> parsePlain(cleanedRaw)
             }
         } catch (e: Exception) {
-            parsePlain(raw)
+            parsePlain(cleanedRaw)
         }
         return LyricsDocument(
             mediaId = mediaId,
@@ -81,6 +87,7 @@ object LyricsParserRegistry {
             format = format,
             raw = raw,
             providerId = providerId,
+            providerName = providerName,
             offsetMs = offsetMs
         )
     }
@@ -123,7 +130,16 @@ object LyricsParserRegistry {
         raw.lines().forEach { rawLine ->
             val stamps = lrcStamp.findAll(rawLine).toList()
             if (stamps.isEmpty()) return@forEach
-            val content = rawLine.substring(stamps.last().range.last + 1)
+            var content = rawLine.substring(stamps.last().range.last + 1)
+            if (content.isBlank()) {
+                // Trailing-stamp format ("text [00:01.00]"): recover the text that appears
+                // before the first stamp instead of dropping it.
+                val firstStampStart = stamps.first().range.first
+                if (firstStampStart > 0) {
+                    content = rawLine.substring(0, firstStampStart)
+                }
+            }
+            if (content.isBlank()) return@forEach
             val wordMatches = lrcWordStamp.findAll(content).toList()
             val plainText = content
                 .replace(lrcWordStamp, "")
@@ -344,17 +360,21 @@ object LyricsParserRegistry {
         var lineStart: Long? = null
         var lineEnd: Long? = null
         var agent: String? = null
+        var isBgLine = false
         var lineText = StringBuilder()
         val words = mutableListOf<LyricsWord>()
         var wordStart: Long? = null
+        var wordEnd: Long? = null
         var wordText = StringBuilder()
 
         fun flushWord(nextStart: Long?) {
             if (wordText.isNotBlank()) {
-                words.add(LyricsWord(wordText.toString().trim(), wordStart, nextStart))
+                val end = wordEnd ?: nextStart
+                words.add(LyricsWord(wordText.toString().trim(), wordStart, end))
             }
             wordText = StringBuilder()
             wordStart = nextStart
+            wordEnd = null
         }
 
         fun flushLine() {
@@ -367,16 +387,19 @@ object LyricsParserRegistry {
                         startMs = lineStart,
                         endMs = lineEnd,
                         words = words.toList(),
-                        agentId = agent
+                        agentId = agent,
+                        isBackground = isBgLine
                     )
                 )
             }
             lineStart = null
             lineEnd = null
             agent = null
+            isBgLine = false
             lineText = StringBuilder()
             words.clear()
             wordStart = null
+            wordEnd = null
             wordText = StringBuilder()
         }
 
@@ -391,10 +414,24 @@ object LyricsParserRegistry {
                             lineStart = attr(parser, "begin")?.let(::parseClock)
                             lineEnd = attr(parser, "end")?.let(::parseClock)
                             agent = attr(parser, "agent")
+                            val role = attr(parser, "role")
+                            if (role == "x-bg" || role?.contains("bg") == true) {
+                                isBgLine = true
+                            }
                         }
                         "span" -> {
                             val begin = attr(parser, "begin")?.let(::parseClock)
-                            if (begin != null) flushWord(begin)
+                            val end = attr(parser, "end")?.let(::parseClock)
+                            val role = attr(parser, "role")
+                            if (role == "x-bg" || role?.contains("bg") == true) {
+                                isBgLine = true
+                            }
+                            if (begin != null) {
+                                flushWord(begin)
+                                wordEnd = end
+                            } else if (end != null) {
+                                wordEnd = end
+                            }
                         }
                         "br" -> {
                             if (lineText.isNotEmpty()) lineText.append(' ')

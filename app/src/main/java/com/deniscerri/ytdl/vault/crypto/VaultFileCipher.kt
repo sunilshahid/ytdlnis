@@ -9,7 +9,6 @@ import java.io.OutputStream
 import java.io.RandomAccessFile
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -83,25 +82,6 @@ object VaultFileCipher {
                         }
                     }
 
-                    VaultHeader.VERSION_CTR -> {
-                        val ctrCipher = Cipher.getInstance("AES/CTR/NoPadding")
-                        ctrCipher.init(Cipher.ENCRYPT_MODE, keySpec, IvParameterSpec(baseNonce))
-                        val cipherBuf = ByteArray(chunkSize)
-                        while (totalWritten < plaintextLength) {
-                            val toRead = minOf(chunkSize.toLong(), plaintextLength - totalWritten).toInt()
-                            val filled = readFullyUpTo(input, plainBuf, toRead)
-                            if (filled != toRead) {
-                                throw IOException("Unexpected EOF while encrypting video: expected $plaintextLength, read ${totalWritten + filled}")
-                            }
-                            val encryptedLen = ctrCipher.update(plainBuf, 0, filled, cipherBuf, 0)
-                            if (encryptedLen > 0) out.write(cipherBuf, 0, encryptedLen)
-                            totalWritten += filled
-                            onProgress?.invoke(totalWritten, plaintextLength)
-                        }
-                        val tail = ctrCipher.doFinal()
-                        if (tail.isNotEmpty()) out.write(tail)
-                    }
-
                     else -> throw IllegalArgumentException("Unsupported cipher version: $cipherVersion")
                 }
                 out.flush()
@@ -151,14 +131,6 @@ object VaultFileCipher {
                             )
                         )
                         cipher.updateAAD(VaultCryptoPrimitives.gcmChunkAad(uuid, 0L))
-                        val plain = cipher.doFinal(enc)
-                        plain.fill(0)
-                    }
-                    VaultHeader.VERSION_CTR -> {
-                        val enc = ByteArray(firstChunkPlainLen)
-                        raf.readFully(enc)
-                        val cipher = Cipher.getInstance("AES/CTR/NoPadding")
-                        cipher.init(Cipher.DECRYPT_MODE, keySpec, IvParameterSpec(header.baseNonce))
                         val plain = cipher.doFinal(enc)
                         plain.fill(0)
                     }
@@ -216,28 +188,6 @@ object VaultFileCipher {
                             totalRead += plainLen
                             chunkIndex++
                             onProgress?.invoke(totalRead, header.payloadLength)
-                        }
-                    }
-
-                    VaultHeader.VERSION_CTR -> {
-                        val ctrCipher = Cipher.getInstance("AES/CTR/NoPadding")
-                        ctrCipher.init(Cipher.DECRYPT_MODE, keySpec, IvParameterSpec(header.baseNonce))
-                        val buf = ByteArray(header.chunkSize)
-                        val plain = ByteArray(header.chunkSize)
-                        try {
-                            while (totalRead < header.payloadLength) {
-                                val toRead = minOf(header.chunkSize.toLong(), header.payloadLength - totalRead).toInt()
-                                raf.readFully(buf, 0, toRead)
-                                val decLen = ctrCipher.update(buf, 0, toRead, plain, 0)
-                                if (decLen > 0) output.write(plain, 0, decLen)
-                                totalRead += toRead
-                                onProgress?.invoke(totalRead, header.payloadLength)
-                            }
-                            val tail = ctrCipher.doFinal()
-                            if (tail.isNotEmpty()) output.write(tail)
-                        } finally {
-                            buf.fill(0)
-                            plain.fill(0)
                         }
                     }
                 }

@@ -182,7 +182,8 @@ class PlaybackService : MediaSessionService() {
             args: Bundle
         ): ListenableFuture<SessionResult> {
             if (customCommand.customAction == ACTION_STOP_PLAYER) {
-                PlaybackController.stop()
+                // This is the notification's close action — the only true "dismissed" stop.
+                PlaybackController.stop(dismissed = true)
                 session.player.stop()
                 session.player.clearMediaItems()
                 stopForeground(STOP_FOREGROUND_REMOVE)

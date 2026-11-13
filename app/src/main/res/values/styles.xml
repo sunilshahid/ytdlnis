@@ -81,4 +81,17 @@
         <item name="android:textSize">0sp</item>
     </style>
 
+    <style name="LyricsFullScreenAnimation">
+        <item name="android:windowEnterAnimation">@anim/nav_slide_in_right</item>
+        <item name="android:windowExitAnimation">@anim/nav_slide_out_right</item>
+    </style>
+
+    <style name="FullScreenLyricsTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">?attr/colorSurface</item>
+        <item name="android:windowAnimationStyle">@style/LyricsFullScreenAnimation</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">?attr/colorSurface</item>
+    </style>
+
 </resources>

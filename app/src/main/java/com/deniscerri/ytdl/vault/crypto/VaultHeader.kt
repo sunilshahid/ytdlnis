@@ -10,7 +10,8 @@ import javax.crypto.AEADBadTagException
 /**
  * 84-byte binary header for `YTVLT2` vault video containers:
  * - Magic: 6B (`"YTVLT2"`)
- * - Version: 2B (`0x0002` = 64 KiB AES-256-GCM chunks [default]; `0x0003` = AES-256-CTR fallback)
+ * - Version: 2B (`0x0002` = 64 KiB AES-256-GCM chunks [default]; `0x0003` = legacy AES-256-CTR,
+ *   never written by this app — rejected on read because CTR payloads have no authentication)
  * - File Salt: 16B
  * - Base Nonce: 16B
  * - Chunk Size: 4B (`65536`)
@@ -60,23 +61,27 @@ data class VaultHeader(
         const val HEADER_SIZE = 84
         const val MAC_INPUT_LENGTH = 52
         const val VERSION_GCM_CHUNKS = 0x0002
+
+        /**
+         * Legacy AES-256-CTR marker. Kept only for reference by older documentation; no code path
+         * in this app ever writes a CTR container (all ingestion forces [VERSION_GCM_CHUNKS]), and
+         * CTR payloads carry no per-chunk authentication, so decryption of `0x0003` is rejected.
+         */
+        @Deprecated("Legacy unauthenticated container format; never written and rejected on read.")
         const val VERSION_CTR = 0x0003
         const val DEFAULT_CHUNK_SIZE = 65_536
 
         fun expectedFileLength(version: Int, chunkSize: Int, payloadLength: Long): Long {
             require(payloadLength >= 0L)
-            return when (version) {
-                VERSION_CTR -> HEADER_SIZE + payloadLength
-                VERSION_GCM_CHUNKS -> {
-                    val chunks = if (payloadLength == 0L) {
-                        0L
-                    } else {
-                        (payloadLength + chunkSize - 1L) / chunkSize.toLong()
-                    }
-                    HEADER_SIZE + payloadLength + (chunks * VaultCryptoPrimitives.GCM_TAG_BYTES)
-                }
-                else -> throw IllegalArgumentException("Unsupported vault version: $version")
+            require(version == VERSION_GCM_CHUNKS) {
+                "Unsupported vault container version: $version"
             }
+            val chunks = if (payloadLength == 0L) {
+                0L
+            } else {
+                (payloadLength + chunkSize - 1L) / chunkSize.toLong()
+            }
+            return HEADER_SIZE + payloadLength + (chunks * VaultCryptoPrimitives.GCM_TAG_BYTES)
         }
 
         fun serializeWithMac(
@@ -91,7 +96,11 @@ data class VaultHeader(
             require(baseNonce.size == 16)
             require(chunkSize == DEFAULT_CHUNK_SIZE)
             require(payloadLength >= 0L)
-            require(version == VERSION_GCM_CHUNKS || version == VERSION_CTR)
+            // Ingestion (Flow A + Flow B) only ever writes AES-256-GCM containers; refuse to
+            // serialize anything else (the legacy CTR layout has no payload authentication).
+            require(version == VERSION_GCM_CHUNKS) {
+                "Unsupported vault container version: $version"
+            }
 
             val buf = ByteBuffer.allocate(HEADER_SIZE)
             buf.put(MAGIC)
@@ -144,8 +153,11 @@ data class VaultHeader(
             val buf = ByteBuffer.wrap(headerBytes)
             buf.position(MAGIC.size)
             val version = buf.short.toInt() and 0xFFFF
-            if (version != VERSION_GCM_CHUNKS && version != VERSION_CTR) {
-                throw SecurityException("Unsupported vault format version: $version")
+            // Only the authenticated AES-256-GCM layout is accepted. The legacy CTR version
+            // (0x0003) was never written by this app and has no payload authentication, so any
+            // such container is refused with a clear error instead of being trusted.
+            if (version != VERSION_GCM_CHUNKS) {
+                throw SecurityException("Unsupported vault container version: $version")
             }
             val fileSalt = ByteArray(16).also { buf.get(it) }
             val baseNonce = ByteArray(16).also { buf.get(it) }

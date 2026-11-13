@@ -399,7 +399,8 @@ object VaultImporter {
                 }
             }
 
-            tempCopy?.delete()
+            // Scrub the staged plaintext copy from vault_tmp before removing it.
+            tempCopy?.let { VaultStorage.overwriteAndDelete(it) }
 
             val cleanupToken = PendingTraceCleanup(
                 uuid = uuid,
@@ -526,14 +527,14 @@ object VaultImporter {
         providedUri: Uri?
     ): SourceDeleteResult {
         val localFile = filePath?.let(::File)
-        if (localFile != null && localFile.exists()) {
-            if (runCatching { localFile.delete() }.getOrDefault(false) && !localFile.exists()) {
-                return SourceDeleteResult.Deleted
-            }
-        } else if (localFile != null && !localFile.exists() && providedUri == null) {
+        if (localFile != null && !localFile.exists() && providedUri == null) {
             return SourceDeleteResult.Deleted
         }
 
+        // Prefer the OS-mediated delete flow (ContentResolver.delete / createDeleteRequest
+        // confirmation sheet) for MediaStore-backed files; direct File.delete() is only a last
+        // resort for non-MediaStore paths or legacy-storage devices where the OS flow is
+        // unavailable.
         val mediaUri = providedUri?.takeIf { isMediaStoreUri(it) }
             ?: filePath?.let { findMediaStoreVideoUri(context, it) }
 
@@ -547,14 +548,6 @@ object VaultImporter {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && sec is RecoverableSecurityException) {
                     return SourceDeleteResult.NeedsPermission(sec.userAction.actionIntent.intentSender)
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    val pendingIntent = runCatching {
-                        MediaStore.createDeleteRequest(context.contentResolver, listOf(mediaUri))
-                    }.getOrNull()
-                    if (pendingIntent != null) {
-                        return SourceDeleteResult.NeedsPermission(pendingIntent.intentSender)
-                    }
-                }
             } catch (_: Throwable) {
             }
 
@@ -566,6 +559,23 @@ object VaultImporter {
                     return SourceDeleteResult.NeedsPermission(pendingIntent.intentSender)
                 }
             }
+
+            // OS flow unavailable or failed without a confirmation sheet (e.g. legacy storage
+            // where the app still holds write permission). Fall back to direct removal — the
+            // plaintext contents are overwritten first since this deletion proceeds without
+            // further user interaction. For MediaStore-backed items never overwrite before the
+            // OS confirmation (the user may cancel the sheet).
+            if (localFile != null && localFile.exists()) {
+                VaultStorage.overwriteAndDelete(localFile)
+                if (!localFile.exists()) {
+                    runCatching { context.contentResolver.delete(mediaUri, null, null) }
+                    return SourceDeleteResult.Deleted
+                }
+            }
+        } else if (localFile != null && localFile.exists()) {
+            // Not MediaStore-backed: scrub the plaintext before removing the file.
+            VaultStorage.overwriteAndDelete(localFile)
+            if (!localFile.exists()) return SourceDeleteResult.Deleted
         }
 
         if (providedUri != null && DocumentsContract.isDocumentUri(context, providedUri)) {

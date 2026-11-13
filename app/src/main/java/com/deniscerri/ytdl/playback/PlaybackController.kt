@@ -571,7 +571,12 @@ object PlaybackController {
         startAt(state.currentIndex, autoPlay = true, resumePositionMs = state.positionMs)
     }
 
-    fun stop() {
+    /**
+     * Stops playback. [dismissed] must only be true when the user closed playback from the
+     * notification's dismiss action — every other stop (miniplayer close, video player swap)
+     * must keep the persisted queue eligible for auto-restore on the next app open.
+     */
+    fun stop(dismissed: Boolean = false) {
         currentResolveJob?.cancel()
         nextResolveJob?.cancel()
         pendingStart = null
@@ -584,6 +589,10 @@ object PlaybackController {
         // currentIndex to 0, and persisting after it made resume() replay the first song
         // instead of the one the user was listening to.
         persistStateSnapshot(positionMs = 0L)
+        appContext?.let {
+            androidx.preference.PreferenceManager.getDefaultSharedPreferences(it)
+                .edit().putBoolean("playback_dismissed", dismissed).apply()
+        }
         // Keep the persisted queue intact: the next play/resume tap replays it through
         // tryRestoreQueue(). Wiping it here made the play button dead after the notification
         // close button (PlaybackService.onCustomCommand -> stop()).
@@ -603,6 +612,10 @@ object PlaybackController {
     }
 
     private fun startAt(index: Int, autoPlay: Boolean, resumePositionMs: Long = 0L) {
+        appContext?.let {
+            androidx.preference.PreferenceManager.getDefaultSharedPreferences(it)
+                .edit().putBoolean("playback_dismissed", false).apply()
+        }
         val state = _state.value
         val item = state.queue.getOrNull(index) ?: return
         // The one-retry guard only applies to the item that failed; a new target starts fresh.
@@ -926,6 +939,15 @@ object PlaybackController {
     private fun tryRestoreQueue(autoPlay: Boolean = false) {
         if (restoring || _state.value.queue.isNotEmpty()) return
         val appContext = appContext ?: return
+
+        val isDismissed = androidx.preference.PreferenceManager.getDefaultSharedPreferences(appContext)
+            .getBoolean("playback_dismissed", false)
+        val player = controller
+        val isCurrentlyPlaying = player?.isPlaying == true || (player?.mediaItemCount ?: 0) > 0
+        if (!autoPlay && isDismissed && !isCurrentlyPlaying) {
+            return
+        }
+
         restoring = true
         restoreJob?.cancel()
         restoreJob = scope.launch {

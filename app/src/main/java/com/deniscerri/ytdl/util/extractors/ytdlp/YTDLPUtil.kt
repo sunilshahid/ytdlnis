@@ -2126,7 +2126,9 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
 
         request.merge(metadataCommands)
 
-        if (downloadItem.extraCommands.isNotBlank() && downloadItem.type != DownloadType.command){
+        // Vault jobs must be fully controlled by the app: user-supplied extraCommands could
+        // re-enable `-P`/`-o`/`--write-*` plaintext side outputs outside vault_tmp.
+        if (downloadItem.extraCommands.isNotBlank() && !downloadItem.vaultMode && downloadItem.type != DownloadType.command){
             request.addOption(downloadItem.extraCommands)
         }
 

@@ -2,7 +2,6 @@ package com.deniscerri.ytdl.ui.play.lyrics
 
 import android.animation.ValueAnimator
 import android.content.Context
-import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -18,6 +17,7 @@ import android.view.animation.DecelerateInterpolator
 import android.widget.OverScroller
 import com.deniscerri.ytdl.lyrics.LyricsDocument
 import com.deniscerri.ytdl.lyrics.LyricsLine
+import com.deniscerri.ytdl.lyrics.LyricsWord
 import com.google.android.material.color.MaterialColors
 import kotlin.math.abs
 import kotlin.math.max
@@ -25,7 +25,6 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 enum class LyricsDisplayMode {
-    PLAIN,
     SYNCED,
     WORD_BY_WORD,
     KARAOKE,
@@ -71,18 +70,25 @@ class KaraokeLyricsView @JvmOverloads constructor(
         setShadowLayer(11f * density, 0f, 0f, applyAlpha(accentColor, 0.52f))
     }
     private val inactivePaint = Paint(textPaint).apply {
+        // Soft halo only: BlurMaskFilter would force LAYER_TYPE_SOFTWARE (full-view software
+        // rendering at 60fps = jank/battery). Shadow layers are hardware-accelerated for text.
         setShadowLayer(3.5f * density, 0f, 0f, applyAlpha(baseColor, 0.34f))
-        maskFilter = BlurMaskFilter(0.9f * density, BlurMaskFilter.Blur.NORMAL)
     }
     private val translationPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 13f * density
         color = baseColor
     }
 
+    private val scrimPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val scrimHeight = 36f * density
+    private var topScrimShader: android.graphics.Shader? = null
+    private var bottomScrimShader: android.graphics.Shader? = null
+
     private var document: LyricsDocument? = null
     private var positionMs = 0L
     private var mode = LyricsDisplayMode.SYNCED
     private var approximateWordTimings = false
+    private var showRomanization = false
     private var isPlaying = false
     private var playbackSpeed = 1f
     private var lastPositionElapsedMs = 0L
@@ -95,6 +101,30 @@ class KaraokeLyricsView @JvmOverloads constructor(
     }
 
     fun isApproximateWordTimings(): Boolean = approximateWordTimings
+
+    fun setShowRomanization(show: Boolean) {
+        if (showRomanization == show) return
+        showRomanization = show
+        rebuildLayout()
+        invalidate()
+    }
+
+    fun isShowRomanization(): Boolean = showRomanization
+
+    fun setTextScale(scale: Float) {
+        val clamped = scale.coerceIn(0.8f, 1.4f)
+        textScale = clamped
+        textPaint.textSize = 19f * density * clamped
+        activePaint.textSize = 26f * density * clamped
+        activePaint.setShadowLayer(11f * density * clamped, 0f, 0f, applyAlpha(accentColor, 0.52f))
+        inactivePaint.textSize = 19f * density * clamped
+        inactivePaint.setShadowLayer(3.5f * density * clamped, 0f, 0f, applyAlpha(baseColor, 0.34f))
+        translationPaint.textSize = 13f * density * clamped
+        rebuildLayout()
+        invalidate()
+    }
+
+    var onUserInteractionListener: (() -> Unit)? = null
 
     fun setPlaybackState(playing: Boolean, speed: Float = 1f) {
         val speedChanged = playbackSpeed != speed
@@ -153,15 +183,18 @@ class KaraokeLyricsView @JvmOverloads constructor(
     private var scrollAnimator: ValueAnimator? = null
 
     init {
-        // BlurMaskFilter is ignored by hardware-accelerated canvases.
-        setLayerType(LAYER_TYPE_SOFTWARE, null)
+        // Hardware rendering throughout: no BlurMaskFilter is used anymore, so the per-frame
+        // karaoke redraws run on the GPU pipeline instead of a full-view software bitmap.
     }
 
+    private var textScale = 1.0f
     private val horizontalPadding = 20f * density
     private val verticalPadding = 14f * density
-    private val lineSpacing = 12f * density
-    private val rowHeight = 26f * density
-    private val wordSpace = activePaint.measureText(" ")
+    private val lineSpacing: Float get() = 18f * density * textScale
+    private val rowHeight: Float get() = 34f * density * textScale
+    private val wordSpace: Float get() = activePaint.measureText(" ")
+    private val inactiveWordSpace: Float get() = textPaint.measureText(" ")
+    private val romHeight: Float get() = 22f * density * textScale
 
     fun setDocument(document: LyricsDocument?) {
         this.document = document
@@ -174,6 +207,29 @@ class KaraokeLyricsView @JvmOverloads constructor(
         rebuildLayout()
         scrollY = targetScrollForActive() ?: 0f
         contentDescription = document?.activeLine(positionMs)?.text
+        invalidate()
+    }
+
+    /**
+     * Swaps in a document whose text is identical but whose offset changed. Skips the layout
+     * rebuild (glyph layout, wrap and romanization are unchanged) and keeps the current scroll
+     * position, so tapping the offset buttons doesn't reset the view.
+     */
+    fun updateOffset(document: LyricsDocument?) {
+        val next = document ?: return
+        if (lineLayouts.isEmpty()) {
+            setDocument(next)
+            return
+        }
+        this.document = next
+        contentDescription = next.activeLine(positionMs)?.text
+        val active = next.activeLineIndex(positionMs)
+        if (active != lastActiveLine) {
+            lastActiveLine = active
+            if (next.isSynced && !isUserScrolling()) {
+                animateToActive(FOLLOW_ANIMATION_MS)
+            }
+        }
         invalidate()
     }
 
@@ -211,8 +267,8 @@ class KaraokeLyricsView @JvmOverloads constructor(
         )
         textPaint.color = baseColor
         activePaint.color = accentColor
-        activePaint.setShadowLayer(11f * density, 0f, 0f, applyAlpha(accentColor, 0.52f))
-        inactivePaint.setShadowLayer(3.5f * density, 0f, 0f, applyAlpha(baseColor, 0.34f))
+        activePaint.setShadowLayer(11f * density * textScale, 0f, 0f, applyAlpha(accentColor, 0.52f))
+        inactivePaint.setShadowLayer(3.5f * density * textScale, 0f, 0f, applyAlpha(baseColor, 0.34f))
         translationPaint.color = baseColor
         invalidate()
     }
@@ -292,9 +348,39 @@ class KaraokeLyricsView @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         rebuildLayout()
+        updateScrims(w, h)
         if (document?.isSynced == true && !isUserScrolling()) {
             scrollY = targetScrollForActive() ?: scrollY
         }
+    }
+
+    private fun updateScrims(w: Int, h: Int) {
+        if (w <= 0 || h <= 0) return
+        val surface = MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorSurface,
+            Color.BLACK
+        )
+        topScrimShader = android.graphics.LinearGradient(
+            0f, 0f, 0f, scrimHeight,
+            surface, Color.TRANSPARENT,
+            android.graphics.Shader.TileMode.CLAMP
+        )
+        bottomScrimShader = android.graphics.LinearGradient(
+            0f, h - scrimHeight, 0f, h.toFloat(),
+            Color.TRANSPARENT, surface,
+            android.graphics.Shader.TileMode.CLAMP
+        )
+    }
+
+    private fun countGraphemes(text: String): Int {
+        val it = java.text.BreakIterator.getCharacterInstance()
+        it.setText(text)
+        var count = 0
+        while (it.next() != java.text.BreakIterator.DONE) {
+            count++
+        }
+        return count.coerceAtLeast(1)
     }
 
     private fun rebuildLayout() {
@@ -310,52 +396,52 @@ class KaraokeLyricsView @JvmOverloads constructor(
         var y = verticalPadding
 
         doc.lines.forEachIndexed { index, line ->
-            val rows = mutableListOf<Row>()
-            var rowBoxes = mutableListOf<Box>()
-            var x = 0f
-            var wordIndex = 0
             val resolvedWords = when {
                 line.hasWordTimings -> line.words
                 approximateWordTimings -> doc.approximateWordsForLine(index)
                 else -> emptyList()
             }
-            val words = if (resolvedWords.isNotEmpty()) {
+            val timed = resolvedWords.isNotEmpty()
+            val words = if (timed) {
                 resolvedWords.map { it.text }
             } else {
                 line.text.split(Regex("\\s+")).filter { it.isNotEmpty() }
             }
             if (words.isEmpty()) return@forEachIndexed
 
-            words.forEach { word ->
-                // Lay out with the active (largest) typeface so a bold active line never clips.
-                var measured = activePaint.measureText(word)
-                if (measured > availableWidth) {
-                    // Very long token: let it occupy its own row; Canvas will clip, not crash.
-                    measured = availableWidth
-                }
-                if (x > 0f && x + measured > availableWidth) {
-                    rows.add(Row(rowBoxes.toList(), rowBoxes.size))
-                    rowBoxes = mutableListOf()
-                    x = 0f
-                }
-                val timingWord = resolvedWords.getOrNull(wordIndex)
-                rowBoxes.add(
-                    Box(
-                        text = word,
-                        wordIndex = if (line.hasWordTimings) wordIndex else -1,
-                        x = x,
-                        width = measured,
-                        startMs = timingWord?.startMs,
-                        endMs = timingWord?.endMs
-                    )
-                )
-                x += measured + wordSpace
-                wordIndex++
-            }
-            if (rowBoxes.isNotEmpty()) rows.add(Row(rowBoxes.toList(), rowBoxes.size))
+            // Two wrap passes: the active line is laid out with the large bold metrics so it
+            // never clips, while inactive lines wrap with their own (smaller) metrics so they
+            // fill the row completely before moving to the next one.
+            val activeRows = buildRows(words, resolvedWords, activePaint, wordSpace, availableWidth)
+            val inactiveRows = buildRows(words, emptyList(), textPaint, inactiveWordSpace, availableWidth)
+            val rowCount = max(activeRows.size, inactiveRows.size)
 
-            val lineHeight = max(rowHeight, rows.size * rowHeight + lineSpacing)
-            layouts.add(LineLayout(index, line, rows, y, lineHeight))
+            val showRom = showRomanization && !line.romanization.isNullOrBlank()
+            val wrappedRomLines = if (showRom) {
+                wrapText(line.romanization!!, translationPaint, availableWidth)
+            } else {
+                emptyList()
+            }
+            val romLineHeight = translationPaint.textSize * 1.35f
+            val romGap = 4f * density * textScale
+            val romExtra = if (wrappedRomLines.isNotEmpty()) {
+                romGap + wrappedRomLines.size * romLineHeight
+            } else {
+                0f
+            }
+            // The rom block is positioned from romTop inside drawLine; the height budget here
+            // must cover it fully or it bleeds into the next line (text overlap bug).
+            val lineHeight = rowCount * rowHeight + lineSpacing + romExtra
+            val romTop = rowCount * rowHeight + romGap
+            layouts.add(
+                LineLayout(
+                    index, line, activeRows, inactiveRows, y, lineHeight,
+                    if (showRom) line.romanization else null,
+                    wrappedRomLines,
+                    romTop,
+                    activeRows.sumOf { it.graphemes }
+                )
+            )
             y += lineHeight
         }
 
@@ -365,12 +451,54 @@ class KaraokeLyricsView @JvmOverloads constructor(
         scrollY = scrollY.coerceIn(0f, maxScroll)
     }
 
+    /** Greedy word-wrap of [words] into rows that fit [availableWidth] using [paint]'s metrics. */
+    private fun buildRows(
+        words: List<String>,
+        timings: List<LyricsWord>,
+        paint: Paint,
+        spaceWidth: Float,
+        availableWidth: Float
+    ): List<Row> {
+        val rows = mutableListOf<Row>()
+        var rowBoxes = mutableListOf<Box>()
+        var x = 0f
+        words.forEachIndexed { wordIndex, word ->
+            var measured = paint.measureText(word)
+            if (measured > availableWidth) {
+                // Very long token: let it occupy its own row; Canvas will clip, not crash.
+                measured = availableWidth
+            }
+            if (x > 0f && x + measured > availableWidth) {
+                rows.add(Row(rowBoxes.toList(), rowBoxes.sumOf { it.graphemes }))
+                rowBoxes = mutableListOf()
+                x = 0f
+            }
+            val timingWord = timings.getOrNull(wordIndex)
+            rowBoxes.add(
+                Box(
+                    text = word,
+                    // Approximate per-word timings participate in the karaoke wipe exactly like
+                    // real word timings; only untimed lines fall back to grapheme counting.
+                    wordIndex = if (timings.isNotEmpty()) wordIndex else -1,
+                    x = x,
+                    width = measured,
+                    startMs = timingWord?.startMs,
+                    endMs = timingWord?.endMs,
+                    graphemes = countGraphemes(word)
+                )
+            )
+            x += measured + spaceWidth
+        }
+        if (rowBoxes.isNotEmpty()) rows.add(Row(rowBoxes.toList(), rowBoxes.sumOf { it.graphemes }))
+        return rows
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val doc = document ?: return
         if (lineLayouts.isEmpty()) return
 
-        val active = if (mode == LyricsDisplayMode.PLAIN || !doc.isSynced) {
+        val active = if (!doc.isSynced) {
             -1
         } else {
             doc.activeLineIndex(effectivePositionMs())
@@ -400,18 +528,31 @@ class KaraokeLyricsView @JvmOverloads constructor(
                     layout.index == active,
                     doc,
                     layout.top,
-                    alpha,
-                    blurred = doc.isSynced && layout.index != active
+                    alpha
                 )
             }
         }
         canvas.restore()
 
         val activeLine = doc.lines.getOrNull(active)
-        val translation = activeLine?.translation ?: activeLine?.romanization
-        if (!translation.isNullOrBlank()) {
+        val translation = activeLine?.translation
+        if (!showRomanization && !translation.isNullOrBlank()) {
             canvas.drawText(translation, horizontalPadding, height - verticalPadding, translationPaint)
         }
+
+        // Draw top & bottom edge dissolve scrims
+        if (width > 0 && height > 0) {
+            topScrimShader?.let { shader ->
+                scrimPaint.shader = shader
+                canvas.drawRect(0f, 0f, width.toFloat(), scrimHeight, scrimPaint)
+            }
+            bottomScrimShader?.let { shader ->
+                scrimPaint.shader = shader
+                canvas.drawRect(0f, height.toFloat() - scrimHeight, width.toFloat(), height.toFloat(), scrimPaint)
+            }
+            scrimPaint.shader = null
+        }
+
         if (isPlaying &&
             (mode == LyricsDisplayMode.WORD_BY_WORD || mode == LyricsDisplayMode.KARAOKE) &&
             doc.isSynced
@@ -426,127 +567,170 @@ class KaraokeLyricsView @JvmOverloads constructor(
         isActive: Boolean,
         doc: LyricsDocument,
         top: Float,
-        alpha: Float = 1f,
-        blurred: Boolean = false
+        alpha: Float = 1f
     ) {
         var y = top + rowHeight * 0.78f
-        layout.rows.forEach { row ->
-            row.boxes.forEach { box ->
-                val paint = when {
-                    isActive -> activePaint
-                    blurred -> inactivePaint
-                    else -> textPaint
-                }
-                val pos = effectivePositionMs()
-                val wordStart = box.startMs
-                val wordEnd = box.endMs
-                val wordProgress = if (
-                    isActive &&
-                    (mode == LyricsDisplayMode.WORD_BY_WORD || mode == LyricsDisplayMode.KARAOKE) &&
-                    box.wordIndex >= 0 &&
-                    wordStart != null &&
-                    wordEnd != null
-                ) {
-                    doc.effectiveWordProgress(wordStart, wordEnd, pos)
-                } else {
-                    null
-                }
+        if (isActive) {
+            layout.rows.forEach { row ->
+                row.boxes.forEach { box ->
+                    val paint = activePaint
+                    val pos = effectivePositionMs()
+                    val wordStart = box.startMs
+                    val wordEnd = box.endMs
+                    val wordProgress = if (
+                        (mode == LyricsDisplayMode.WORD_BY_WORD || mode == LyricsDisplayMode.KARAOKE) &&
+                        box.wordIndex >= 0 &&
+                        wordStart != null &&
+                        wordEnd != null
+                    ) {
+                        doc.effectiveWordProgress(wordStart, wordEnd, pos)
+                    } else {
+                        null
+                    }
 
-                when {
-                    mode == LyricsDisplayMode.PLAIN -> {
-                        paint.color = applyAlpha(baseColor, alpha)
-                        canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
-                    }
-                    isActive && mode == LyricsDisplayMode.KARAOKE && wordProgress != null -> {
-                        val pulse = if (wordProgress > 0f && wordProgress < 1f) {
-                            1f + 0.045f * kotlin.math.sin(wordProgress * Math.PI).toFloat()
-                        } else {
-                            1f
-                        }
-                        val cx = horizontalPadding + box.x + box.width / 2f
-                        val cy = y - rowHeight * 0.28f
-                        canvas.save()
-                        if (pulse != 1f) {
-                            canvas.scale(pulse, pulse, cx, cy)
-                        }
-                        paint.color = applyAlpha(baseColor, alpha * 0.45f)
-                        canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
-                        if (wordProgress > 0f) {
-                            val clipRight = horizontalPadding + box.x + box.width * wordProgress
-                            canvas.save()
-                            canvas.clipRect(
-                                RectF(
-                                    horizontalPadding + box.x,
-                                    y - rowHeight,
-                                    clipRight,
-                                    y + rowHeight * 0.4f
-                                )
-                            )
-                            paint.color = applyAlpha(accentColor, alpha)
-                            canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
-                            canvas.restore()
-                        }
-                        canvas.restore()
-                    }
-                    isActive && mode == LyricsDisplayMode.KARAOKE -> {
-                        // Line-synced karaoke fallback without faking discrete word timestamps:
-                        // wipe smoothly across each box proportionally to its position within the line.
-                        val lineProgress = doc.lineProgress(pos)
-                        val rowTotalWidth = layout.rows.sumOf { r ->
-                            r.boxes.sumOf { it.text.length }
-                        }.coerceAtLeast(1)
-                        val boxesBefore = layout.rows.takeWhile { it !== row }
-                            .sumOf { r -> r.boxes.sumOf { it.text.length } } +
-                            row.boxes.takeWhile { it !== box }.sumOf { it.text.length }
-                        val boxStartFrac = boxesBefore.toFloat() / rowTotalWidth
-                        val boxEndFrac = (boxesBefore + box.text.length).toFloat() / rowTotalWidth
-                        val boxFill = ((lineProgress - boxStartFrac) /
-                            (boxEndFrac - boxStartFrac).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
-
-                        paint.color = applyAlpha(baseColor, alpha * 0.45f)
-                        canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
-                        if (boxFill > 0f) {
-                            val clipRight = horizontalPadding + box.x + box.width * boxFill
-                            canvas.save()
-                            canvas.clipRect(
-                                RectF(
-                                    horizontalPadding + box.x,
-                                    y - rowHeight,
-                                    clipRight,
-                                    y + rowHeight * 0.4f
-                                )
-                            )
-                            paint.color = applyAlpha(accentColor, alpha)
-                            canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
-                            canvas.restore()
-                        }
-                    }
-                    isActive && mode == LyricsDisplayMode.WORD_BY_WORD && wordProgress != null -> {
-                        val isCurrentWord = wordProgress > 0f && wordProgress < 1f
-                        val isPastWord = wordProgress >= 1f
-                        paint.color = when {
-                            isCurrentWord || isPastWord -> applyAlpha(accentColor, alpha)
-                            else -> applyAlpha(baseColor, alpha * 0.45f)
-                        }
-                        if (isCurrentWord) {
+                    when {
+                        mode == LyricsDisplayMode.KARAOKE && wordProgress != null -> {
+                            val isSinging = wordProgress > 0f && wordProgress < 1f
+                            val isFullySung = wordProgress >= 1f
+                            val pulse = if (isSinging) {
+                                1f + 0.042f * kotlin.math.sin(wordProgress * Math.PI).toFloat()
+                            } else {
+                                1f
+                            }
+                            val rise = if (isSinging) {
+                                -2.5f * density * kotlin.math.sin(wordProgress * Math.PI).toFloat()
+                            } else {
+                                0f
+                            }
                             val cx = horizontalPadding + box.x + box.width / 2f
                             val cy = y - rowHeight * 0.28f
+
                             canvas.save()
-                            canvas.scale(1.06f, 1.06f, cx, cy)
+                            if (rise != 0f) {
+                                canvas.translate(0f, rise)
+                            }
+                            if (pulse != 1f) {
+                                canvas.scale(pulse, pulse, cx, cy)
+                            }
+
+                            // Base inactive text
+                            paint.color = applyAlpha(baseColor, alpha * 0.45f)
                             canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
+
+                            if (isFullySung) {
+                                paint.color = applyAlpha(accentColor, alpha)
+                                canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
+                            } else if (isSinging) {
+                                // Apple Music soft feathered gradient wipe across singing syllable
+                                val boxLeft = horizontalPadding + box.x
+                                val wipeX = boxLeft + box.width * wordProgress
+                                val feather = (14f * density).coerceAtMost(box.width * 0.35f).coerceAtLeast(3f)
+                                val gradStart = (wipeX - feather).coerceAtLeast(boxLeft - 1f)
+                                val gradEnd = (wipeX + feather).coerceAtMost(boxLeft + box.width + 1f)
+                                val activeAlphaColor = applyAlpha(accentColor, alpha)
+
+                                val wipeShader = android.graphics.LinearGradient(
+                                    gradStart, 0f, gradEnd, 0f,
+                                    activeAlphaColor, Color.TRANSPARENT,
+                                    android.graphics.Shader.TileMode.CLAMP
+                                )
+                                paint.shader = wipeShader
+                                canvas.drawText(box.text, boxLeft, y, paint)
+                                paint.shader = null
+                            }
                             canvas.restore()
-                        } else {
+                        }
+                        mode == LyricsDisplayMode.KARAOKE -> {
+                            // Line-synced karaoke fallback; grapheme counts are precomputed
+                            // per row at layout time (no per-frame BreakIterator allocations).
+                            val lineProgress = doc.lineProgress(pos)
+                            val rowTotalGraphemes = layout.totalGraphemes.coerceAtLeast(1)
+                            val boxesBefore = layout.rows.takeWhile { it !== row }
+                                .sumOf { it.graphemes } +
+                                row.boxes.takeWhile { it !== box }.sumOf { it.graphemes }
+                            val boxGraphemes = box.graphemes
+                            val boxStartFrac = boxesBefore.toFloat() / rowTotalGraphemes
+                            val boxEndFrac = (boxesBefore + boxGraphemes).toFloat() / rowTotalGraphemes
+                            val boxFill = ((lineProgress - boxStartFrac) /
+                                (boxEndFrac - boxStartFrac).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
+
+                            paint.color = applyAlpha(baseColor, alpha * 0.45f)
+                            canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
+
+                            if (boxFill >= 1f) {
+                                paint.color = applyAlpha(accentColor, alpha)
+                                canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
+                            } else if (boxFill > 0f) {
+                                val boxLeft = horizontalPadding + box.x
+                                val wipeX = boxLeft + box.width * boxFill
+                                val feather = (14f * density).coerceAtMost(box.width * 0.35f).coerceAtLeast(3f)
+                                val gradStart = (wipeX - feather).coerceAtLeast(boxLeft - 1f)
+                                val gradEnd = (wipeX + feather).coerceAtMost(boxLeft + box.width + 1f)
+                                val activeAlphaColor = applyAlpha(accentColor, alpha)
+
+                                val wipeShader = android.graphics.LinearGradient(
+                                    gradStart, 0f, gradEnd, 0f,
+                                    activeAlphaColor, Color.TRANSPARENT,
+                                    android.graphics.Shader.TileMode.CLAMP
+                                )
+                                paint.shader = wipeShader
+                                canvas.drawText(box.text, boxLeft, y, paint)
+                                paint.shader = null
+                            }
+                        }
+                        mode == LyricsDisplayMode.WORD_BY_WORD && wordProgress != null -> {
+                            val isCurrentWord = wordProgress > 0f && wordProgress < 1f
+                            val isPastWord = wordProgress >= 1f
+                            paint.color = when {
+                                isCurrentWord || isPastWord -> applyAlpha(accentColor, alpha)
+                                else -> applyAlpha(baseColor, alpha * 0.45f)
+                            }
+                            if (isCurrentWord) {
+                                val cx = horizontalPadding + box.x + box.width / 2f
+                                val cy = y - rowHeight * 0.28f
+                                val rise = -2f * density * kotlin.math.sin(wordProgress * Math.PI).toFloat()
+                                canvas.save()
+                                canvas.translate(0f, rise)
+                                canvas.scale(1.06f, 1.06f, cx, cy)
+                                canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
+                                canvas.restore()
+                            } else {
+                                canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
+                            }
+                        }
+                        else -> {
+                            val color = accentColor
+                            paint.color = applyAlpha(color, alpha)
                             canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
                         }
                     }
-                    else -> {
-                        val color = if (isActive) accentColor else baseColor
-                        paint.color = applyAlpha(color, alpha)
-                        canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
-                    }
                 }
+                y += rowHeight
             }
-            y += rowHeight
+        } else {
+            // Inactive line: draw its own (smaller-metric) wrap so each row is filled
+            // completely before the text continues on the next row.
+            layout.inactiveRows.forEach { row ->
+                var curX = 0f
+                inactivePaint.color = applyAlpha(baseColor, alpha)
+                row.boxes.forEach { box ->
+                    canvas.drawText(box.text, horizontalPadding + curX, y, inactivePaint)
+                    curX += box.width + inactiveWordSpace
+                }
+                y += rowHeight
+            }
+        }
+
+        if (layout.romLines.isNotEmpty()) {
+            translationPaint.color = applyAlpha(if (isActive) accentColor else baseColor, if (isActive) alpha * 0.85f else alpha * 0.52f)
+            val romLineHeight = translationPaint.textSize * 1.35f
+            // Anchored to the space reserved for it in rebuildLayout (romTop) so the
+            // romanized rows can never overlap the next lyrics line.
+            var romY = top + layout.romTop + translationPaint.textSize
+            layout.romLines.forEach { romLine ->
+                canvas.drawText(romLine, horizontalPadding, romY, translationPaint)
+                romY += romLineHeight
+            }
         }
     }
 
@@ -559,7 +743,34 @@ class KaraokeLyricsView @JvmOverloads constructor(
         )
     }
 
+    /** Word-wrap [text] into lines that fit within [maxWidth] using [paint]'s metrics. */
+    private fun wrapText(text: String, paint: Paint, maxWidth: Float): List<String> {
+        val words = text.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        val spaceW = paint.measureText(" ")
+        val lines = mutableListOf<String>()
+        val current = StringBuilder()
+        var currentWidth = 0f
+        words.forEach { word ->
+            val wordW = paint.measureText(word)
+            if (current.isEmpty()) {
+                current.append(word)
+                currentWidth = wordW
+            } else if (currentWidth + spaceW + wordW <= maxWidth) {
+                current.append(' ').append(word)
+                currentWidth += spaceW + wordW
+            } else {
+                lines.add(current.toString())
+                current.clear().append(word)
+                currentWidth = wordW
+            }
+        }
+        if (current.isNotEmpty()) lines.add(current.toString())
+        return lines
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        onUserInteractionListener?.invoke()
         if (document == null) return super.onTouchEvent(event)
 
         if (mode == LyricsDisplayMode.SIMPLE) {
@@ -574,6 +785,9 @@ class KaraokeLyricsView @JvmOverloads constructor(
                 cancelScrollAnimation()
                 cancelSnap()
                 stopFling()
+                // A touch-hold without movement must still stop playback-driven scrolling
+                // under the finger until the hold ends.
+                markUserScrolling()
                 downX = event.x
                 downY = event.y
                 downTime = SystemClock.uptimeMillis()
@@ -751,11 +965,18 @@ class KaraokeLyricsView @JvmOverloads constructor(
         val index: Int,
         val line: LyricsLine,
         val rows: List<Row>,
+        val inactiveRows: List<Row>,
         val top: Float,
-        val height: Float
+        val height: Float,
+        val romanization: String? = null,
+        val romLines: List<String> = emptyList(),
+        /** Distance from [top] to where the romanization block starts. */
+        val romTop: Float = 0f,
+        /** Total grapheme count of [rows], used by the line-synced karaoke fallback. */
+        val totalGraphemes: Int = 0
     )
 
-    private data class Row(val boxes: List<Box>, val count: Int)
+    private data class Row(val boxes: List<Box>, val graphemes: Int)
 
     private data class Box(
         val text: String,
@@ -763,7 +984,8 @@ class KaraokeLyricsView @JvmOverloads constructor(
         val x: Float,
         val width: Float,
         val startMs: Long?,
-        val endMs: Long?
+        val endMs: Long?,
+        val graphemes: Int
     )
 
     private companion object {

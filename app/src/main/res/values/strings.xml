@@ -701,6 +701,8 @@
     <string name="lyrics_synced">Synced</string>
     <string name="lyrics_plain">Plain text</string>
     <string name="lyrics_focus">Focus</string>
+    <string name="lyrics_romanize_glyph">A→a</string>
+    <string name="lyrics_romanize_toggle_desc">Toggle romanization</string>
     <string name="embed_lyrics_summary">Fetch lyrics from lrclib.net and embed them in audio downloads</string>
     <string name="save_lrc_file_summary">Save synced lyrics as a .lrc file next to audio downloads</string>
     <string name="crop_unsupported">Cropping is not available for this item</string>
@@ -798,7 +800,26 @@
     <string name="lyrics_source_sidecar">Sidecar file</string>
     <string name="lyrics_source_cache">Saved lyrics</string>
     <string name="lyrics_source_lrclib">LRCLIB</string>
+    <string name="lyrics_source_betterlyrics">BetterLyrics</string>
+    <string name="lyrics_source_lyricsplus">LyricsPlus</string>
+    <string name="lyrics_source_youtube_subs">YouTube Subtitles</string>
+    <string name="lyrics_source_online">Online</string>
+    <string name="lyrics_source_from">Lyrics from %1$s</string>
     <string name="lyrics_source_user">Local file</string>
+    <string name="lyrics_provider_betterlyrics">BetterLyrics</string>
+    <string name="lyrics_provider_betterlyrics_summary">Apple Music-style word-synchronized lyrics (TTML)</string>
+    <string name="lyrics_provider_lyricsplus">LyricsPlus</string>
+    <string name="lyrics_provider_lyricsplus_summary">Syllable word-synchronized lyrics from multi-source mirrors</string>
+    <string name="lyrics_provider_lrclib">LRCLIB</string>
+    <string name="lyrics_provider_lrclib_summary">Community line-synchronized lyrics</string>
+    <string name="lyrics_provider_youtube_subs">YouTube Subtitles</string>
+    <string name="lyrics_provider_youtube_subs_summary">Captions and subtitle tracks downloaded with media</string>
+    <string name="lyrics_prefer_word_sync">Prefer word synchronization</string>
+    <string name="lyrics_prefer_word_sync_summary">Prioritize lyrics sources with word and syllable timings</string>
+    <string name="lyrics_search_title_hint">Track title</string>
+    <string name="lyrics_search_artist_hint">Artist (optional)</string>
+    <string name="lyrics_searching_providers">Searching providers…</string>
+    <string name="lyrics_providers">Lyrics providers</string>
     <string name="lyrics_search">Search lyrics</string>
     <string name="lyrics_offset_earlier">Lyrics 0.5s earlier</string>
     <string name="lyrics_offset_later">Lyrics 0.5s later</string>
@@ -816,6 +837,20 @@
     <string name="lyrics_expand">Expand lyrics</string>
     <string name="lyrics_collapse">Collapse lyrics</string>
     <string name="lyrics_sheet_nothing_playing">Nothing is playing</string>
+    <string name="lyrics_romanize">Romanize</string>
+    <string name="lyrics_romanize_off">Original</string>
+    <string name="lyrics_romanize_toggle">Toggle Romanization</string>
+    <string name="lyrics_settings">Lyrics settings</string>
+    <string name="lyrics_scroll_anchor">Scroll position</string>
+    <string name="lyrics_scroll_anchor_center">Balanced (35%)</string>
+    <string name="lyrics_scroll_anchor_top">Top (20% Apple Style)</string>
+    <string name="lyrics_scroll_anchor_middle">Center (50%)</string>
+    <string name="lyrics_text_size">Text size</string>
+    <string name="lyrics_text_size_normal">Normal</string>
+    <string name="lyrics_text_size_large">Large</string>
+    <string name="lyrics_text_size_xlarge">Extra Large</string>
+    <string name="lyrics_move_up">Move up</string>
+    <string name="lyrics_move_down">Move down</string>
 
     <!-- Cookie health -->
     <string name="check_youtube_cookies_on_open">Check YouTube cookies on open</string>

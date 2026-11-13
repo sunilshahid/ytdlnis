@@ -64,7 +64,14 @@ class DownloadWorker(
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
         val notifUtil = NotificationUtil(App.Companion.instance)
-        val workNotif = if (com.deniscerri.ytdl.vault.ingest.VaultPendingDownloadStore.hasAny()) {
+        // Vault jobs must surface the generic VISIBILITY_SECRET notification from the very first
+        // post. Check both the volatile payload store and the Room queue: a vault row can exist
+        // while the in-RAM payload was already consumed (or vice versa, e.g. a fresh process).
+        val vaultOnly = runCatching {
+            com.deniscerri.ytdl.vault.ingest.VaultPendingDownloadStore.hasAny() ||
+                DBManager.getInstance(App.instance).downloadDao.getAllVaultDownloads().isNotEmpty()
+        }.getOrDefault(false)
+        val workNotif = if (vaultOnly) {
             notifUtil.createNeutralWorkerNotification()
         } else {
             notifUtil.createDefaultWorkerNotification()
@@ -614,13 +621,14 @@ class DownloadWorker(
 
                         }.onFailure {
                             FileUtil.deleteConfigFiles(request)
-                            tempFileDir.deleteRecursively()
                             if (isVault) {
+                                // Securely scrubs the plaintext staging dir (overwrite + delete).
                                 com.deniscerri.ytdl.vault.VaultStorage.releaseTempDirForJob(context, vaultUuid)
                                 com.deniscerri.ytdl.vault.ingest.VaultPendingDownloadStore.consume(vaultUuid)
                                 runBlocking { dao.delete(dbItem.id) }
                                 return@onFailure
                             }
+                            tempFileDir.deleteRecursively()
 
                             notificationUtil.clearNotificationThrottleState(downloadItem.id.toInt())
                             withContext(Dispatchers.Main) {

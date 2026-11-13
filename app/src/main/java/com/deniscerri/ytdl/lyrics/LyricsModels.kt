@@ -21,6 +21,7 @@ enum class LyricsSource {
     SIDECAR,
     CACHE,
     LRCLIB,
+    ONLINE,
     USER
 }
 
@@ -39,7 +40,8 @@ data class LyricsLine(
     val words: List<LyricsWord> = emptyList(),
     val translation: String? = null,
     val romanization: String? = null,
-    val agentId: String? = null
+    val agentId: String? = null,
+    val isBackground: Boolean = false
 ) {
     val isSynchronized: Boolean get() = startMs != null
 
@@ -57,6 +59,7 @@ data class LyricsDocument(
     val format: LyricsFormat,
     val raw: String,
     val providerId: String? = null,
+    val providerName: String? = null,
     val offsetMs: Long = 0L
 ) {
     val isSynced: Boolean get() = lines.any { it.isSynchronized }

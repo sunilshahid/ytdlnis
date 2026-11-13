@@ -15,7 +15,11 @@ object LyricsSidecarReader {
 
     private val extensions = listOf("lrc", "ttml", "ass", "vtt", "srt", "yrc", "qrc", "sylt", "txt")
 
-    fun find(context: Context, uriString: String?, title: String? = null): SidecarLyrics? {
+    /** Matches the manual-import cap in LyricsViewModel so a misnamed multi-MB sibling file
+     *  (e.g. a huge .txt) can't be read fully into memory. */
+    private const val MAX_SIDECAR_BYTES = 2 * 1024 * 1024
+
+    fun find(context: Context? = null, uriString: String?, title: String? = null): SidecarLyrics? {
         val file = localFile(context, uriString) ?: return null
         val parent = file.parentFile ?: return null
         val baseName = file.nameWithoutExtension
@@ -26,8 +30,13 @@ object LyricsSidecarReader {
             candidates.add(File(parent, "$baseName.${ext.uppercase()}"))
         }
         if (!title.isNullOrBlank()) {
-            extensions.forEach { ext ->
-                candidates.add(File(parent, "$title.$ext"))
+            // Metadata titles may contain path separators or illegal filename characters;
+            // sanitize so we can never build a path outside the media directory.
+            val safeTitle = title.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
+            if (safeTitle.isNotBlank() && safeTitle != "." && safeTitle != "..") {
+                extensions.forEach { ext ->
+                    candidates.add(File(parent, "$safeTitle.$ext"))
+                }
             }
         }
 
@@ -35,7 +44,7 @@ object LyricsSidecarReader {
         candidates.forEach { candidate ->
             val found = if (candidate.exists()) candidate else sibling[candidate.name.lowercase()]
             if (found != null && found.isFile) {
-                val raw = runCatching { found.readText() }.getOrNull() ?: return@forEach
+                val raw = readBounded(found) ?: return@forEach
                 if (raw.isNotBlank()) {
                     return SidecarLyrics(raw, formatFor(found.extension), found)
                 }
@@ -44,7 +53,12 @@ object LyricsSidecarReader {
         return null
     }
 
-    fun localFile(context: Context, uriString: String?): File? {
+    private fun readBounded(file: File): String? = runCatching {
+        if (file.length() > MAX_SIDECAR_BYTES) return null
+        file.readText()
+    }.getOrNull()
+
+    fun localFile(context: Context? = null, uriString: String?): File? {
         if (uriString.isNullOrBlank()) return null
         return when {
             uriString.startsWith("content://") -> null

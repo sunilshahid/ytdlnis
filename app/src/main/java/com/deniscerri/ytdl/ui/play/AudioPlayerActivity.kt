@@ -5,7 +5,11 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
+import android.view.ViewConfiguration
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.SeekBar
@@ -69,28 +73,106 @@ class AudioPlayerActivity : BaseActivity() {
         observePlayback()
     }
 
-    /** Horizontal swipes on the artwork skip to the previous/next AUDIO item (videos are skipped). */
+    /** Fluid horizontal swipes on the artwork skip to previous/next track with physics and animation. */
     private fun bindArtworkGestures() {
         val artworkCard = findViewById<View>(R.id.audio_artwork_card)
-        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent): Boolean = true
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var startX = 0f
+        var startY = 0f
+        var isDragging = false
+        var velocityTracker: VelocityTracker? = null
 
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                if (abs(vx) > abs(vy) * 1.6f && abs(vx) > 1400f) {
-                    if (vx > 0) {
-                        PlaybackController.skipToPreviousAudio()
-                    } else {
-                        PlaybackController.skipToNextAudio()
-                    }
-                    return true
-                }
-                return false
-            }
-        })
         artworkCard.setOnTouchListener { view, event ->
-            detector.onTouchEvent(event)
-            if (event.action == MotionEvent.ACTION_UP) view.performClick()
-            true
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = event.rawX
+                    startY = event.rawY
+                    isDragging = false
+                    velocityTracker?.recycle()
+                    velocityTracker = VelocityTracker.obtain()
+                    velocityTracker?.addMovement(event)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    velocityTracker?.addMovement(event)
+                    val dx = event.rawX - startX
+                    val dy = event.rawY - startY
+
+                    if (!isDragging && abs(dx) > touchSlop && abs(dx) > abs(dy) * 1.15f) {
+                        isDragging = true
+                        view.parent?.requestDisallowInterceptTouchEvent(true)
+                    }
+
+                    if (isDragging) {
+                        val cardWidth = view.width.toFloat().coerceAtLeast(100f)
+                        // Natural drag damping, subtle rotation tilt and slight alpha fade
+                        view.translationX = dx * 0.8f
+                        view.rotation = (dx / cardWidth) * 7.5f
+                        view.alpha = (1f - (abs(dx) / (cardWidth * 2.2f))).coerceIn(0.55f, 1f)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    velocityTracker?.addMovement(event)
+                    velocityTracker?.computeCurrentVelocity(1000)
+                    val vx = velocityTracker?.xVelocity ?: 0f
+                    val dx = event.rawX - startX
+                    val cardWidth = view.width.toFloat().coerceAtLeast(100f)
+                    val flingThreshold = 450f * resources.displayMetrics.density
+                    val distanceThreshold = cardWidth * 0.28f
+
+                    val isSwipe = isDragging && (abs(vx) > flingThreshold || abs(dx) > distanceThreshold)
+
+                    if (isSwipe) {
+                        val isNext = if (abs(vx) > flingThreshold) vx < 0 else dx < 0
+                        val exitX = if (isNext) -cardWidth * 1.3f else cardWidth * 1.3f
+                        val exitRot = if (isNext) -12f else 12f
+
+                        view.animate()
+                            .translationX(exitX)
+                            .rotation(exitRot)
+                            .alpha(0f)
+                            .setDuration(160)
+                            .setInterpolator(AccelerateInterpolator())
+                            .withEndAction {
+                                if (isNext) {
+                                    PlaybackController.skipToNextAudio()
+                                } else {
+                                    PlaybackController.skipToPreviousAudio()
+                                }
+                                // Setup entrance from opposite side
+                                view.translationX = if (isNext) cardWidth * 1.3f else -cardWidth * 1.3f
+                                view.rotation = if (isNext) 12f else -12f
+                                view.alpha = 0f
+                                view.animate()
+                                    .translationX(0f)
+                                    .rotation(0f)
+                                    .alpha(1f)
+                                    .setDuration(240)
+                                    .setInterpolator(DecelerateInterpolator())
+                                    .start()
+                            }
+                            .start()
+                    } else if (isDragging) {
+                        // Settle smoothly back to center if threshold was not reached
+                        view.animate()
+                            .translationX(0f)
+                            .rotation(0f)
+                            .alpha(1f)
+                            .setDuration(220)
+                            .setInterpolator(DecelerateInterpolator())
+                            .start()
+                    } else if (event.actionMasked == MotionEvent.ACTION_UP) {
+                        view.performClick()
+                    }
+
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+                    isDragging = false
+                    true
+                }
+                else -> false
+            }
         }
     }
 
@@ -173,6 +255,7 @@ class AudioPlayerActivity : BaseActivity() {
                 setPulsing(false)
                 setColor(null)
             }
+            applyAmbientBackground(null)
             return
         }
         findViewById<TextView>(R.id.audio_title).text = item.title
@@ -206,8 +289,12 @@ class AudioPlayerActivity : BaseActivity() {
         findViewById<ImageButton>(R.id.audio_play_pause).contentDescription = getString(
             if (state.playing) R.string.pause else R.string.play
         )
-        // The artwork halo breathes only while audio is actually playing.
-        findViewById<GlowView>(R.id.audio_art_glow).setPulsing(state.playing)
+        // The artwork halo breathes dynamically while audio is actually playing.
+        val glow = findViewById<GlowView>(R.id.audio_art_glow)
+        glow.setPulsing(state.playing)
+        // Beat kicks are timed inside GlowView's animation loop (see setBeatRate) — driving
+        // them from this 500ms state tick skipped beats whose window was narrower than the tick.
+        glow.setBeatRate(if (state.playing) 1.8f else 0f)
 
         val accent = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.WHITE)
         val muted = MaterialColors.getColor(
@@ -250,8 +337,40 @@ class AudioPlayerActivity : BaseActivity() {
             val color = PlaybackColors.artworkGlowColor(this@AudioPlayerActivity, item)
             if (currentItem?.mediaId == item.mediaId) {
                 glow.setColor(color)
+                applyAmbientBackground(color)
             }
         }
+    }
+
+    private var currentBgDrawable: android.graphics.drawable.Drawable? = null
+
+    private fun applyAmbientBackground(dominantColor: Int?) {
+        val root = findViewById<View>(R.id.audio_root) ?: return
+        val surfaceColor = MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorSurface,
+            Color.BLACK
+        )
+        if (dominantColor == null) {
+            root.setBackgroundColor(surfaceColor)
+            currentBgDrawable = null
+            return
+        }
+
+        // Palette-derived 3-stop vertical gradient (darkened, ambient, surface)
+        val topColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, surfaceColor, 0.72f)
+        val midColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, surfaceColor, 0.88f)
+        val newBg = android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(topColor, midColor, surfaceColor)
+        )
+
+        val previous = currentBgDrawable ?: android.graphics.drawable.ColorDrawable(surfaceColor)
+        val transition = android.graphics.drawable.TransitionDrawable(arrayOf(previous, newBg))
+        transition.isCrossFadeEnabled = true
+        root.background = transition
+        transition.startTransition(450)
+        currentBgDrawable = newBg
     }
 
     private fun updateLikeState(item: PlaybackItem) {

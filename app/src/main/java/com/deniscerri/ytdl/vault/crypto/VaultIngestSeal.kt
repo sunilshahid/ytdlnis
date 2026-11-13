@@ -22,10 +22,14 @@ import javax.crypto.spec.PSource
 object VaultIngestSeal {
 
     private const val RSA_TRANSFORMATION = "RSA/ECB/OAEPWithSHA-256AndMGF1Padding"
+    // OAEP digest and MGF1 digest are both SHA-256 so the transformation name and the explicit
+    // spec agree. NOTE: `.wrap.enc` files sealed with the previous spec (MGF1-SHA-1) will no
+    // longer unseal. These files are transient — they are only created while the vault is locked
+    // and are reconciled into per-item keys on unlock — so this is acceptable.
     private val OAEP_SPEC = OAEPParameterSpec(
         "SHA-256",
         "MGF1",
-        MGF1ParameterSpec.SHA1,
+        MGF1ParameterSpec.SHA256,
         PSource.PSpecified.DEFAULT
     )
 

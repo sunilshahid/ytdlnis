@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/audio_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true">
@@ -33,6 +34,8 @@
             android:id="@+id/audio_content"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clipChildren="false"
+            android:clipToPadding="false"
             android:gravity="center_horizontal"
             android:orientation="vertical"
             android:paddingHorizontal="20dp"
@@ -42,12 +45,18 @@
                 android:id="@+id/audio_artwork_card"
                 android:layout_width="268dp"
                 android:layout_height="268dp"
-                android:layout_marginTop="10dp">
+                android:layout_marginTop="44dp"
+                android:clipChildren="false"
+                android:clipToPadding="false">
+                <!-- 44dp top margin: the 340dp glow centered on the 268dp frame extends 36dp
+                     past the frame on every side; anything less would let the scroll view's
+                     top edge clip the top of the bloom flat. -->
 
                 <com.deniscerri.ytdl.ui.play.GlowView
                     android:id="@+id/audio_art_glow"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent" />
+                    android:layout_width="340dp"
+                    android:layout_height="340dp"
+                    android:layout_gravity="center" />
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="248dp"

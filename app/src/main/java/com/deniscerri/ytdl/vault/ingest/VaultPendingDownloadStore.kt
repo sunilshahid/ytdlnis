@@ -1,6 +1,7 @@
 package com.deniscerri.ytdl.vault.ingest
 
 import com.deniscerri.ytdl.database.models.DownloadItem
+import com.deniscerri.ytdl.database.models.Format
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -27,6 +28,9 @@ object VaultPendingDownloadStore {
         val website: String,
         val thumb: String,
         val extraCommands: String,
+        val format: Format,
+        val downloadSize: String,
+        val downloadSections: String,
         val originalDownloadPath: String = ""
     )
 
@@ -45,13 +49,23 @@ object VaultPendingDownloadStore {
             website = original.website,
             thumb = original.thumb,
             extraCommands = original.extraCommands,
+            format = original.format,
+            downloadSize = original.downloadSize,
+            downloadSections = original.downloadSections,
             originalDownloadPath = original.downloadPath
         )
+        // The Room row must carry zero metadata about the content (a raw `format_note` can even
+        // contain the URL for command-type downloads). Everything needed to run the job is kept
+        // in the volatile in-RAM payload above and restored in `hydrateForWorker`.
         val redacted = original.copy(
             url = "vault://pending/$jobUuid",
             title = "",
             author = "",
             thumb = "",
+            duration = "",
+            format = Format(),
+            downloadSize = "",
+            downloadSections = "",
             playlistTitle = "",
             playlistURL = null,
             website = "",
@@ -82,6 +96,9 @@ object VaultPendingDownloadStore {
             website = payload.website,
             thumb = payload.thumb,
             extraCommands = payload.extraCommands,
+            format = payload.format,
+            downloadSize = payload.downloadSize,
+            downloadSections = payload.downloadSections,
             downloadPath = jobTempDir.absolutePath,
             customFileNameTemplate = dbItem.vaultJobUuid,
             SaveThumb = false,

@@ -4,37 +4,35 @@
     android:id="@+id/lyrics_sheet_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_lyrics_sheet"
+    android:background="?attr/colorSurface"
     android:clickable="true"
+    android:fitsSystemWindows="true"
     android:focusable="true"
     android:orientation="vertical">
 
+    <!-- Top Action Bar with Back Button at Top Left -->
     <LinearLayout
-        android:id="@+id/lyrics_sheet_handle_area"
+        android:id="@+id/lyrics_sheet_top_bar"
         android:layout_width="match_parent"
-        android:layout_height="34dp"
-        android:gravity="center"
-        android:orientation="vertical">
-
-        <View
-            android:layout_width="40dp"
-            android:layout_height="4dp"
-            android:alpha="0.35"
-            android:background="@drawable/bg_sheet_handle" />
-
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="?attr/actionBarSize"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="20dp"
-        android:paddingEnd="8dp">
+        android:paddingStart="4dp"
+        android:paddingEnd="12dp">
+
+        <ImageButton
+            android:id="@+id/lyrics_sheet_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/back"
+            android:src="@drawable/ic_back"
+            app:tint="?attr/colorOnSurface" />
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -45,7 +43,7 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="?attr/colorOnSurface"
-                android:textSize="20sp"
+                android:textSize="18sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -59,75 +57,54 @@
 
         </LinearLayout>
 
-        <ImageButton
-            android:id="@+id/lyrics_sheet_expand"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/lyrics_expand"
-            android:src="@drawable/baseline_expand_less_24"
-            app:tint="?attr/colorOnSurfaceVariant" />
-
-        <ImageButton
-            android:id="@+id/lyrics_sheet_close"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/close"
-            android:src="@drawable/baseline_close_24"
-            app:tint="?attr/colorOnSurfaceVariant" />
-
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="20dp"
-        android:paddingTop="4dp"
-        android:paddingEnd="20dp">
-
-        <TextView
-            android:id="@+id/lyrics_sheet_source"
-            android:layout_width="0dp"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/lyrics_sheet_romanize_toggle"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="?attr/colorPrimary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:minWidth="0dp"
+            android:paddingHorizontal="6dp"
+            android:text="@string/lyrics_romanize_glyph"
+            android:contentDescription="@string/lyrics_romanize_toggle_desc"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/lyrics_sheet_more"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/more"
+            android:src="@drawable/baseline_more_vert_24"
+            app:tint="?attr/colorOnSurface" />
 
     </LinearLayout>
 
+    <!-- Collapsible options header (source attribution, badge, mode selector) -->
     <LinearLayout
-        android:id="@+id/lyrics_sheet_mode_row"
+        android:id="@+id/lyrics_sheet_collapsible_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="8dp"
-        android:paddingEnd="12dp"
-        android:visibility="gone">
+        android:orientation="vertical">
 
+        <!-- Source attribution & timing badge row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:paddingHorizontal="16dp"
+            android:paddingBottom="4dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/lyrics_sheet_search_inline"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="0dp"
-                android:text="@string/lyrics_search_online" />
-
-            <Space
+            <TextView
+                android:id="@+id/lyrics_sheet_source"
                 android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/lyrics_sheet_timing_badge"
@@ -137,107 +114,110 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:minWidth="0dp"
-                android:paddingHorizontal="10dp"
+                android:paddingHorizontal="8dp"
                 android:textSize="11sp"
                 android:visibility="gone" />
 
         </LinearLayout>
 
-        <HorizontalScrollView
+        <!-- Display Mode Selector (Focus, Synced, Word, Karaoke) with Equal Spacing -->
+        <LinearLayout
+            android:id="@+id/lyrics_sheet_mode_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:scrollbars="none">
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="8dp"
+            android:visibility="gone">
 
-            <LinearLayout
-                android:layout_width="wrap_content"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/lyrics_sheet_mode_focus"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:layout_weight="1"
+                android:gravity="center"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="0dp"
+                android:text="@string/lyrics_focus" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/lyrics_sheet_mode_focus"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="0dp"
-                    android:paddingHorizontal="10dp"
-                    android:text="@string/lyrics_focus" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/lyrics_sheet_mode_synced"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="0dp"
+                android:text="@string/lyrics_synced" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/lyrics_sheet_mode_synced"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="0dp"
-                    android:paddingHorizontal="10dp"
-                    android:text="@string/lyrics_synced" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/lyrics_sheet_mode_word"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="0dp"
+                android:text="@string/lyrics_word_by_word" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/lyrics_sheet_mode_word"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="0dp"
-                    android:paddingHorizontal="10dp"
-                    android:text="@string/lyrics_word_by_word" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/lyrics_sheet_mode_karaoke"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="0dp"
+                android:text="@string/lyrics_karaoke" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/lyrics_sheet_mode_karaoke"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="0dp"
-                    android:paddingHorizontal="10dp"
-                    android:text="@string/lyrics_karaoke" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/lyrics_sheet_mode_plain"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="0dp"
-                    android:paddingHorizontal="10dp"
-                    android:text="@string/lyrics_plain" />
-
-            </LinearLayout>
-
-        </HorizontalScrollView>
+        </LinearLayout>
 
     </LinearLayout>
 
+    <!-- Main Full-Screen Lyrics Body -->
     <FrameLayout
+        android:id="@+id/lyrics_sheet_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:minHeight="180dp">
+        android:layout_weight="1">
 
         <com.deniscerri.ytdl.ui.play.lyrics.KaraokeLyricsView
             android:id="@+id/lyrics_sheet_view"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:visibility="invisible" />
 
         <LinearLayout
             android:id="@+id/lyrics_sheet_prompt"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:gravity="center_horizontal"
+            android:layout_height="match_parent"
+            android:gravity="center"
             android:orientation="vertical"
-            android:paddingHorizontal="32dp"
-            android:paddingTop="28dp"
-            android:visibility="gone">
+            android:paddingHorizontal="32dp">
 
             <com.google.android.material.progressindicator.CircularProgressIndicator
                 android:id="@+id/lyrics_sheet_progress"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:indeterminate="true"
                 android:visibility="gone" />
 
             <ImageView
                 android:id="@+id/lyrics_sheet_prompt_icon"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:contentDescription="@null"
                 android:src="@drawable/ic_lyrics"
                 app:tint="?attr/colorOnSurfaceVariant" />
@@ -246,9 +226,8 @@
                 android:id="@+id/lyrics_sheet_message"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="16dp"
                 android:gravity="center"
-                android:text="@string/lyrics_no_lyrics_title"
                 android:textColor="?attr/colorOnSurface"
                 android:textSize="17sp"
                 android:textStyle="bold" />
@@ -259,15 +238,15 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:gravity="center"
-                android:text="@string/lyrics_no_lyrics_hint"
                 android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
 
             <LinearLayout
                 android:id="@+id/lyrics_sheet_actions"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
+                android:gravity="center"
                 android:orientation="horizontal">
 
                 <com.google.android.material.button.MaterialButton
@@ -278,135 +257,77 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/lyrics_sheet_import"
-                    style="@style/Widget.Material3.Button.TonalButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
+                    android:layout_marginStart="12dp"
                     android:text="@string/lyrics_import_file" />
 
             </LinearLayout>
 
         </LinearLayout>
 
+        <!-- Floating Offset Adjustment Pill -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/lyrics_sheet_offset_pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="28dp"
+            android:visibility="gone"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="6dp"
+            app:strokeColor="?attr/colorOutline"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lyrics_offset_minus"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/lyrics_offset_earlier_short" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lyrics_offset_reset"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="12dp"
+                    android:text="@string/lyrics_offset" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lyrics_offset_plus"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/lyrics_offset_later_short" />
+
+                <ImageButton
+                    android:id="@+id/lyrics_offset_close"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/close"
+                    android:src="@drawable/baseline_close_24"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
     </FrameLayout>
-
-    <LinearLayout
-        android:id="@+id/lyrics_sheet_transport"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="20dp"
-        android:paddingTop="2dp"
-        android:paddingEnd="20dp"
-        android:paddingBottom="18dp">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/lyrics_sheet_position"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/lyrics_sheet_duration"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="12sp" />
-
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:gravity="center"
-            android:orientation="horizontal">
-
-            <ImageButton
-                android:id="@+id/lyrics_sheet_previous"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/previous"
-                android:src="@drawable/ic_lyrics_rewind"
-                app:tint="?attr/colorOnSurface" />
-
-            <ImageButton
-                android:id="@+id/lyrics_sheet_play_pause"
-                android:layout_width="60dp"
-                android:layout_height="60dp"
-                android:layout_marginHorizontal="18dp"
-                android:background="@drawable/bg_player_play"
-                android:contentDescription="@string/play"
-                android:padding="16dp"
-                android:scaleType="centerInside"
-                android:src="@drawable/ic_lyrics_play"
-                app:tint="?attr/colorOnPrimary" />
-
-            <ImageButton
-                android:id="@+id/lyrics_sheet_next"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/next"
-                android:src="@drawable/ic_lyrics_forward"
-                app:tint="?attr/colorOnSurface" />
-
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/lyrics_sheet_offset"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="12sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/lyrics_sheet_offset_reset"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="0dp"
-                android:paddingHorizontal="8dp"
-                android:text="@string/lyrics_offset_reset"
-                android:visibility="gone" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/lyrics_sheet_earlier"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:contentDescription="@string/lyrics_offset_earlier"
-                android:minWidth="0dp"
-                android:paddingHorizontal="8dp"
-                android:text="@string/lyrics_offset_earlier_short" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/lyrics_sheet_later"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:contentDescription="@string/lyrics_offset_later"
-                android:minWidth="0dp"
-                android:paddingHorizontal="8dp"
-                android:text="@string/lyrics_offset_later_short" />
-
-        </LinearLayout>
-
-    </LinearLayout>
 
 </LinearLayout>

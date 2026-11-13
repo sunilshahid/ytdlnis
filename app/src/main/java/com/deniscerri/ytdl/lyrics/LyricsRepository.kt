@@ -4,11 +4,17 @@ import android.content.Context
 import android.util.Log
 import com.deniscerri.ytdl.database.DBManager
 import com.deniscerri.ytdl.database.models.LyricsCacheItem
+import com.deniscerri.ytdl.lyrics.model.LyricsCandidate
+import com.deniscerri.ytdl.lyrics.model.LyricsQuery
 import com.deniscerri.ytdl.lyrics.parse.LyricsParserRegistry
 import com.deniscerri.ytdl.playback.model.PlaybackItem
 import com.deniscerri.ytdl.util.extractors.LrcLibUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Provider chain for lyrics: embedded tags -> sidecar -> cache -> LRCLIB.
@@ -72,52 +78,64 @@ class LyricsRepository(private val context: Context) {
                     album = album,
                     source = LyricsSource.CACHE,
                     providerId = cached.providerId,
+                    providerName = LyricsProviderRegistry.getProvider(cached.providerId)?.displayName,
                     offsetMs = cached.offsetMs
                 )
                 if (document.lines.isNotEmpty()) return@withContext document
             }
         }
 
-        if (!allowNetwork || artist.isNullOrBlank()) {
+        if (!allowNetwork || (title.isBlank() && artist.isNullOrBlank())) {
             return@withContext loadCacheIgnoreOffset(item, title, artist, album)
         }
 
-        val remote = runCatching {
-            LrcLibUtil.find(
-                track = title,
-                artist = artist,
-                album = album.orEmpty(),
-                durationSec = (durationMs / 1000L).toInt()
-            )
-        }.onFailure {
-            Log.w(TAG, "LRCLIB lookup failed for $title", it)
-        }.getOrNull()
-
-        if (remote != null) {
-            val raw = if (remote.synced.isNotEmpty()) {
-                remote.synced.joinToString("\n") { line ->
-                    val minutes = line.timeMs / 60_000
-                    val seconds = (line.timeMs % 60_000) / 1000
-                    val centis = (line.timeMs % 1000) / 10
-                    String.format(java.util.Locale.US, "[%02d:%02d.%02d]%s", minutes, seconds, centis, line.text)
-                }
-            } else {
-                remote.plain
-            }
-            val format = if (remote.synced.isNotEmpty()) LyricsFormat.LRC else LyricsFormat.PLAIN
-            val document = LyricsParserRegistry.parse(
-                raw = raw,
-                formatHint = format,
+        val enabled = LyricsProviderRegistry.ordered(context).filter { it.isEnabled(context) }
+        if (enabled.isNotEmpty()) {
+            val query = LyricsQuery(
                 mediaId = item.mediaId,
                 title = title,
                 artist = artist,
                 album = album,
-                source = LyricsSource.LRCLIB,
-                providerId = remote.id.toString()
+                durationMs = durationMs,
+                localUri = item.localUri
             )
-            if (document.lines.isNotEmpty()) {
-                cache(item, document, durationMs)
-                return@withContext document
+
+            val remoteLyrics = coroutineScope {
+                val jobs = enabled.associateWith { provider ->
+                    async {
+                        withTimeoutOrNull(8_000L) {
+                            runCatching { provider.fetch(query) }.getOrNull()
+                        }
+                    }
+                }
+
+                withTimeoutOrNull(25_000L) {
+                    for (provider in enabled) {
+                        val result = jobs[provider]?.await()
+                        if (result != null && result.raw.isNotBlank()) {
+                            return@withTimeoutOrNull result
+                        }
+                    }
+                    null
+                }
+            }
+
+            if (remoteLyrics != null) {
+                val document = LyricsParserRegistry.parse(
+                    raw = remoteLyrics.raw,
+                    formatHint = remoteLyrics.format,
+                    mediaId = item.mediaId,
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    source = LyricsSource.ONLINE,
+                    providerId = remoteLyrics.providerId,
+                    providerName = remoteLyrics.providerName
+                )
+                if (document.lines.isNotEmpty()) {
+                    cache(item, document, durationMs)
+                    return@withContext document
+                }
             }
         }
 
@@ -140,9 +158,73 @@ class LyricsRepository(private val context: Context) {
             album = album,
             source = LyricsSource.CACHE,
             providerId = cached.providerId,
+            providerName = LyricsProviderRegistry.getProvider(cached.providerId)?.displayName,
             offsetMs = cached.offsetMs
         )
         return document.takeIf { it.lines.isNotEmpty() }
+    }
+
+    suspend fun searchCandidates(query: LyricsQuery): List<LyricsCandidate> = withContext(Dispatchers.IO) {
+        val enabled = LyricsProviderRegistry.ordered(context).filter { it.isEnabled(context) }
+        if (enabled.isEmpty()) return@withContext emptyList()
+
+        val preferWordSync = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+            .getBoolean("lyrics_prefer_word_sync", true)
+
+        val allCandidates = coroutineScope {
+            val deferred = enabled.map { provider ->
+                async {
+                    withTimeoutOrNull(10_000L) {
+                        runCatching { provider.search(query) }.getOrNull()
+                    } ?: emptyList()
+                }
+            }
+            deferred.awaitAll().flatten()
+        }
+
+        val targetDurationSec = (query.durationMs / 1000L).toInt()
+        val providerRank = enabled.mapIndexed { idx, p -> p.id to idx }.toMap()
+
+        // Dedupe identical raw lyrics across providers too, so the search dialog doesn't show
+        // the same LRCLIB/LyricsPlus result twice.
+        allCandidates.distinctBy { it.raw }
+            .sortedWith(
+                compareBy<LyricsCandidate> {
+                    if (preferWordSync) (if (it.hasWordTimings) 0 else if (it.isSynced) 1 else 2)
+                    else (if (it.isSynced) 0 else 1)
+                }.thenBy {
+                    if (targetDurationSec > 0 && it.durationSec > 0) {
+                        kotlin.math.abs(it.durationSec - targetDurationSec)
+                    } else {
+                        1000
+                    }
+                }.thenBy {
+                    providerRank[it.providerId] ?: 99
+                }
+            )
+    }
+
+    suspend fun applyCandidate(
+        item: PlaybackItem,
+        candidate: LyricsCandidate,
+        durationMs: Long
+    ): LyricsDocument? = withContext(Dispatchers.IO) {
+        val document = LyricsParserRegistry.parse(
+            raw = candidate.raw,
+            formatHint = candidate.format,
+            mediaId = item.mediaId,
+            title = candidate.trackName.ifBlank { item.title },
+            artist = candidate.artistName ?: item.artist,
+            album = candidate.albumName ?: item.album,
+            source = LyricsSource.ONLINE,
+            providerId = candidate.providerId,
+            providerName = candidate.providerName
+        )
+        if (document.lines.isNotEmpty()) {
+            cache(item, document, durationMs)
+            return@withContext document
+        }
+        null
     }
 
     suspend fun saveUserLyrics(item: PlaybackItem, raw: String, durationMs: Long = 0L): LyricsDocument? {
