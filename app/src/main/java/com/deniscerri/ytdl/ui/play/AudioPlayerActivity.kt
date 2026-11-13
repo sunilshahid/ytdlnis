@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.SeekBar
@@ -105,10 +106,13 @@ class AudioPlayerActivity : BaseActivity() {
 
                     if (isDragging) {
                         val cardWidth = view.width.toFloat().coerceAtLeast(100f)
-                        // Natural drag damping, subtle rotation tilt and slight alpha fade
+                        // Natural drag damping, subtle rotation tilt, scale dip and slight alpha fade
                         view.translationX = dx * 0.8f
                         view.rotation = (dx / cardWidth) * 7.5f
                         view.alpha = (1f - (abs(dx) / (cardWidth * 2.2f))).coerceIn(0.55f, 1f)
+                        val scale = (1f - (abs(dx) / (cardWidth * 7f))).coerceIn(0.93f, 1f)
+                        view.scaleX = scale
+                        view.scaleY = scale
                     }
                     true
                 }
@@ -125,12 +129,14 @@ class AudioPlayerActivity : BaseActivity() {
 
                     if (isSwipe) {
                         val isNext = if (abs(vx) > flingThreshold) vx < 0 else dx < 0
-                        val exitX = if (isNext) -cardWidth * 1.3f else cardWidth * 1.3f
+                        val exitX = if (isNext) -cardWidth * 1.35f else cardWidth * 1.35f
                         val exitRot = if (isNext) -12f else 12f
 
                         view.animate()
                             .translationX(exitX)
                             .rotation(exitRot)
+                            .scaleX(0.92f)
+                            .scaleY(0.92f)
                             .alpha(0f)
                             .setDuration(160)
                             .setInterpolator(AccelerateInterpolator())
@@ -140,27 +146,33 @@ class AudioPlayerActivity : BaseActivity() {
                                 } else {
                                     PlaybackController.skipToPreviousAudio()
                                 }
-                                // Setup entrance from opposite side
-                                view.translationX = if (isNext) cardWidth * 1.3f else -cardWidth * 1.3f
-                                view.rotation = if (isNext) 12f else -12f
+                                // Setup entrance from opposite side with springy overshoot settle
+                                view.translationX = if (isNext) cardWidth * 1.15f else -cardWidth * 1.15f
+                                view.rotation = if (isNext) 10f else -10f
+                                view.scaleX = 0.92f
+                                view.scaleY = 0.92f
                                 view.alpha = 0f
                                 view.animate()
                                     .translationX(0f)
                                     .rotation(0f)
+                                    .scaleX(1f)
+                                    .scaleY(1f)
                                     .alpha(1f)
-                                    .setDuration(240)
-                                    .setInterpolator(DecelerateInterpolator())
+                                    .setDuration(320)
+                                    .setInterpolator(OvershootInterpolator(1.25f))
                                     .start()
                             }
                             .start()
                     } else if (isDragging) {
-                        // Settle smoothly back to center if threshold was not reached
+                        // Settle springily back to center if threshold was not reached
                         view.animate()
                             .translationX(0f)
                             .rotation(0f)
+                            .scaleX(1f)
+                            .scaleY(1f)
                             .alpha(1f)
-                            .setDuration(220)
-                            .setInterpolator(DecelerateInterpolator())
+                            .setDuration(280)
+                            .setInterpolator(OvershootInterpolator(1.35f))
                             .start()
                     } else if (event.actionMasked == MotionEvent.ACTION_UP) {
                         view.performClick()

@@ -125,6 +125,7 @@ class KaraokeLyricsView @JvmOverloads constructor(
     }
 
     var onUserInteractionListener: (() -> Unit)? = null
+    var onScrollDirectionListener: ((isScrollingUpToHeader: Boolean) -> Unit)? = null
 
     fun setPlaybackState(playing: Boolean, speed: Float = 1f) {
         val speedChanged = playbackSpeed != speed
@@ -409,11 +410,13 @@ class KaraokeLyricsView @JvmOverloads constructor(
             }
             if (words.isEmpty()) return@forEachIndexed
 
+            val isRtl = isRtlText(line.text)
+
             // Two wrap passes: the active line is laid out with the large bold metrics so it
             // never clips, while inactive lines wrap with their own (smaller) metrics so they
             // fill the row completely before moving to the next one.
-            val activeRows = buildRows(words, resolvedWords, activePaint, wordSpace, availableWidth)
-            val inactiveRows = buildRows(words, emptyList(), textPaint, inactiveWordSpace, availableWidth)
+            val activeRows = buildRows(words, resolvedWords, activePaint, wordSpace, availableWidth, isRtl)
+            val inactiveRows = buildRows(words, emptyList(), textPaint, inactiveWordSpace, availableWidth, isRtl)
             val rowCount = max(activeRows.size, inactiveRows.size)
 
             val showRom = showRomanization && !line.romanization.isNullOrBlank()
@@ -439,7 +442,8 @@ class KaraokeLyricsView @JvmOverloads constructor(
                     if (showRom) line.romanization else null,
                     wrappedRomLines,
                     romTop,
-                    activeRows.sumOf { it.graphemes }
+                    activeRows.sumOf { it.graphemes },
+                    isRtl
                 )
             )
             y += lineHeight
@@ -451,45 +455,82 @@ class KaraokeLyricsView @JvmOverloads constructor(
         scrollY = scrollY.coerceIn(0f, maxScroll)
     }
 
+    private fun isRtlText(text: String): Boolean {
+        for (i in 0 until text.length) {
+            val c = text[i]
+            val dir = Character.getDirectionality(c)
+            if (dir == Character.DIRECTIONALITY_RIGHT_TO_LEFT ||
+                dir == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC ||
+                c in '\u0600'..'\u08FF' || c in '\uFB50'..'\uFDFF' || c in '\uFE70'..'\uFEFF'
+            ) {
+                return true
+            }
+            if (dir == Character.DIRECTIONALITY_LEFT_TO_RIGHT) {
+                return false
+            }
+        }
+        return false
+    }
+
     /** Greedy word-wrap of [words] into rows that fit [availableWidth] using [paint]'s metrics. */
     private fun buildRows(
         words: List<String>,
         timings: List<LyricsWord>,
         paint: Paint,
         spaceWidth: Float,
-        availableWidth: Float
+        availableWidth: Float,
+        isRtl: Boolean = false
     ): List<Row> {
         val rows = mutableListOf<Row>()
         var rowBoxes = mutableListOf<Box>()
-        var x = 0f
+        var currentLineWidth = 0f
+
+        fun flushRow() {
+            if (rowBoxes.isEmpty()) return
+            val positionedBoxes = if (isRtl) {
+                // Right-aligned and right-to-left:
+                // Word 0 is at the far right (right edge at availableWidth).
+                // Subsequent words are placed to its left.
+                var rightX = availableWidth
+                rowBoxes.map { b ->
+                    val boxX = rightX - b.width
+                    rightX = boxX - spaceWidth
+                    b.copy(x = boxX)
+                }
+            } else {
+                rowBoxes.toList()
+            }
+            rows.add(Row(positionedBoxes, positionedBoxes.sumOf { it.graphemes }))
+            rowBoxes = mutableListOf()
+            currentLineWidth = 0f
+        }
+
         words.forEachIndexed { wordIndex, word ->
             var measured = paint.measureText(word)
             if (measured > availableWidth) {
                 // Very long token: let it occupy its own row; Canvas will clip, not crash.
                 measured = availableWidth
             }
-            if (x > 0f && x + measured > availableWidth) {
-                rows.add(Row(rowBoxes.toList(), rowBoxes.sumOf { it.graphemes }))
-                rowBoxes = mutableListOf()
-                x = 0f
+            val neededWidth = if (rowBoxes.isEmpty()) measured else currentLineWidth + spaceWidth + measured
+            if (rowBoxes.isNotEmpty() && neededWidth > availableWidth) {
+                flushRow()
             }
             val timingWord = timings.getOrNull(wordIndex)
+            val boxX = if (isRtl) 0f else (if (rowBoxes.isEmpty()) 0f else currentLineWidth + spaceWidth)
             rowBoxes.add(
                 Box(
                     text = word,
-                    // Approximate per-word timings participate in the karaoke wipe exactly like
-                    // real word timings; only untimed lines fall back to grapheme counting.
                     wordIndex = if (timings.isNotEmpty()) wordIndex else -1,
-                    x = x,
+                    x = boxX,
                     width = measured,
                     startMs = timingWord?.startMs,
                     endMs = timingWord?.endMs,
                     graphemes = countGraphemes(word)
                 )
             )
-            x += measured + spaceWidth
+            currentLineWidth = if (rowBoxes.size == 1) measured else currentLineWidth + spaceWidth + measured
         }
-        if (rowBoxes.isNotEmpty()) rows.add(Row(rowBoxes.toList(), rowBoxes.sumOf { it.graphemes }))
+        flushRow()
         return rows
     }
 
@@ -623,17 +664,28 @@ class KaraokeLyricsView @JvmOverloads constructor(
                             } else if (isSinging) {
                                 // Apple Music soft feathered gradient wipe across singing syllable
                                 val boxLeft = horizontalPadding + box.x
-                                val wipeX = boxLeft + box.width * wordProgress
                                 val feather = (14f * density).coerceAtMost(box.width * 0.35f).coerceAtLeast(3f)
-                                val gradStart = (wipeX - feather).coerceAtLeast(boxLeft - 1f)
-                                val gradEnd = (wipeX + feather).coerceAtMost(boxLeft + box.width + 1f)
                                 val activeAlphaColor = applyAlpha(accentColor, alpha)
 
-                                val wipeShader = android.graphics.LinearGradient(
-                                    gradStart, 0f, gradEnd, 0f,
-                                    activeAlphaColor, Color.TRANSPARENT,
-                                    android.graphics.Shader.TileMode.CLAMP
-                                )
+                                val wipeShader = if (layout.isRtl) {
+                                    val wipeX = boxLeft + box.width * (1f - wordProgress)
+                                    val gradStart = (wipeX - feather).coerceAtLeast(boxLeft - 1f)
+                                    val gradEnd = (wipeX + feather).coerceAtMost(boxLeft + box.width + 1f)
+                                    android.graphics.LinearGradient(
+                                        gradStart, 0f, gradEnd, 0f,
+                                        Color.TRANSPARENT, activeAlphaColor,
+                                        android.graphics.Shader.TileMode.CLAMP
+                                    )
+                                } else {
+                                    val wipeX = boxLeft + box.width * wordProgress
+                                    val gradStart = (wipeX - feather).coerceAtLeast(boxLeft - 1f)
+                                    val gradEnd = (wipeX + feather).coerceAtMost(boxLeft + box.width + 1f)
+                                    android.graphics.LinearGradient(
+                                        gradStart, 0f, gradEnd, 0f,
+                                        activeAlphaColor, Color.TRANSPARENT,
+                                        android.graphics.Shader.TileMode.CLAMP
+                                    )
+                                }
                                 paint.shader = wipeShader
                                 canvas.drawText(box.text, boxLeft, y, paint)
                                 paint.shader = null
@@ -662,17 +714,28 @@ class KaraokeLyricsView @JvmOverloads constructor(
                                 canvas.drawText(box.text, horizontalPadding + box.x, y, paint)
                             } else if (boxFill > 0f) {
                                 val boxLeft = horizontalPadding + box.x
-                                val wipeX = boxLeft + box.width * boxFill
                                 val feather = (14f * density).coerceAtMost(box.width * 0.35f).coerceAtLeast(3f)
-                                val gradStart = (wipeX - feather).coerceAtLeast(boxLeft - 1f)
-                                val gradEnd = (wipeX + feather).coerceAtMost(boxLeft + box.width + 1f)
                                 val activeAlphaColor = applyAlpha(accentColor, alpha)
 
-                                val wipeShader = android.graphics.LinearGradient(
-                                    gradStart, 0f, gradEnd, 0f,
-                                    activeAlphaColor, Color.TRANSPARENT,
-                                    android.graphics.Shader.TileMode.CLAMP
-                                )
+                                val wipeShader = if (layout.isRtl) {
+                                    val wipeX = boxLeft + box.width * (1f - boxFill)
+                                    val gradStart = (wipeX - feather).coerceAtLeast(boxLeft - 1f)
+                                    val gradEnd = (wipeX + feather).coerceAtMost(boxLeft + box.width + 1f)
+                                    android.graphics.LinearGradient(
+                                        gradStart, 0f, gradEnd, 0f,
+                                        Color.TRANSPARENT, activeAlphaColor,
+                                        android.graphics.Shader.TileMode.CLAMP
+                                    )
+                                } else {
+                                    val wipeX = boxLeft + box.width * boxFill
+                                    val gradStart = (wipeX - feather).coerceAtLeast(boxLeft - 1f)
+                                    val gradEnd = (wipeX + feather).coerceAtMost(boxLeft + box.width + 1f)
+                                    android.graphics.LinearGradient(
+                                        gradStart, 0f, gradEnd, 0f,
+                                        activeAlphaColor, Color.TRANSPARENT,
+                                        android.graphics.Shader.TileMode.CLAMP
+                                    )
+                                }
                                 paint.shader = wipeShader
                                 canvas.drawText(box.text, boxLeft, y, paint)
                                 paint.shader = null
@@ -711,11 +774,9 @@ class KaraokeLyricsView @JvmOverloads constructor(
             // Inactive line: draw its own (smaller-metric) wrap so each row is filled
             // completely before the text continues on the next row.
             layout.inactiveRows.forEach { row ->
-                var curX = 0f
                 inactivePaint.color = applyAlpha(baseColor, alpha)
                 row.boxes.forEach { box ->
-                    canvas.drawText(box.text, horizontalPadding + curX, y, inactivePaint)
-                    curX += box.width + inactiveWordSpace
+                    canvas.drawText(box.text, horizontalPadding + box.x, y, inactivePaint)
                 }
                 y += rowHeight
             }
@@ -770,7 +831,6 @@ class KaraokeLyricsView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        onUserInteractionListener?.invoke()
         if (document == null) return super.onTouchEvent(event)
 
         if (mode == LyricsDisplayMode.SIMPLE) {
@@ -810,6 +870,13 @@ class KaraokeLyricsView @JvmOverloads constructor(
                 if (isDragging) {
                     scrollY = (scrollY - dy).coerceIn(0f, maxScroll)
                     markUserScrolling()
+                    if (dy > touchSlop * 0.35f) {
+                        // User dragging down (scrolling up toward header)
+                        onScrollDirectionListener?.invoke(true)
+                    } else if (dy < -touchSlop * 0.35f) {
+                        // User dragging up (scrolling down into lyrics)
+                        onScrollDirectionListener?.invoke(false)
+                    }
                     invalidate()
                 }
                 return true
@@ -973,7 +1040,8 @@ class KaraokeLyricsView @JvmOverloads constructor(
         /** Distance from [top] to where the romanization block starts. */
         val romTop: Float = 0f,
         /** Total grapheme count of [rows], used by the line-synced karaoke fallback. */
-        val totalGraphemes: Int = 0
+        val totalGraphemes: Int = 0,
+        val isRtl: Boolean = false
     )
 
     private data class Row(val boxes: List<Box>, val graphemes: Int)

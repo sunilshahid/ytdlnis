@@ -184,7 +184,13 @@ class LyricsSheetFragment : DialogFragment() {
             showHeaderImmersion()
         }
         lyricsView.onLyricsClickListener = { showHeaderImmersion() }
-        lyricsView.onUserInteractionListener = { showHeaderImmersion() }
+        lyricsView.onScrollDirectionListener = { isScrollingUpToHeader ->
+            if (isScrollingUpToHeader) {
+                showHeaderImmersion()
+            } else {
+                hideHeaderImmersion()
+            }
+        }
         root.setOnClickListener { showHeaderImmersion() }
 
         val playback = PlaybackController.state.value
@@ -397,6 +403,9 @@ class LyricsSheetFragment : DialogFragment() {
                 lyricsView.setMode(initialMode)
                 applyRomanization(document, romanizeEnabled)
                 updateModeUi()
+                if (isPlaying) {
+                    scheduleImmersionHide()
+                }
             }
         }
         updateOffsetUi(document?.offsetMs ?: 0L)
