@@ -13,6 +13,8 @@ import com.deniscerri.ytdl.database.models.HistoryItem
 import com.deniscerri.ytdl.database.repository.HistoryRepository
 import com.deniscerri.ytdl.database.repository.HistoryRepository.HistorySortType
 import com.deniscerri.ytdl.util.FileUtil
+import com.deniscerri.ytdl.util.SortCategory
+import com.deniscerri.ytdl.util.SortOrderLabels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -111,10 +113,15 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun setSorting(sort: HistorySortType){
-        if (sortType.value != sort){
-            sortOrder.value = SORTING.DESC
-        }else{
+    fun setSorting(sort: HistorySortType) {
+        if (sortType.value != sort) {
+            val category = when (sort) {
+                HistorySortType.DATE -> SortCategory.DATE_TIME
+                HistorySortType.TITLE, HistorySortType.AUTHOR -> SortCategory.ALPHABETICAL
+                HistorySortType.FILESIZE -> SortCategory.SIZE
+            }
+            sortOrder.value = if (SortOrderLabels.defaultDescending(category)) SORTING.DESC else SORTING.ASC
+        } else {
             sortOrder.value = if (sortOrder.value == SORTING.DESC) {
                 SORTING.ASC
             } else SORTING.DESC

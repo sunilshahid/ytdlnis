@@ -23,38 +23,38 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads ORDER BY status")
     fun getAllDownloads() : PagingSource<Int, DownloadItem>
 
-    @Query("SELECT * FROM downloads WHERE status='Active'")
+    @Query("SELECT * FROM downloads WHERE status='Active' AND vaultMode = 0")
     fun getActiveDownloads() : Flow<List<DownloadItem>>
 
-    @Query("SELECT * FROM downloads WHERE status='Active' or status = 'Paused' ORDER BY id, CASE WHEN status='Active' THEN 0 ELSE 1 END")
+    @Query("SELECT * FROM downloads WHERE (status='Active' or status = 'Paused') AND vaultMode = 0 ORDER BY id, CASE WHEN status='Active' THEN 0 ELSE 1 END")
     fun getActiveAndPausedDownloads() : Flow<List<DownloadItem>>
 
-    @Query("SELECT * FROM downloads WHERE status='Paused'")
+    @Query("SELECT * FROM downloads WHERE status='Paused' AND vaultMode = 0")
     fun getPausedDownloads() : Flow<List<DownloadItem>>
 
-    @Query("SELECT * FROM downloads WHERE status='Paused'")
+    @Query("SELECT * FROM downloads WHERE status='Paused' AND vaultMode = 0")
     fun getPausedDownloadsList() : List<DownloadItem>
 
     @Query("SELECT id FROM downloads WHERE status='Queued'")
     fun getQueuedDownloadIDs() : List<Long>
 
     @RewriteQueriesToDropUnusedColumns
-    @Query("SELECT * FROM downloads WHERE status = 'Processing' ORDER BY queueOrder, id")
+    @Query("SELECT * FROM downloads WHERE status = 'Processing' AND vaultMode = 0 ORDER BY queueOrder, id")
     fun getProcessingDownloads() : PagingSource<Int, DownloadItemConfigureMultiple>
 
-    @Query("SELECT id FROM downloads WHERE status = 'Processing'")
+    @Query("SELECT id FROM downloads WHERE status = 'Processing' AND vaultMode = 0")
     fun getProcessingDownloadsIds() : Flow<List<Long>>
 
-    @Query("SELECT id, type, format, allFormats, videoPreferences FROM downloads WHERE status = 'Processing'")
+    @Query("SELECT id, type, format, allFormats, videoPreferences FROM downloads WHERE status = 'Processing' AND vaultMode = 0")
     fun getProcessingSizeMetadata(): Flow<List<DownloadSizeMetadata>>
 
-    @Query("SELECT COUNT(*) FROM downloads WHERE status in (:statuses)")
+    @Query("SELECT COUNT(*) FROM downloads WHERE status in (:statuses) AND vaultMode = 0")
     fun getDownloadsCountFlow(statuses: List<String>) : Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM downloads WHERE status in (:status)")
+    @Query("SELECT COUNT(*) FROM downloads WHERE status in (:status) AND vaultMode = 0")
     fun getDownloadsCountByStatusFlow(status : List<String>) : Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM downloads WHERE status in (:statuses)")
+    @Query("SELECT COUNT(*) FROM downloads WHERE status in (:statuses) AND vaultMode = 0")
     fun getDownloadsCountByStatus(statuses : List<String>) : Int
 
 
@@ -117,11 +117,11 @@ interface DownloadDao {
     @Query("SELECT id FROM downloads WHERE status in('Active','Queued', 'QueuedPaused', 'Paused')")
     fun getActiveAndQueuedDownloadIDs() : List<Long>
 
-    @Query("SELECT * FROM downloads WHERE status in('Active','Queued', 'QueuedPaused')")
+    @Query("SELECT * FROM downloads WHERE status in('Active','Queued', 'QueuedPaused') AND vaultMode = 0")
     fun getActiveAndQueuedDownloads() : Flow<List<DownloadItem>>
 
     @RewriteQueriesToDropUnusedColumns
-    @Query("SELECT * FROM downloads WHERE status in ('Queued', 'QueuedPaused') ORDER BY queueOrder, id")
+    @Query("SELECT * FROM downloads WHERE status in ('Queued', 'QueuedPaused') AND vaultMode = 0 ORDER BY queueOrder, id")
     fun getQueuedDownloads() : PagingSource<Int, DownloadItemSimple>
 
     @Query("SELECT format FROM downloads WHERE status in ('Queued', 'QueuedPaused')")
@@ -239,6 +239,18 @@ interface DownloadDao {
 
     @Query("DELETE FROM downloads WHERE status='Scheduled'")
     suspend fun deleteScheduled()
+
+    @Query("SELECT * FROM downloads WHERE incognito = 1")
+    suspend fun getAllIncognitoDownloads(): List<DownloadItem>
+
+    @Query("DELETE FROM downloads WHERE incognito = 1")
+    suspend fun deleteAllIncognito()
+
+    @Query("SELECT * FROM downloads WHERE vaultMode = 1")
+    suspend fun getAllVaultDownloads(): List<DownloadItem>
+
+    @Query("DELETE FROM downloads WHERE vaultMode = 1")
+    suspend fun deleteAllVaultDownloads()
 
     @Query("DELETE FROM downloads WHERE id in (:list)")
     suspend fun deleteAllWithIDs(list: List<Long>)

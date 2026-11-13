@@ -35,6 +35,12 @@
         android:title="@string/copy_urls" />
 
     <item
+        android:id="@+id/move_to_vault"
+        android:icon="@drawable/ic_lock"
+        app:showAsAction="never"
+        android:title="@string/move_to_vault" />
+
+    <item
         android:id="@+id/select_all"
         android:title="@string/select_all"
         app:showAsAction="never" />

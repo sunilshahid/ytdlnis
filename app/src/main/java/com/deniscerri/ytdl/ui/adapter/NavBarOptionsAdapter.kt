@@ -58,6 +58,15 @@ class NavBarOptionsAdapter(
                 notifyDataSetChanged()
             }
             checkbox.setOnClickListener {
+                if (checkbox.isChecked && items.count { it.isVisible } >= 5) {
+                    checkbox.isChecked = false
+                    android.widget.Toast.makeText(
+                        root.context,
+                        R.string.max_nav_items_reached,
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    return@setOnClickListener
+                }
                 item.isVisible = checkbox.isChecked
                 if (!checkbox.isChecked){
                     onItemClickListener.onNavBarOptionDeselected(this)

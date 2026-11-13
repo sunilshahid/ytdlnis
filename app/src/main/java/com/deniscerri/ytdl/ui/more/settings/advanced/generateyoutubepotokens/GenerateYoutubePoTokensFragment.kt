@@ -80,8 +80,92 @@ class GenerateYoutubePoTokensFragment : Fragment() {
         }.getOrDefault(mutableListOf())
 
         RuntimeManager.getInstance().assertInit()
+        initCoordinatedPolicy(view)
         initBGUtils()
         initWeb()
+    }
+
+    private fun initCoordinatedPolicy(view: View) {
+        val statusText = view.findViewById<TextView>(R.id.po_token_status_text) ?: return
+        val warningText = view.findViewById<TextView>(R.id.po_token_warning_text) ?: return
+        val radioGroup = view.findViewById<android.widget.RadioGroup>(R.id.po_token_policy_radiogroup) ?: return
+        val regenerateBtn = view.findViewById<MaterialButton>(R.id.regenerate_coordinated_potoken_btn) ?: return
+
+        val policyRadioIds = mapOf(
+            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.AUTO to R.id.policy_auto_radio,
+            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.SESSION_ONLY to R.id.policy_session_radio,
+            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.ANONYMOUS_ONLY to R.id.policy_anonymous_radio,
+            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.MANUAL_ONLY to R.id.policy_manual_radio
+        )
+
+        fun renderStatus() {
+            val ctx = context ?: return
+            val snapshot = com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenCoordinator.getStatusSnapshot(ctx)
+            val checkedId = policyRadioIds[snapshot.policy] ?: R.id.policy_auto_radio
+            if (radioGroup.checkedRadioButtonId != checkedId) {
+                radioGroup.check(checkedId)
+            }
+            val sourceLabel = when (snapshot.activeSource) {
+                com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenSource.SESSION_WEBVIEW -> getString(R.string.po_token_source_session)
+                com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenSource.ANONYMOUS_WEBVIEW -> getString(R.string.po_token_source_anonymous)
+                else -> getString(R.string.po_token_source_manual)
+            }
+            val sessionLabel = if (snapshot.signedIn) {
+                getString(R.string.po_token_session_signed_in)
+            } else {
+                getString(R.string.po_token_session_signed_out)
+            }
+            val visitorMasked = snapshot.maskedVisitorData
+                ?: com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenFormatting.maskTokenTail(
+                    com.deniscerri.ytdl.auth.YouTubeSessionEngine.getCachedSessionVisitorData(ctx)
+                )
+            val baseStatus = getString(R.string.po_token_status_format, sourceLabel, visitorMasked, sessionLabel)
+            val expirySuffix = snapshot.expiresAtMs?.let { expiresAt ->
+                val remainingMin = ((expiresAt - System.currentTimeMillis()) / 60_000L).coerceAtLeast(0L)
+                "\n" + getString(R.string.po_token_expires_at, remainingMin)
+            } ?: ""
+            statusText.text = baseStatus + expirySuffix
+
+            val showSignedOutWarning = snapshot.policy == com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.SESSION_ONLY && !snapshot.signedIn
+            if (showSignedOutWarning) {
+                warningText.text = getString(R.string.po_token_signed_out_warning)
+                warningText.visibility = View.VISIBLE
+            } else if (!snapshot.message.isNullOrBlank()) {
+                warningText.text = snapshot.message
+                warningText.visibility = View.VISIBLE
+            } else {
+                warningText.visibility = View.GONE
+            }
+        }
+
+        renderStatus()
+
+        radioGroup.setOnCheckedChangeListener { _, checkedId ->
+            val ctx = context ?: return@setOnCheckedChangeListener
+            val chosen = policyRadioIds.entries.firstOrNull { it.value == checkedId }?.key
+                ?: com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.AUTO
+            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenCoordinator.setPolicy(ctx, chosen)
+            renderStatus()
+        }
+
+        regenerateBtn.setOnClickListener {
+            val ctx = context ?: return@setOnClickListener
+            regenerateBtn.isEnabled = false
+            statusText.text = getString(R.string.po_token_regenerating)
+            lifecycleScope.launch {
+                val bundle = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenCoordinator.regenerateNow(ctx)
+                }
+                if (!isAdded) return@launch
+                regenerateBtn.isEnabled = true
+                renderStatus()
+                android.widget.Toast.makeText(
+                    ctx,
+                    if (bundle != null) R.string.po_token_regenerate_success else R.string.po_token_regenerate_failed,
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
     }
 
     private fun initBGUtils() {

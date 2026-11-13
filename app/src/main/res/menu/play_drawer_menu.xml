@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <group android:checkableBehavior="single">
+
+        <item
+            android:id="@+id/nav_home"
+            android:checked="true"
+            android:icon="@drawable/ic_home"
+            android:title="@string/home" />
+
+        <item
+            android:id="@+id/nav_liked"
+            android:icon="@drawable/ic_favorite"
+            android:title="@string/liked" />
+
+        <item
+            android:id="@+id/nav_recent"
+            android:icon="@drawable/ic_history"
+            android:title="@string/recently_played" />
+
+        <item
+            android:id="@+id/nav_device"
+            android:icon="@drawable/baseline_folder_24"
+            android:title="@string/device_files_title" />
+
+    </group>
+
+</menu>

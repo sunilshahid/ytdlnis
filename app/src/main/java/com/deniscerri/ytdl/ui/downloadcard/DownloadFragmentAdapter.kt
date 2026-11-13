@@ -13,7 +13,8 @@ class DownloadFragmentAdapter (
     private var result: ResultItem?,
     private var downloadItem: DownloadItem?,
     nonSpecific: Boolean = false,
-    var isIncognito: Boolean = false
+    var isIncognito: Boolean = false,
+    var isVaultMode: Boolean = false
 ) : FragmentStateAdapter(fragmentManager, lifecycle) {
 
     fun setResultItem(res: ResultItem){
@@ -91,7 +92,8 @@ class DownloadFragmentAdapter (
             1 -> (fragments[1] as DownloadVideoFragment).downloadItem
             else -> (fragments[2] as DownloadCommandFragment).downloadItem
         }.apply {
-            incognito = isIncognito
+            incognito = isIncognito || isVaultMode
+            vaultMode = isVaultMode
         }
     }
 

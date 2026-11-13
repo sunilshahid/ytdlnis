@@ -438,10 +438,11 @@ object RuntimeManager {
         processId: String? = null,
         redirectErrorStream: Boolean = false,
         usingCacheDir: Boolean = false,
+        envOverrides: Map<String, String> = emptyMap(),
         callback: ((Float, Long, String) -> Unit)? = null
     ) : ExecuteResponse {
         val fullCommand = buildYTDLCommand(request, usingCacheDir)
-        return executeImpl(fullCommand, processId, redirectErrorStream, callback = callback)
+        return executeImpl(fullCommand, processId, redirectErrorStream, envOverrides = envOverrides, callback = callback)
     }
 
     fun executePython(
@@ -501,6 +502,7 @@ object RuntimeManager {
         processId: String? = null,
         redirectErrorStream: Boolean = false,
         executeDirectory: File? = null,
+        envOverrides: Map<String, String> = emptyMap(),
         callback: ((Float, Long, String) -> Unit)? = null
     ) : ExecuteResponse {
 
@@ -512,6 +514,9 @@ object RuntimeManager {
         val processBuilder = ProcessBuilder(fullCommand).redirectErrorStream(redirectErrorStream)
 
         processBuilder.environment().putAll(getEnvironment())
+        if (envOverrides.isNotEmpty()) {
+            processBuilder.environment().putAll(envOverrides)
+        }
 
         val outBuffer = StringBuffer()
         val errBuffer = StringBuffer()

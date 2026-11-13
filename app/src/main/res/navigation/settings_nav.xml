@@ -7,6 +7,10 @@
         android:name="com.deniscerri.ytdl.ui.more.settings.general.GeneralSettingsFragment"
         android:label="AppearanceSettingsFragment" />
     <fragment
+        android:id="@+id/playerSettingsFragment"
+        android:name="com.deniscerri.ytdl.ui.more.settings.player.PlayerSettingsFragment"
+        android:label="PlayerSettingsFragment" />
+    <fragment
         android:id="@+id/processingSettingsFragment"
         android:name="com.deniscerri.ytdl.ui.more.settings.processing.ProcessingSettingsFragment"
         android:label="ProcessingSettingsFragment" />
@@ -58,6 +62,9 @@
         <action
             android:id="@+id/action_mainSettingsFragment_to_appearanceSettingsFragment"
             app:destination="@id/appearanceSettingsFragment" />
+        <action
+            android:id="@+id/action_mainSettingsFragment_to_playerSettingsFragment"
+            app:destination="@id/playerSettingsFragment" />
         <action
             android:id="@+id/action_mainSettingsFragment_to_folderSettingsFragment"
             app:destination="@id/folderSettingsFragment" />

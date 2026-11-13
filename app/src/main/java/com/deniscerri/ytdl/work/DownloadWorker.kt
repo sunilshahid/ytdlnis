@@ -22,6 +22,7 @@ import com.deniscerri.ytdl.App
 import com.deniscerri.ytdl.MainActivity
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.core.RuntimeManager
+import com.deniscerri.ytdl.core.SessionOrchestrator
 import com.deniscerri.ytdl.database.DBManager
 import com.deniscerri.ytdl.database.enums.DownloadType
 import com.deniscerri.ytdl.database.models.HistoryItem
@@ -62,7 +63,12 @@ class DownloadWorker(
 ) : YTDLPCoroutineWorker(context, workerParams) {
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
-        val workNotif = NotificationUtil(App.Companion.instance).createDefaultWorkerNotification()
+        val notifUtil = NotificationUtil(App.Companion.instance)
+        val workNotif = if (com.deniscerri.ytdl.vault.ingest.VaultPendingDownloadStore.hasAny()) {
+            notifUtil.createNeutralWorkerNotification()
+        } else {
+            notifUtil.createDefaultWorkerNotification()
+        }
 
         return ForegroundInfo(
             1000000000,
@@ -151,10 +157,14 @@ class DownloadWorker(
             }
 
             if (useScheduler){
-                if (items.none{it.downloadStartTime > 0L} && running.isEmpty() && !alarmScheduler.isDuringTheScheduledTime()) {
+                if (items.none { it.vaultMode } && items.none{it.downloadStartTime > 0L} && running.isEmpty() && !alarmScheduler.isDuringTheScheduledTime()) {
                     WorkManager.Companion.getInstance(context).cancelWorkById(this@DownloadWorker.id)
                     return@collectLatest
                 }
+            }
+
+            if (items.any { it.vaultMode }) {
+                notificationUtil.notify(1000000000, notificationUtil.createNeutralWorkerNotification())
             }
 
             if (priorityItemIDs.isEmpty() && !continueAfterPriorityIds) {
@@ -174,32 +184,56 @@ class DownloadWorker(
                 items.take(concurrentDownloads).filter {  it.id !in running }
             }
 
-            eligibleDownloads.forEach{downloadItem ->
-                priorityItemIDs.remove(downloadItem.id)
+            eligibleDownloads.forEach{ dbItem ->
+                priorityItemIDs.remove(dbItem.id)
+                val isVault = dbItem.vaultMode
+                val vaultUuid = dbItem.vaultJobUuid
 
-                val notification = notificationUtil.createDownloadServiceNotification(openDownloadQueue, downloadItem.title.ifEmpty { downloadItem.url })
-                notificationUtil.notify(downloadItem.id.toInt(), notification)
+                if (!isVault) {
+                    val notification = notificationUtil.createDownloadServiceNotification(openDownloadQueue, dbItem.title.ifEmpty { dbItem.url })
+                    notificationUtil.notify(dbItem.id.toInt(), notification)
+                }
 
                 workerScope.launch {
-                    val processDownloadBlock : suspend () -> Unit = {
+                    val processDownloadBlock : suspend () -> Unit = block@{
+                        val tempFileDir = if (isVault) {
+                            com.deniscerri.ytdl.vault.VaultStorage.tempDirForJob(context, vaultUuid)
+                        } else {
+                            File(FileUtil.getCacheDownloadsPath(context), dbItem.id.toString()).apply {
+                                delete()
+                                mkdirs()
+                            }
+                        }
 
-                        downloadItem.status = DownloadRepository.Status.Active.toString()
-                        dao.update(downloadItem)
+                        val downloadItem = if (isVault) {
+                            com.deniscerri.ytdl.vault.ingest.VaultPendingDownloadStore.hydrateForWorker(dbItem, tempFileDir)
+                                ?: run {
+                                    com.deniscerri.ytdl.vault.VaultStorage.releaseTempDirForJob(context, vaultUuid)
+                                    dao.delete(dbItem.id)
+                                    return@block
+                                }
+                        } else {
+                            dbItem
+                        }
+
+                        dbItem.status = DownloadRepository.Status.Active.toString()
+                        dao.update(dbItem)
 
                         if (hasDownloadDelay) {
                             val delaySec = if (minDelay >= maxDelay) minDelay else Random.Default.nextFloat() * (maxDelay - minDelay) + minDelay
                             if (delaySec > 0) {
-
-                                workerScope.launch {
-                                    delay(1000L)
-                                    WorkerEventBus.post(
-                                        WorkerProgress(
-                                            0,
-                                            context.getString(R.string.waiting_download_delay, "%.2f".format(delaySec)),
-                                            downloadItem.id,
-                                            downloadItem.logID
+                                if (!isVault) {
+                                    workerScope.launch {
+                                        delay(1000L)
+                                        WorkerEventBus.post(
+                                            WorkerProgress(
+                                                0,
+                                                context.getString(R.string.waiting_download_delay, "%.2f".format(delaySec)),
+                                                downloadItem.id,
+                                                downloadItem.logID
+                                            )
                                         )
-                                    )
+                                    }
                                 }
 
                                 delay((delaySec * 1000).toLong())
@@ -214,26 +248,23 @@ class DownloadWorker(
     //                        request.addOption("-U")
     //                    }
 
-                        downloadItem.status = DownloadRepository.Status.Active.toString()
-                        CoroutineScope(Dispatchers.IO).launch {
-                            delay(1500)
-                            //update item if its incomplete
-                            resultRepo.updateDownloadItem(downloadItem)?.apply {
-                                val status = dao.checkStatus(this.id)
-                                if (status == DownloadRepository.Status.Active) {
-                                    dao.updateWithoutUpsert(this)
+                        if (!isVault) {
+                            downloadItem.status = DownloadRepository.Status.Active.toString()
+                            CoroutineScope(Dispatchers.IO).launch {
+                                delay(1500)
+                                //update item if its incomplete
+                                resultRepo.updateDownloadItem(downloadItem)?.apply {
+                                    val status = dao.checkStatus(this.id)
+                                    if (status == DownloadRepository.Status.Active) {
+                                        dao.updateWithoutUpsert(this)
+                                    }
                                 }
                             }
                         }
 
-                        val cacheDir = FileUtil.getCacheDownloadsPath(context)
-                        val tempFileDir = File(cacheDir, downloadItem.id.toString())
-                        tempFileDir.delete()
-                        tempFileDir.mkdirs()
-
                         val downloadLocation = downloadItem.downloadPath
-                        val keepCache = sharedPreferences.getBoolean("keep_cache", false)
-                        val logDownloads = sharedPreferences.getBoolean(
+                        val keepCache = !isVault && sharedPreferences.getBoolean("keep_cache", false)
+                        val logDownloads = !isVault && sharedPreferences.getBoolean(
                             "log_downloads",
                             false
                         ) && !downloadItem.incognito
@@ -241,11 +272,12 @@ class DownloadWorker(
                         val targetDir = File(FileUtil.formatPath(downloadItem.downloadPath))
                         val cacheDownloads = sharedPreferences.getBoolean("cache_downloads", true)
                         val writtenPath = downloadItem.type == DownloadType.command && downloadItem.format.format_note.contains("-P ")
-                        val writeDirectly = writtenPath || (!cacheDownloads && targetDir.canWrite())
+                        val writeDirectly = !isVault && (writtenPath || (!cacheDownloads && targetDir.canWrite()))
 
 
-                        val commandString = ytdlpUtil.parseYTDLRequestString(request)
-                        val initialLogDetails = "Downloading:\n" +
+                        val commandString = if (isVault) "" else com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenFormatting
+                            .redactSensitiveArgs(ytdlpUtil.parseYTDLRequestString(request))
+                        val initialLogDetails = if (isVault) "" else "Downloading:\n" +
                                 "Title: ${downloadItem.title}\n" +
                                 "URL: ${downloadItem.url}\n" +
                                 "Type: ${downloadItem.type}\n" +
@@ -253,7 +285,7 @@ class DownloadWorker(
                         val logString = StringBuilder(initialLogDetails)
                         val logItem = LogItem(
                             0,
-                            downloadItem.title.ifBlank { downloadItem.playlistTitle.ifEmpty { downloadItem.url } },
+                            if (isVault) "" else downloadItem.title.ifBlank { downloadItem.playlistTitle.ifEmpty { downloadItem.url } },
                             logString.toString(),
                             downloadItem.format,
                             downloadItem.type,
@@ -261,42 +293,137 @@ class DownloadWorker(
                         )
 
 
-                        runBlocking {
-                            if (logDownloads) logItem.id = logRepo.insert(logItem)
-                            downloadItem.logID = logItem.id
-                            dao.update(downloadItem)
+                        if (!isVault) {
+                            runBlocking {
+                                if (logDownloads) logItem.id = logRepo.insert(logItem)
+                                downloadItem.logID = logItem.id
+                                dao.update(downloadItem)
+                            }
                         }
 
                         runCatching {
-                            RuntimeManager.getInstance().destroyProcessById(downloadItem.id.toString())
-                            RuntimeManager.getInstance().execute(
-                                request = request,
-                                processId = downloadItem.id.toString(),
-                                redirectErrorStream = true,
-                                usingCacheDir = true
-                            ) { progress, _, line ->
-                                WorkerEventBus.post(
-                                    WorkerProgress(
-                                        progress.toInt(),
-                                        line,
-                                        downloadItem.id,
-                                        downloadItem.logID
-                                    )
-                                )
-                                val title: String = downloadItem.title.ifEmpty { downloadItem.url }
-                                notificationUtil.updateDownloadNotification(
-                                    downloadItem.id.toInt(),
-                                    line, progress.toInt(), 0, title,
-                                    NotificationUtil.Companion.DOWNLOAD_SERVICE_CHANNEL_ID
-                                )
-                                CoroutineScope(Dispatchers.IO).launch {
-                                    if (logDownloads) {
-                                        logRepo.update(line, logItem.id)
+                            val isYoutube = downloadItem.url.contains("youtube.com") || downloadItem.url.contains("youtu.be")
+                            val useCookies = sharedPreferences.getBoolean("use_cookies", false)
+                            SessionOrchestrator.withAutoRetry(
+                                context = context,
+                                jobId = downloadItem.id.toString(),
+                                isYoutube = isYoutube,
+                                useCookies = useCookies
+                            ) {
+                                if (isYoutube) {
+                                    com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenCoordinator
+                                        .getOrMintForYtDlp(context, downloadItem.url)
+                                }
+                                val activeRequest = ytdlpUtil.buildYTDLRequest(downloadItem)
+
+                                // The command logged above is built before the per-job cookie
+                                // snapshot exists, so it shows the shared cookies.txt path. Log
+                                // the command that is actually executed to avoid confusion when
+                                // debugging auth problems.
+                                if (logDownloads) {
+                                    val actualCommand = "Actual command:\n" +
+                                        com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenFormatting
+                                            .redactSensitiveArgs(ytdlpUtil.parseYTDLRequestString(activeRequest)) + "\n\n"
+                                    logString.append(actualCommand)
+                                    logRepo.update(actualCommand, logItem.id)
+                                }
+
+                                RuntimeManager.getInstance().destroyProcessById(downloadItem.id.toString())
+                                RuntimeManager.getInstance().execute(
+                                    request = activeRequest,
+                                    processId = downloadItem.id.toString(),
+                                    redirectErrorStream = true,
+                                    usingCacheDir = !isVault,
+                                    envOverrides = if (isVault) mapOf("TMPDIR" to tempFileDir.absolutePath) else emptyMap()
+                                ) { progress, _, line ->
+                                    if (!isVault) {
+                                        WorkerEventBus.post(
+                                            WorkerProgress(
+                                                progress.toInt(),
+                                                line,
+                                                downloadItem.id,
+                                                downloadItem.logID
+                                            )
+                                        )
+                                        val title: String = downloadItem.title.ifEmpty { downloadItem.url }
+                                        notificationUtil.updateDownloadNotification(
+                                            downloadItem.id.toInt(),
+                                            line, progress.toInt(), 0, title,
+                                            NotificationUtil.Companion.DOWNLOAD_SERVICE_CHANNEL_ID
+                                        )
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            if (logDownloads) {
+                                                logRepo.update(line, logItem.id)
+                                            }
+                                            logString.append("$line\n")
+                                        }
                                     }
-                                    logString.append("$line\n")
                                 }
                             }
                         }.onSuccess {
+                            if (isVault) {
+                                try {
+                                    FileUtil.deleteConfigFiles(request)
+                                    val mediaFile = tempFileDir.listFiles()
+                                        ?.filter { f ->
+                                            f.isFile && f.length() > 0L &&
+                                                f.name != ".nomedia" &&
+                                                !f.name.endsWith(".part", true) &&
+                                                !f.name.endsWith(".ytdl", true) &&
+                                                !f.name.endsWith(".tmp", true) &&
+                                                !f.name.endsWith(".txt", true) &&
+                                                !f.name.endsWith(".jpg", true) &&
+                                                !f.name.endsWith(".jpeg", true) &&
+                                                !f.name.endsWith(".png", true) &&
+                                                !f.name.endsWith(".webp", true)
+                                        }
+                                        ?.maxByOrNull { f -> f.length() }
+                                    if (mediaFile != null) {
+                                        val durationMs = runCatching {
+                                            val d = mediaFile.getMediaDuration(context)
+                                            if (d > 0) d * 1000L else 0L
+                                        }.getOrDefault(0L)
+                                        val stagedOriginalDir = com.deniscerri.ytdl.vault.ingest.VaultPendingDownloadStore
+                                            .peek(vaultUuid)
+                                            ?.originalDownloadPath
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?: FileUtil.getDefaultVideoPath()
+                                        val cleanTitle = downloadItem.title.ifEmpty { downloadItem.playlistTitle }
+                                        val safeBase = cleanTitle.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
+                                        val friendlyFileName = if (mediaFile.nameWithoutExtension == vaultUuid && safeBase.isNotEmpty()) {
+                                            val ext = mediaFile.extension.ifBlank { "mp4" }
+                                            "$safeBase.$ext"
+                                        } else {
+                                            mediaFile.name
+                                        }
+                                        runBlocking {
+                                            com.deniscerri.ytdl.vault.ingest.VaultImporter.ingestStagedDownload(
+                                                context = context,
+                                                sourceFile = mediaFile,
+                                                jobTempDir = tempFileDir,
+                                                preferredTitle = cleanTitle,
+                                                sourceUrl = downloadItem.url,
+                                                durationFallbackMs = durationMs,
+                                                originalFileName = friendlyFileName,
+                                                originalDir = stagedOriginalDir,
+                                                fromDownloadHistory = true,
+                                                author = downloadItem.author,
+                                                website = downloadItem.website,
+                                                thumbUrl = downloadItem.thumb,
+                                                durationText = downloadItem.duration,
+                                                formatJson = runCatching { com.google.gson.Gson().toJson(downloadItem.format) }.getOrDefault(""),
+                                                downloadId = downloadItem.id
+                                            )
+                                        }
+                                    }
+                                } finally {
+                                    com.deniscerri.ytdl.vault.VaultStorage.releaseTempDirForJob(context, vaultUuid)
+                                    com.deniscerri.ytdl.vault.ingest.VaultPendingDownloadStore.consume(vaultUuid)
+                                    runBlocking { dao.delete(dbItem.id) }
+                                }
+                                return@onSuccess
+                            }
+
                             notificationUtil.clearNotificationThrottleState(downloadItem.id.toInt())
                             resultRepo.updateDownloadItem(downloadItem)?.apply {
                                 dao.updateWithoutUpsert(this)
@@ -486,11 +613,25 @@ class DownloadWorker(
                             }
 
                         }.onFailure {
-                            notificationUtil.clearNotificationThrottleState(downloadItem.id.toInt())
                             FileUtil.deleteConfigFiles(request)
+                            tempFileDir.deleteRecursively()
+                            if (isVault) {
+                                com.deniscerri.ytdl.vault.VaultStorage.releaseTempDirForJob(context, vaultUuid)
+                                com.deniscerri.ytdl.vault.ingest.VaultPendingDownloadStore.consume(vaultUuid)
+                                runBlocking { dao.delete(dbItem.id) }
+                                return@onFailure
+                            }
+
+                            notificationUtil.clearNotificationThrottleState(downloadItem.id.toInt())
                             withContext(Dispatchers.Main) {
                                 notificationUtil.cancelDownloadNotification(downloadItem.id.toInt())
                             }
+
+                            // If incognito, immediately wipe partial files from download storage
+                            if (downloadItem.incognito) {
+                                FileUtil.cleanPartialDownloadFiles(downloadItem.downloadPath, tempFileDir, downloadItem.title)
+                            }
+
                             if (this@DownloadWorker.isStopped) return@onFailure
                             if (it is RuntimeManager.CanceledException) return@onFailure
                             if (it.message?.contains("JSONDecodeError") == true) {
@@ -509,9 +650,6 @@ class DownloadWorker(
                                 downloadItem.logID = logID
                             }
 
-
-                            tempFileDir.delete()
-
                             Log.e(TAG, context.getString(R.string.failed_download), it)
                             notificationUtil.cancelDownloadNotification(downloadItem.id.toInt())
 
@@ -520,13 +658,16 @@ class DownloadWorker(
                                 dao.update(downloadItem)
                             }
 
-                            notificationUtil.createDownloadErrored(
-                                downloadItem.id,
-                                downloadItem.title.ifEmpty { downloadItem.url },
-                                it.message,
-                                downloadItem.logID,
-                                resources
-                            )
+                            // Suppress system notifications for incognito to avoid leaking sensitive titles/urls
+                            if (!downloadItem.incognito) {
+                                notificationUtil.createDownloadErrored(
+                                    downloadItem.id,
+                                    downloadItem.title.ifEmpty { downloadItem.url },
+                                    it.message,
+                                    downloadItem.logID,
+                                    resources
+                                )
+                            }
 
                             WorkerEventBus.post(
                                 WorkerProgress(

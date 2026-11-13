@@ -1,6 +1,6 @@
 <h1 align="center">
 	<img src="fastlane/metadata/android/en-US/images/icon.png" width="25%" /> <br>
-	YTDLnis
+	YTDLnis Extended
 </h1>
 
 <div align="center">
@@ -30,10 +30,10 @@
 </div>
 
 <h3 align="center">
-	YTDLnis is a free and open source video/audio downloader using yt-dlp for Android 7.0 and above.
+	YTDLnis Extended is a powerful, privacy-first video/audio downloader and media suite using yt-dlp for Android 7.0 and above.
 </h3>
 <h4 align="center">
-	Created by Denis Çerri
+	Original by Denis Çerri &nbsp;•&nbsp; Extended Edition
 </h4>
 
 <div align="center">
@@ -53,9 +53,66 @@
 [![website](https://img.shields.io/badge/Website-orange?style=flat-square&logo=youtube)](https://ytdlnis.org)
 ![GitHub Sponsor](https://img.shields.io/github/sponsors/deniscerri?label=Sponsor&logo=GitHub)
 
-### Only the links above are the only trusted sources of YTDLnis. Everything else is not related to me.
-
 </div>
+
+---
+
+## 🌟 Extended Highlights & New Features
+
+YTDLnis Extended supercharges the application with a zero-knowledge encrypted vault, a full-fledged offline media player with karaoke lyrics, local device files library integration, persistent background YouTube cookie healing, automated PO token coordination, and an adaptive sorting and view management system.
+
+### 🔐 1. Zero-Knowledge Encrypted Private Vault
+* **End-to-End Authenticated Encryption:** AES-256-GCM chunked streaming encryption (`.vault` payload, `.meta.enc`, `.thumb.enc`) with per-item derived root keys via HKDF-SHA256 and salted PBKDF2/Argon2id key derivation.
+* **Hardware Biometrics:** Unlock securely via `BiometricPrompt` with an Android Keystore-backed `CryptoObject` bound directly to cipher operations.
+* **Direct-to-Vault Downloads:** Stream downloads directly into the encrypted vault on-the-fly without intermediate unencrypted files ever touching device storage.
+* **Duress & Anti-Forensics Protection:**
+  * **Decoy Vault:** A secondary password unlocks an isolated, believable decoy vault in memory.
+  * **Stealth Mode:** Disguises the vault interface; unlockable only via a secret duress/stealth trigger PIN.
+  * **Auto-Wipe:** Configurable threshold of consecutive failed unlock attempts permanently obliterates the vault.
+  * **Panic Lock:** Screen-off and background broadcast triggers immediately lock the vault and zeroize cryptographic keys in RAM.
+  * **Anti-Screen Capture:** Enforcement of `FLAG_SECURE` prevents screenshots, screen recording, and system recents previews.
+* **In-App Vault Player & Import Picker:** Decrypts audio/video directly in memory during playback with zero plaintext disk caching, paired with a multi-select in-app device video picker supporting batch SAF moves and deletions.
+
+### 🎵 2. Next-Gen Playback & Karaoke Lyrics
+* **High-Performance Audio/Video Engine:** Backed by `MediaSessionService` + ExoPlayer with native **dav1d AV1 software rendering**.
+* **Immersive Now Playing Screen:**
+  * **Dynamic Artwork Glow:** Real-time color extraction from album art with contrast clamping for an ambient visualizer glow.
+  * **Gesture Navigation:** Smooth horizontal swipe-to-skip on album artwork.
+  * **Playback Control:** Pitch, tempo/speed adjustment, sleep timer, persistent audio queue, and quick audio/video stream toggle.
+* **Time-Synced Karaoke Lyrics:**
+  * Interactive lyrics sheet with smooth line-by-line scrolling, active lyric glow, and tap-to-seek playback.
+  * Universal embedded lyrics tag extraction: ID3 (USLT & SYLT), MP4 (`©lyr`), FLAC (`LYRICS` / `UNSYNCEDLYRICS`), and raw Ogg/Opus vorbis comment page demuxing.
+
+### 📁 3. Device Files & Complete Play Hub
+* **Unified Play Tab:** Centralized dashboard for Continue Playing cards, Up Next queue, Liked tracks, Recently Played history, and local Device Files.
+* **Deep Device Media Scanner:** Fast MediaStore indexing combined with deep filesystem recursive scanning for audio and video files not indexed by Android (such as `.opus` and `.ogg` downloads).
+* **Folder Filter & Scope:** Browse media by individual directory trees or across all storage folders.
+* **Multi-Select Batch Actions:** Select multiple device files simultaneously to play, queue, favorite, move into the encrypted Private Vault, or delete.
+
+### 🍪 4. Persistent YouTube Cookie Engine & Auto-Healing
+* **Background WebView Session Engine:** Keeps an off-screen Chromium instance active in the background sharing persistent WebView storage with the in-app login sheet.
+* **Silent Cookie Rotation:** Automatically executes Google's own authentication routines to rotate short-lived, sensitive tokens (such as `__Secure-1PSIDTS` and `__Secure-3PSIDTS`) before they expire, keeping logins valid indefinitely.
+* **Zero MicroG / GMS Dependency:** Operates 100% self-contained without Google Play Services, AccountManager, or microG hacks.
+* **Pre-Flight Cookie Health Checks:** Probes YouTube session health on app launch and before queued download batches, healing stale cookies seamlessly in the background.
+* **Ephemeral Cookie Exporter:** Safely extracts Netscape-format cookie jars for `yt-dlp` and `NewPipe` without exposing or leaking unnecessary tracking data.
+
+### 🛡️ 5. Coordinated Automatic PO Token System
+* **Automated Visitor Data & PO Token Coordination:** Synchronizes token coordination between `yt-dlp` and `NewPipe` extractor to prevent YouTube bot detection, 403 Forbidden errors, and signature throttles.
+* **Configurable Coordination Policy:** Choose between **Auto** (session-bound visitor data if logged in, fallback to anonymous WebView), **Signed-in session only**, or **Anonymous WebView only**.
+
+### 🎛️ 6. Universal Dynamic Sorting & View Options
+* **Adaptive Order Labels:** Dynamic direction toggles that change text based on the chosen sort attribute:
+  * **Date / Played time:** `Newest first` / `Oldest first` *(Default)*
+  * **Title / Artist / Author / Path / Website:** `A → Z` / `Z → A`
+  * **File Size:** `Largest first` / `Smallest first`
+  * **Length / Duration:** `Longest first` / `Shortest first`
+  * **Resolution / Frame rate:** `Highest first` / `Lowest first`
+  * **Status:** `Active first` / `New first`
+  * **Type:** `Videos first` / `Audio first`
+* **Consistent Defaults:** All libraries (Device Files, Play tab, Vault gallery, Vault Import picker, Downloads history) default to **Date · Newest first**.
+* **Custom View Layouts & Chips:** Switch between **2-column Grid** and **List** layouts across all tabs, with customizable metadata chips (Artist, Source, Date, Duration, Resolution, Size, Path).
+
+---
 
 ## 💡 Features:
 

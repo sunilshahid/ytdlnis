@@ -11,6 +11,7 @@ import androidx.core.content.edit
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.preference.PreferenceManager
+import com.deniscerri.ytdl.auth.YouTubeSessionEngine
 import com.deniscerri.ytdl.core.RuntimeManager
 import com.deniscerri.ytdl.core.models.ExecuteException
 import com.deniscerri.ytdl.database.DBManager
@@ -18,6 +19,7 @@ import com.deniscerri.ytdl.database.repository.ObserveSourcesRepository
 import com.deniscerri.ytdl.services.BgUtilsPoTokenGeneratorService
 import com.deniscerri.ytdl.util.ApkInstallUtil
 import com.deniscerri.ytdl.util.BgUtilsPoTokenGeneratorUtil
+import com.deniscerri.ytdl.util.EphemeralCookieExporter
 import com.deniscerri.ytdl.util.Extensions.hasReachedEnd
 import com.deniscerri.ytdl.util.NotificationUtil
 import com.deniscerri.ytdl.util.ObserveAlarmScheduler
@@ -51,6 +53,8 @@ class App : Application() {
             try {
                 createNotificationChannels()
                 initLibraries()
+                EphemeralCookieExporter.cleanOrphanedEphemeralFiles(this@App)
+                com.deniscerri.ytdl.vault.VaultStorage.wipeOrphanedTempDirs(this@App)
 
                 val appVer = sharedPreferences.getString("version", "")!!
                 if(appVer.isEmpty() || appVer != BuildConfig.VERSION_NAME){
@@ -60,10 +64,16 @@ class App : Application() {
                 }
 
                 val db = DBManager.getInstance(this@App)
+                db.downloadDao.deleteAllVaultDownloads()
                 val scheduler = ObserveAlarmScheduler(this@App)
                 db.observeSourcesDao.getAllSources()
                     .filter { it.status == ObserveSourcesRepository.SourceStatus.ACTIVE && !it.hasReachedEnd() }
                     .forEach { scheduler.schedule(it) }         // idempotent: FLAG_UPDATE_CURRENT updates in place
+
+                // Quietly verify or rotate the persistent YouTube session if the user enabled it.
+                // The orchestrator performs the cookie check, status bookkeeping and throttling;
+                // this never blocks the UI or clears a healthy session.
+                com.deniscerri.ytdl.core.SessionOrchestrator.runStartupCookieCheck(this@App)
 
             }catch (e: Exception){
                 Looper.prepare().runCatching {
@@ -85,6 +95,7 @@ class App : Application() {
             PreferenceManager.setDefaultValues(this, R.xml.root_preferences, true)
             PreferenceManager.setDefaultValues(this, R.xml.downloading_preferences, true)
             PreferenceManager.setDefaultValues(this, R.xml.general_preferences, true)
+            PreferenceManager.setDefaultValues(this, R.xml.player_preferences, true)
             PreferenceManager.setDefaultValues(this, R.xml.processing_preferences, true)
             PreferenceManager.setDefaultValues(this, R.xml.folders_preference, true)
             PreferenceManager.setDefaultValues(this, R.xml.updating_preferences, true)
@@ -106,6 +117,13 @@ class App : Application() {
             getProcessName()
         } else {
             packageName
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            com.deniscerri.ytdl.vault.VaultSessionManager.lockAndZeroize()
         }
     }
 

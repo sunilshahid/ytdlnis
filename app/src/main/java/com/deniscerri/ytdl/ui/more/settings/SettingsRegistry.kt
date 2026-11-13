@@ -12,6 +12,7 @@ import com.deniscerri.ytdl.ui.more.settings.folder.FolderSettingsModule
 import com.deniscerri.ytdl.ui.more.settings.folder.temporary.TemporaryFilesModule
 import com.deniscerri.ytdl.ui.more.settings.general.GeneralSettingsModule
 import com.deniscerri.ytdl.ui.more.settings.processing.ProcessingSettingsModule
+import com.deniscerri.ytdl.ui.more.settings.player.PlayerSettingsModule
 import com.deniscerri.ytdl.ui.more.settings.updating.app.AppUpdateSettingsModule
 import com.deniscerri.ytdl.ui.more.settings.updating.UpdateSettingsModule
 import com.deniscerri.ytdl.ui.more.settings.updating.ytdlp.YtdlpUpdateSettingsModule
@@ -19,6 +20,7 @@ import com.deniscerri.ytdl.ui.more.settings.updating.ytdlp.YtdlpUpdateSettingsMo
 object SettingsRegistry {
     private val xmlToModule = mapOf(
         R.xml.general_preferences to GeneralSettingsModule,
+        R.xml.player_preferences to PlayerSettingsModule,
         R.xml.folders_preference to FolderSettingsModule,
         R.xml.temporary_files_preferences to TemporaryFilesModule,
         R.xml.downloading_preferences to DownloadSettingsModule,

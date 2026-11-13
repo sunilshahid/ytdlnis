@@ -2,10 +2,16 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/account_selection"
+        android:icon="@drawable/baseline_person_24"
+        android:title="@string/select_youtube_account"
+        app:showAsAction="always"
+        android:visible="false" />
+
+    <item
         android:id="@+id/delete_cookies"
         android:title="@string/delete_all_cookies"
         app:showAsAction="never" />
-
 
     <item
         android:id="@+id/import_clipboard"

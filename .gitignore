@@ -10,6 +10,21 @@
 /benchmark
 *.png
 app/src/main/jniLibs
+# vendored dav1d AV1 decoder build artifacts (keep app/src/main/jni sources)
+third_party/
+app/src/main/jni/nativelib/
+app/src/main/jni/.dav1d_build/
 .kotlin
 # generated in CI by scripts/fetch_translators.py
 app/src/main/assets/translators.json
+.cxx/
+app/.cxx/
+*.log
+*.db
+AGENTS.md
+audio_UI.md
+import.md
+plan.md
+newplan.md
+privatepaln.md
+privateplan.md

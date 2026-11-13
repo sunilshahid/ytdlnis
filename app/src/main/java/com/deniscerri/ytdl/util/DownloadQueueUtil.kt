@@ -58,8 +58,14 @@ class DownloadQueueUtil(private val context: Context) {
             dao.getLastQueueOrder()
         }
 
-        items.forEachIndexed { idx, it ->
-            if (it.downloadStartTime > 0) {
+        items.forEachIndexed { idx, rawItem ->
+            val it = if (rawItem.vaultMode) {
+                com.deniscerri.ytdl.vault.ingest.VaultPendingDownloadStore.registerAndRedact(rawItem).first
+            } else {
+                rawItem
+            }
+
+            if (it.downloadStartTime > 0 && !it.vaultMode) {
                 it.status = DownloadRepository.Status.Scheduled.toString()
             }else {
                 it.status = DownloadRepository.Status.Queued.toString()
@@ -70,9 +76,9 @@ class DownloadQueueUtil(private val context: Context) {
             it.queueOrder = lastQueueOrder + 1
             lastQueueOrder++
 
-            //CHECK DUPLICATES
+            //CHECK DUPLICATES (never check or leak vaultMode items)
             var isDuplicate = false
-            if (checkDuplicate.isNotEmpty() && !ignoreDuplicates){
+            if (!it.vaultMode && checkDuplicate.isNotEmpty() && !ignoreDuplicates){
                 when(checkDuplicate){
                     "download_archive" -> {
                         if (downloadArchive.any { d -> it.url.contains(d) }){
@@ -186,9 +192,10 @@ class DownloadQueueUtil(private val context: Context) {
         var queued : List<DownloadItem> = listOf()
         var resultMessage = ""
 
-        //if scheduler is on
+        //if scheduler is on (never defer volatile in-RAM vault jobs across alarms/process restarts)
         val useScheduler = sharedPreferences.getBoolean("use_scheduler", false)
-        if (useScheduler && !alarmScheduler.isDuringTheScheduledTime()){
+        val hasVaultItems = queuedItems.any { it.vaultMode }
+        if (useScheduler && !hasVaultItems && !alarmScheduler.isDuringTheScheduledTime()){
             if (alarmScheduler.canSchedule()){
                 repository.updateAll(queuedItems)
                 alarmScheduler.schedule()

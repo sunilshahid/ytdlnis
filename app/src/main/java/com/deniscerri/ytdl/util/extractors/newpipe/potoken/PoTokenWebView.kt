@@ -32,6 +32,8 @@ class PoTokenWebView private constructor(
     context: Context,
     // to be used exactly once only during initialization!
     private val generatorContinuation: Continuation<PoTokenWebView>,
+    private val customUserAgent: String = USER_AGENT,
+    private val cookieHeaderProvider: (() -> String?)? = null,
 ) {
     private val webView = WebView(context)
     private val poTokenContinuations = mutableMapOf<String, Continuation<String>>()
@@ -48,7 +50,7 @@ class PoTokenWebView private constructor(
             if (Build.VERSION.SDK_INT >= 26) {
                 safeBrowsingEnabled = false
             }
-            userAgentString = USER_AGENT
+            userAgentString = customUserAgent
             blockNetworkLoads = true // the WebView does not need internet access
         }
 
@@ -213,7 +215,7 @@ class PoTokenWebView private constructor(
     @JavascriptInterface
     fun onObtainPoTokenResult(identifier: String, poTokenU8: String) {
         if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Generated poToken (before decoding): identifier=$identifier poTokenU8=$poTokenU8")
+            Log.d(TAG, "Generated poToken (before decoding): identifier=${PoTokenFormatting.maskTokenTail(identifier)} length=${poTokenU8.length}")
         }
         val poToken = try {
             u8ToBase64(poTokenU8)
@@ -223,7 +225,7 @@ class PoTokenWebView private constructor(
         }
 
         if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Generated poToken: identifier=$identifier poToken=$poToken")
+            Log.d(TAG, "Generated poToken: identifier=${PoTokenFormatting.maskTokenTail(identifier)} token=${PoTokenFormatting.maskTokenTail(poToken)}")
         }
         poTokenContinuations.remove(identifier)?.resume(poToken)
     }
@@ -240,15 +242,21 @@ class PoTokenWebView private constructor(
      * as a String if the response is successful.
      */
     private suspend fun makeBotguardServiceRequest(url: String, data: List<String>): String = withContext(Dispatchers.IO) {
+        val headers = mutableMapOf(
+            "User-Agent" to customUserAgent,
+            "Accept" to "application/json",
+            "Content-Type" to "application/json+protobuf",
+            "x-goog-api-key" to GOOGLE_API_KEY,
+            "x-user-agent" to "grpc-web-javascript/0.1",
+        )
+        cookieHeaderProvider?.invoke()?.takeIf { it.isNotBlank() }?.let { cookieHeader ->
+            headers["Cookie"] = cookieHeader
+            headers["Origin"] = "https://www.youtube.com"
+            headers["Referer"] = "https://www.youtube.com/"
+        }
         val requestBuilder = okhttp3.Request.Builder()
             .post(Gson().toJson(data).toRequestBody())
-            .headers(mapOf(
-                "User-Agent" to USER_AGENT,
-                "Accept" to "application/json",
-                "Content-Type" to "application/json+protobuf",
-                "x-goog-api-key" to GOOGLE_API_KEY,
-                "x-user-agent" to "grpc-web-javascript/0.1",
-            ).toHeaders())
+            .headers(headers.toHeaders())
             .url(url)
         val response = withContext(Dispatchers.IO) {
             httpClient.newCall(requestBuilder.build()).execute()
@@ -306,10 +314,14 @@ class PoTokenWebView private constructor(
             //.proxy(YouTube.proxy)
             .build()
 
-        suspend fun getNewPoTokenGenerator(context: Context): PoTokenWebView {
+        suspend fun getNewPoTokenGenerator(
+            context: Context,
+            userAgent: String = USER_AGENT,
+            cookieHeaderProvider: (() -> String?)? = null
+        ): PoTokenWebView {
             return withContext(Dispatchers.Main) {
                 suspendCancellableCoroutine { cont ->
-                    val potWv = PoTokenWebView(context, cont)
+                    val potWv = PoTokenWebView(context, cont, userAgent, cookieHeaderProvider)
                     potWv.loadHtmlAndObtainBotguard(context)
                 }
             }

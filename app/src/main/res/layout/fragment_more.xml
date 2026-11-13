@@ -133,6 +133,22 @@
                 app:drawableStartCompat="@drawable/baseline_calendar_month_24" />
 
             <TextView
+                android:id="@+id/private_vault"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:drawablePadding="35dp"
+                android:textSize="16sp"
+                android:paddingVertical="15dp"
+                android:text="@string/private_vault"
+                android:textStyle="bold"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?android:attr/selectableItemBackground"
+                android:paddingHorizontal="15dp"
+                app:drawableTint="?android:colorAccent"
+                app:drawableStartCompat="@drawable/ic_lock" />
+
+            <TextView
                 android:id="@+id/terminate"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

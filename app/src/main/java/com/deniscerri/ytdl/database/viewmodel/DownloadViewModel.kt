@@ -917,7 +917,7 @@ class DownloadViewModel(private val application: Application) : AndroidViewModel
         val res = DownloadQueueUtil(application).enqueue(items, ignoreDuplicates)
 
         val idsToUpdateDataInBackground = res.queued
-            .filter { it.needsDataUpdating() && it.downloadStartTime > 0 }.map { it.id }
+            .filter { !it.vaultMode && it.needsDataUpdating() && it.downloadStartTime > 0 }.map { it.id }
         if (idsToUpdateDataInBackground.isNotEmpty()) continueUpdatingDataInBackground(idsToUpdateDataInBackground)
 
         if (res.duplicates.isNotEmpty()) alreadyExistsUiState.value = res.duplicates

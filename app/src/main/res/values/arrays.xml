@@ -238,6 +238,30 @@
         <item>monochrome</item>
     </array>
 
+    <string-array name="lyrics_text_colors">
+        <item>@string/lyrics_color_default</item>
+        <item>@string/blue</item>
+        <item>@string/red</item>
+        <item>@string/green</item>
+        <item>@string/purple</item>
+        <item>@string/yellow</item>
+        <item>@string/orange</item>
+        <item>White</item>
+        <item>Black</item>
+    </string-array>
+
+    <string-array name="lyrics_text_color_values">
+        <item>default</item>
+        <item>#2196F3</item>
+        <item>#F44336</item>
+        <item>#4CAF50</item>
+        <item>#9C27B0</item>
+        <item>#FFEB3B</item>
+        <item>#FF9800</item>
+        <item>#FFFFFF</item>
+        <item>#000000</item>
+    </string-array>
+
 
     <array name="countries">
         <item>@string/defaultValue</item>

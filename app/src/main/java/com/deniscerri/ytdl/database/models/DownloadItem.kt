@@ -51,5 +51,9 @@ data class DownloadItem(
     @ColumnInfo(defaultValue = "0")
     var queueOrder: Int = 0,
     @ColumnInfo(defaultValue = "0")
-    var mergeCuts: Boolean = false
+    var mergeCuts: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    var vaultMode: Boolean = false,
+    @ColumnInfo(defaultValue = "")
+    var vaultJobUuid: String = ""
 ) : Parcelable

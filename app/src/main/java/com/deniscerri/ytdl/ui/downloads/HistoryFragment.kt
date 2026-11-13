@@ -6,6 +6,7 @@ import android.content.DialogInterface
 import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -53,7 +54,11 @@ import com.deniscerri.ytdl.util.Extensions.enableFastScroll
 import com.deniscerri.ytdl.util.Extensions.updateMenuItemBadge
 import com.deniscerri.ytdl.util.FileUtil
 import com.deniscerri.ytdl.util.NavbarUtil
+import com.deniscerri.ytdl.util.SortCategory
+import com.deniscerri.ytdl.util.SortOrderLabels
 import com.deniscerri.ytdl.util.UiUtil
+import com.deniscerri.ytdl.vault.ingest.VaultImporter
+import com.deniscerri.ytdl.vault.ui.VaultImportActivity
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -68,6 +73,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * A fragment representing a list of Items.
@@ -411,39 +417,43 @@ class HistoryFragment : Fragment(), HistoryPaginatedAdapter.OnItemClickListener{
             sortSheet.requestWindowFeature(Window.FEATURE_NO_TITLE)
             sortSheet.setContentView(R.layout.history_sort_sheet)
 
-            val date = sortSheet.findViewById<TextView>(R.id.date)
-            val title = sortSheet.findViewById<TextView>(R.id.title)
-            val author = sortSheet.findViewById<TextView>(R.id.author)
-            val filesize = sortSheet.findViewById<TextView>(R.id.filesize)
+            val date = sortSheet.findViewById<TextView>(R.id.date)!!
+            val title = sortSheet.findViewById<TextView>(R.id.title)!!
+            val author = sortSheet.findViewById<TextView>(R.id.author)!!
+            val filesize = sortSheet.findViewById<TextView>(R.id.filesize)!!
 
-            val sortOptions = listOf(date!!, title!!, author!!, filesize!!)
-            sortOptions.forEach { it.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty,0,0,0) }
-            when(historyViewModel.sortType.value!!) {
-                HistoryRepository.HistorySortType.DATE -> changeSortIcon(date, historyViewModel.sortOrder.value!!)
-                HistoryRepository.HistorySortType.TITLE -> changeSortIcon(title, historyViewModel.sortOrder.value!!)
-                HistoryRepository.HistorySortType.AUTHOR -> changeSortIcon(author, historyViewModel.sortOrder.value!!)
-                HistoryRepository.HistorySortType.FILESIZE -> changeSortIcon(filesize, historyViewModel.sortOrder.value!!)
+            val sortEntries = listOf(
+                Triple(HistoryRepository.HistorySortType.DATE, date, R.string.date_added to SortCategory.DATE_TIME),
+                Triple(HistoryRepository.HistorySortType.TITLE, title, R.string.title to SortCategory.ALPHABETICAL),
+                Triple(HistoryRepository.HistorySortType.AUTHOR, author, R.string.author to SortCategory.ALPHABETICAL),
+                Triple(HistoryRepository.HistorySortType.FILESIZE, filesize, R.string.file_size to SortCategory.SIZE)
+            )
+
+            fun renderSortSheet() {
+                val activeType = historyViewModel.sortType.value!!
+                val activeOrder = historyViewModel.sortOrder.value!!
+                sortEntries.forEach { (type, view, meta) ->
+                    val (baseLabelRes, category) = meta
+                    if (type == activeType) {
+                        val orderRes = SortOrderLabels.activeLabelRes(
+                            category,
+                            activeOrder == SORTING.DESC
+                        )
+                        view.text = "${getString(baseLabelRes)} · ${getString(orderRes)}"
+                        changeSortIcon(view, activeOrder)
+                    } else {
+                        view.text = getString(baseLabelRes)
+                        view.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty, 0, 0, 0)
+                    }
+                }
             }
 
-            date.setOnClickListener {
-                sortOptions.forEach { it.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty,0,0,0) }
-                historyViewModel.setSorting(HistoryRepository.HistorySortType.DATE)
-                changeSortIcon(date, historyViewModel.sortOrder.value!!)
-            }
-            title.setOnClickListener {
-                sortOptions.forEach { it.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty,0,0,0) }
-                historyViewModel.setSorting(HistoryRepository.HistorySortType.TITLE)
-                changeSortIcon(title, historyViewModel.sortOrder.value!!)
-            }
-            author.setOnClickListener {
-                sortOptions.forEach { it.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty,0,0,0) }
-                historyViewModel.setSorting(HistoryRepository.HistorySortType.AUTHOR)
-                changeSortIcon(author, historyViewModel.sortOrder.value!!)
-            }
-            filesize.setOnClickListener {
-                sortOptions.forEach { it.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty,0,0,0) }
-                historyViewModel.setSorting(HistoryRepository.HistorySortType.FILESIZE)
-                changeSortIcon(filesize, historyViewModel.sortOrder.value!!)
+            renderSortSheet()
+            sortEntries.forEach { (type, view, _) ->
+                view.setOnClickListener {
+                    historyViewModel.setSorting(type)
+                    renderSortSheet()
+                }
             }
             val displayMetrics = DisplayMetrics()
             requireActivity().windowManager.defaultDisplay.getMetrics(displayMetrics)
@@ -636,6 +646,49 @@ class HistoryFragment : Fragment(), HistoryPaginatedAdapter.OnItemClickListener{
                         UiUtil.copyToClipboard(urls.distinct().joinToString("\n"), requireActivity())
                         historyAdapter.clearCheckedItems()
                         actionMode?.finish()
+                    }
+                    true
+                }
+                R.id.move_to_vault -> {
+                    lifecycleScope.launch {
+                        val selectedObjects = getSelectedIDs()
+                        val requests = withContext(Dispatchers.IO) {
+                            selectedObjects.mapNotNull { id ->
+                                val item = historyViewModel.getByID(id) ?: return@mapNotNull null
+                                if (item.type != DownloadType.video) return@mapNotNull null
+                                val localPath = item.downloadPath.firstOrNull { path ->
+                                    !path.startsWith("content://") && File(path).let { it.exists() && it.isFile }
+                                }
+                                val contentUri = if (localPath == null) {
+                                    item.downloadPath.firstOrNull { it.startsWith("content://") }
+                                        ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                                } else {
+                                    null
+                                }
+                                if (localPath == null && contentUri == null) return@mapNotNull null
+                                VaultImporter.MoveSourceRequest(
+                                    title = item.title,
+                                    filePath = localPath,
+                                    contentUri = contentUri,
+                                    originalFileName = localPath?.let { File(it).name },
+                                    playbackMediaId = "dl:${item.id}",
+                                    historyId = item.id
+                                )
+                            }
+                        }
+                        if (requests.isEmpty()) {
+                            Toast.makeText(
+                                requireContext(),
+                                R.string.vault_no_local_videos_selected,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            historyAdapter.clearCheckedItems()
+                            actionMode?.finish()
+                            startActivity(
+                                VaultImportActivity.createBatchIntent(requireContext(), requests)
+                            )
+                        }
                     }
                     true
                 }

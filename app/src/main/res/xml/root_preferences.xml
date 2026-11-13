@@ -7,6 +7,11 @@
         android:title="@string/general"/>
 
     <Preference
+        android:key="player"
+        app:icon="@drawable/ic_music"
+        android:title="@string/player"/>
+
+    <Preference
         android:key="folders"
         app:icon="@drawable/baseline_folder_24"
         android:title="@string/directories"/>

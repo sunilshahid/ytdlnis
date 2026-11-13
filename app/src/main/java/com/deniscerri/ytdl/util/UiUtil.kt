@@ -71,6 +71,7 @@ import com.deniscerri.ytdl.database.repository.DownloadRepository
 import com.deniscerri.ytdl.database.viewmodel.CommandTemplateViewModel
 import com.deniscerri.ytdl.database.viewmodel.HistoryViewModel
 import com.deniscerri.ytdl.database.viewmodel.YTDLPViewModel
+import com.deniscerri.ytdl.playback.PlaybackLauncher
 import com.deniscerri.ytdl.ui.downloadcard.VideoCutListener
 import com.deniscerri.ytdl.ui.downloadcard.crop.VideoCropListener
 import com.deniscerri.ytdl.util.Extensions.calculateNextTimeForObserving
@@ -953,6 +954,37 @@ object UiUtil {
         openFile!!.tag = item.id
         openFile.setOnClickListener{
             openOrShareFiles(context, item.downloadPath, true)
+        }
+
+        bottomSheet.findViewById<Button>(R.id.bottomsheet_play_button)?.apply {
+            tag = item.id
+            isEnabled = item.type != DownloadType.command
+            setOnClickListener {
+                runCatching { PlaybackLauncher.playHistory(context, item) }
+                    .onFailure {
+                        Toast.makeText(context, R.string.could_not_resolve, Toast.LENGTH_SHORT).show()
+                    }
+                bottomSheet.dismiss()
+            }
+        }
+
+        bottomSheet.findViewById<Button>(R.id.bottomsheet_move_to_vault_button)?.apply {
+            val videoPath = availableFiles.firstOrNull()
+            isVisible = isPresent && item.type == DownloadType.video && !videoPath.isNullOrBlank()
+            setOnClickListener {
+                val path = videoPath ?: return@setOnClickListener
+                bottomSheet.dismiss()
+                context.startActivity(
+                    com.deniscerri.ytdl.vault.ui.VaultImportActivity.createIntent(
+                        context = context,
+                        title = item.title,
+                        filePath = path,
+                        originalFileName = File(path).name,
+                        playbackMediaId = "dl:${item.id}",
+                        historyId = item.id
+                    )
+                )
+            }
         }
 
         val redownload = bottomSheet.findViewById<Button>(R.id.bottomsheet_redownload_button)

@@ -15,6 +15,8 @@ import android.util.Log
 import android.view.View
 import android.view.WindowInsets
 import android.widget.CheckBox
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
@@ -25,8 +27,10 @@ import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.documentfile.provider.DocumentFile
 import androidx.fragment.app.FragmentContainerView
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavController
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.fragment.findNavController
@@ -42,6 +46,11 @@ import com.deniscerri.ytdl.database.viewmodel.DownloadCardViewModel
 import com.deniscerri.ytdl.database.viewmodel.DownloadViewModel
 import com.deniscerri.ytdl.database.viewmodel.ResultViewModel
 import com.deniscerri.ytdl.database.viewmodel.SettingsViewModel
+import com.deniscerri.ytdl.playback.PlaybackController
+import com.deniscerri.ytdl.playback.PlaybackLauncher
+import com.deniscerri.ytdl.playback.model.PlaybackSource
+import com.deniscerri.ytdl.playback.model.PlaybackType
+import com.deniscerri.ytdl.ui.play.PlaybackArtworkLoader
 import com.deniscerri.ytdl.ui.BaseActivity
 import com.deniscerri.ytdl.ui.home.HomeFragment
 import com.deniscerri.ytdl.ui.downloads.DownloadQueueMainFragment
@@ -51,6 +60,7 @@ import com.deniscerri.ytdl.ui.welcome.WelcomeActivity
 import com.deniscerri.ytdl.util.ApkInstallUtil
 import com.deniscerri.ytdl.util.BgUtilsPoTokenGeneratorUtil
 import com.deniscerri.ytdl.util.CrashListener
+import com.deniscerri.ytdl.util.IncognitoSessionManager
 import com.deniscerri.ytdl.util.NavbarUtil
 import com.deniscerri.ytdl.util.NavbarUtil.applyNavBarStyle
 import com.deniscerri.ytdl.util.ThemeUtil
@@ -61,6 +71,7 @@ import com.google.android.material.elevation.SurfaceColors
 import com.google.android.material.navigation.NavigationBarView
 import com.google.android.material.navigation.NavigationView
 import com.google.android.material.navigationrail.NavigationRailView
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -93,6 +104,10 @@ class MainActivity : BaseActivity() {
     private lateinit var navController : NavController
     private var loadingRuntimeDialog: androidx.appcompat.app.AlertDialog? = null
 
+    private var miniPlayerView: View? = null
+    private var miniPlayerAllowed = true
+    private var miniPlayerState: PlaybackController.UiState = PlaybackController.state.value
+
     lateinit var installLauncher: ActivityResultLauncher<Intent>
         private set
 
@@ -109,6 +124,8 @@ class MainActivity : BaseActivity() {
         window.navigationBarColor = SurfaceColors.SURFACE_2.getColor(this)
         setContentView(R.layout.activity_main)
         context = baseContext
+        PlaybackController.init(this)
+        setupMiniPlayer()
 
         resultViewModel = ViewModelProvider(this)[ResultViewModel::class.java]
         cookieViewModel = ViewModelProvider(this)[CookieViewModel::class.java]
@@ -117,9 +134,11 @@ class MainActivity : BaseActivity() {
         downloadCardViewModel = ViewModelProvider(this)[DownloadCardViewModel::class.java]
         preferences = PreferenceManager.getDefaultSharedPreferences(context)
 
-        if (preferences.getBoolean("incognito", false)) {
-            lifecycleScope.launch(Dispatchers.IO){
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (preferences.getBoolean("incognito", false)) {
                 resultViewModel.deleteAll()
+            } else {
+                IncognitoSessionManager.purgeIncognitoSession(this@MainActivity)
             }
         }
 
@@ -208,11 +227,14 @@ class MainActivity : BaseActivity() {
             val showingNavbarItems = NavbarUtil.getNavBarItems(this@MainActivity).filter { it.isVisible }.map { it.itemId }
             navController.addOnDestinationChangedListener { _, destination, _ ->
                 Handler(Looper.getMainLooper()).post {
-                    if (showingNavbarItems.contains(destination.id)) {
+                    val isMainDestination = showingNavbarItems.contains(destination.id)
+                    miniPlayerAllowed = isMainDestination
+                    if (isMainDestination) {
                         showBottomNavigation()
                     }else{
                         hideBottomNavigation()
                     }
+                    bindMiniPlayer()
                 }
 
             }
@@ -324,12 +346,13 @@ class MainActivity : BaseActivity() {
 
     fun hideBottomNavigation(){
         navigationBarView?.apply {
+            this.animate()?.cancel()
             if (this is BottomNavigationView){
                 this@MainActivity.findViewById<FragmentContainerView>(R.id.frame_layout).updateLayoutParams<ConstraintLayout.LayoutParams> {
                     bottomToTop = ConstraintLayout.LayoutParams.UNSET
                     bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
                 }
-                this.animate()?.translationY(this.height.toFloat())?.setDuration(300)?.withEndAction {
+                this.animate()?.translationY(this.height.toFloat())?.setDuration(250)?.withEndAction {
                     this.visibility = View.GONE
                 }?.start()
             }else if (this is NavigationRailView){
@@ -338,11 +361,11 @@ class MainActivity : BaseActivity() {
                 }
 
                 if (resources.getBoolean(R.bool.is_right_to_left)){
-                    this.animate()?.translationX(this.width.toFloat())?.setDuration(300)?.withEndAction {
+                    this.animate()?.translationX(this.width.toFloat())?.setDuration(250)?.withEndAction {
                         this.visibility = View.GONE
                     }?.start()
                 }else{
-                    this.animate()?.translationX(-this.width.toFloat())?.setDuration(300)?.withEndAction {
+                    this.animate()?.translationX(-this.width.toFloat())?.setDuration(250)?.withEndAction {
                         this.visibility = View.GONE
                     }?.start()
                 }
@@ -354,20 +377,25 @@ class MainActivity : BaseActivity() {
 
     fun showBottomNavigation(){
         navigationBarView?.apply {
+            this.animate()?.cancel()
+            this.visibility = View.VISIBLE
             if (this is BottomNavigationView){
                 this@MainActivity.findViewById<FragmentContainerView>(R.id.frame_layout).updateLayoutParams<ConstraintLayout.LayoutParams> {
-                    bottomToTop = R.id.bottomNavigationView
+                    val miniPlayer = this@MainActivity.findViewById<View>(R.id.mini_player)
+                    bottomToTop = miniPlayer?.id ?: R.id.bottomNavigationView
                     bottomToBottom = ConstraintLayout.LayoutParams.UNSET
                 }
-                this.animate()?.translationY(0F)?.setDuration(300)?.withEndAction {
+                this.animate()?.translationY(0F)?.setDuration(250)?.withEndAction {
                     this.visibility = View.VISIBLE
+                    this.translationY = 0F
                 }?.start()
             }else if (this is NavigationRailView){
                 this@MainActivity.findViewById<FragmentContainerView>(R.id.frame_layout).updateLayoutParams {
                     this.width = 0
                 }
-                this.animate()?.translationX(0F)?.setDuration(300)?.withEndAction {
+                this.animate()?.translationX(0F)?.setDuration(250)?.withEndAction {
                     this.visibility = View.VISIBLE
+                    this.translationX = 0F
                 }?.start()
             }
         }
@@ -391,6 +419,22 @@ class MainActivity : BaseActivity() {
         if (preferences.getBoolean("incognito", false)){
             incognitoHeader.visibility = View.VISIBLE
             window.statusBarColor = (incognitoHeader.background as ColorDrawable).color
+            incognitoHeader.setOnClickListener {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.turn_off_incognito_title)
+                    .setMessage(R.string.turn_off_incognito_message)
+                    .setPositiveButton(R.string.turn_off) { _, _ ->
+                        preferences.edit().putBoolean("incognito", false).apply()
+                        incognitoHeader.visibility = View.GONE
+                        window.statusBarColor = getColor(android.R.color.transparent)
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            IncognitoSessionManager.purgeIncognitoSession(this@MainActivity)
+                        }
+                        Snackbar.make(incognitoHeader, R.string.incognito_session_cleared, Snackbar.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            }
         }else{
             window.statusBarColor = getColor(android.R.color.transparent)
             incognitoHeader.visibility = View.GONE
@@ -531,6 +575,76 @@ class MainActivity : BaseActivity() {
         }
     }
 
+
+    private fun setupMiniPlayer() {
+        val mini = findViewById<View>(R.id.mini_player) ?: return
+        miniPlayerView = mini
+
+        val playPause = mini.findViewById<ImageButton>(R.id.mini_player_play_pause)
+        val next = mini.findViewById<ImageButton>(R.id.mini_player_next)
+        val close = mini.findViewById<ImageButton>(R.id.mini_player_close)
+        val content = mini.findViewById<View>(R.id.mini_player_content)
+
+        val openPlayerAction = View.OnClickListener {
+            PlaybackLauncher.openPlayer(this)
+        }
+        mini.setOnClickListener(openPlayerAction)
+        content?.setOnClickListener(openPlayerAction)
+        playPause.setOnClickListener {
+            val player = PlaybackController.player()
+            if (player == null || player.mediaItemCount == 0) {
+                PlaybackController.resume()
+            } else {
+                PlaybackController.togglePlayPause()
+            }
+        }
+        next.setOnClickListener { PlaybackController.next() }
+        close.setOnClickListener { PlaybackController.stop() }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                PlaybackController.state.collect {
+                    miniPlayerState = it
+                    bindMiniPlayer()
+                }
+            }
+        }
+    }
+
+    private fun bindMiniPlayer() {
+        val mini = miniPlayerView ?: return
+        val state = miniPlayerState
+        val item = state.currentItem
+        val visible = item != null && miniPlayerAllowed
+        mini.isVisible = visible
+        if (!visible || item == null) return
+
+        mini.findViewById<TextView>(R.id.mini_player_title).text = item.title
+        // Mirror the Play-tab row subtitle: artist · source · type, so a video never
+        // shows up labelled "audio".
+        val source = when (item.source) {
+            PlaybackSource.YOUTUBE -> getString(R.string.youtube)
+            PlaybackSource.DOWNLOAD -> getString(R.string.downloads)
+            PlaybackSource.LOCAL -> null
+        }
+        val type = getString(
+            if (item.type == PlaybackType.VIDEO) R.string.video else R.string.audio
+        )
+        mini.findViewById<TextView>(R.id.mini_player_subtitle).text = listOfNotNull(
+            item.artist?.takeIf { it.isNotBlank() },
+            source,
+            type
+        ).joinToString(" · ")
+
+        mini.findViewById<ImageButton>(R.id.mini_player_play_pause).setImageResource(
+            if (state.playing) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play
+        )
+
+        val art = mini.findViewById<ImageView>(R.id.mini_player_art)
+        // Delegates to the shared artwork loader: remote art uses Picasso, local files go
+        // through the media retriever / bundled ffmpeg cover extraction.
+        PlaybackArtworkLoader.load(art, item)
+    }
 
     companion object {
         private const val TAG = "MainActivity"

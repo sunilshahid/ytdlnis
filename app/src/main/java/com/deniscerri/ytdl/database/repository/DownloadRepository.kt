@@ -16,6 +16,7 @@ import androidx.work.WorkManager
 import com.deniscerri.ytdl.App
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.dao.DownloadDao
+import com.deniscerri.ytdl.database.DBManager
 import com.deniscerri.ytdl.database.models.DownloadItem
 import com.deniscerri.ytdl.database.models.DownloadItemSimple
 import com.deniscerri.ytdl.database.models.DownloadSizeMetadata
@@ -90,12 +91,30 @@ class DownloadRepository(private val downloadDao: DownloadDao) {
         val item = getItemByID(id)
         downloadDao.delete(id)
         deleteCache(listOf(item))
+        cleanIncognitoLeftovers(listOf(item))
     }
 
     private fun deleteCache(items: List<DownloadItem>) {
-        val cacheDir = FileUtil.getCachePath(App.instance)
+        val cacheDir = FileUtil.getCacheDownloadsPath(App.instance)
         items.forEach {
            runCatching { File(cacheDir, it.id.toString()).deleteRecursively() }
+        }
+    }
+
+    private suspend fun cleanIncognitoLeftovers(items: List<DownloadItem>) {
+        val incognitoItems = items.filter { it.incognito }
+        if (incognitoItems.isEmpty()) return
+        val cacheDownloadsDir = File(FileUtil.getCacheDownloadsPath(App.instance))
+        val dbManager = DBManager.getInstance(App.instance)
+        val logIds = incognitoItems.mapNotNull { it.logID }.filter { it > 0 }
+        if (logIds.isNotEmpty()) {
+            runCatching { dbManager.logDao.deleteByIds(logIds) }
+        }
+        incognitoItems.forEach { item ->
+            runCatching {
+                val tempDir = File(cacheDownloadsDir, item.id.toString())
+                FileUtil.cleanPartialDownloadFiles(item.downloadPath, tempDir, item.title)
+            }
         }
     }
 
@@ -188,6 +207,7 @@ class DownloadRepository(private val downloadDao: DownloadDao) {
         val cancelled = getCancelledDownloads()
         downloadDao.deleteCancelled()
         deleteCache(cancelled)
+        cleanIncognitoLeftovers(cancelled)
     }
 
     fun getActiveDownloadsCount() : Int {
@@ -202,6 +222,7 @@ class DownloadRepository(private val downloadDao: DownloadDao) {
         val errored = getErroredDownloads()
         downloadDao.deleteErrored()
         deleteCache(errored)
+        cleanIncognitoLeftovers(errored)
     }
 
     suspend fun deleteQueued() {
@@ -221,9 +242,12 @@ class DownloadRepository(private val downloadDao: DownloadDao) {
     }
 
     suspend fun deleteAllWithIDs(ids: List<Long>){
+        val items = ids.mapNotNull { runCatching { getItemByID(it) }.getOrNull() }
         ids.chunked(100).forEach { chunkedIds ->
             downloadDao.deleteAllWithIDs(chunkedIds)
         }
+        deleteCache(items)
+        cleanIncognitoLeftovers(items)
     }
 
     suspend fun cancelActiveQueued(){

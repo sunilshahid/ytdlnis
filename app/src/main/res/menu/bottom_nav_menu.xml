@@ -23,4 +23,8 @@
         android:icon="@drawable/ic_terminal"
         android:visible="false"
         android:id="@+id/terminalActivity"/>
+
+    <item android:title="@string/play"
+        android:icon="@drawable/ic_lyrics_play"
+        android:id="@+id/playFragment"/>
 </menu>

@@ -20,6 +20,97 @@
             android:paddingBottom="120dp">
 
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/coordinated_potoken_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_margin="12dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/po_token_coordination_title"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:alpha="0.8"
+                        android:text="@string/po_token_coordination_summary"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/po_token_status_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/po_token_warning_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textColor="?attr/colorError"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioGroup
+                        android:id="@+id/po_token_policy_radiogroup"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp">
+
+                        <RadioButton
+                            android:id="@+id/policy_auto_radio"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/po_token_policy_auto" />
+
+                        <RadioButton
+                            android:id="@+id/policy_session_radio"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/po_token_policy_session_only" />
+
+                        <RadioButton
+                            android:id="@+id/policy_anonymous_radio"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/po_token_policy_anonymous_only" />
+
+                        <RadioButton
+                            android:id="@+id/policy_manual_radio"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/po_token_policy_manual_only" />
+                    </RadioGroup>
+
+                    <Button
+                        android:id="@+id/regenerate_coordinated_potoken_btn"
+                        style="@style/Widget.Material3.Button.TonalButton.Icon"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/regenerate"
+                        app:icon="@drawable/ic_retries" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/bgutils_potoken_provider"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

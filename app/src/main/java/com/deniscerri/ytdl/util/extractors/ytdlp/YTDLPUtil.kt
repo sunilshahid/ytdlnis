@@ -24,6 +24,7 @@ import com.deniscerri.ytdl.database.models.YoutubeGeneratePoTokenItem
 import com.deniscerri.ytdl.database.models.YoutubePlayerClientItem
 import com.deniscerri.ytdl.database.viewmodel.ResultViewModel
 import com.deniscerri.ytdl.util.BgUtilsPoTokenGeneratorUtil
+import com.deniscerri.ytdl.util.EphemeralCookieExporter
 import com.deniscerri.ytdl.util.Extensions.getIDFromYoutubeURL
 import com.deniscerri.ytdl.util.Extensions.getIntByAny
 import com.deniscerri.ytdl.util.Extensions.getStringByAny
@@ -35,6 +36,12 @@ import com.deniscerri.ytdl.util.Extensions.readJsonValue
 import com.deniscerri.ytdl.util.Extensions.toStringDuration
 import com.deniscerri.ytdl.util.FileUtil
 import com.deniscerri.ytdl.util.FormatUtil
+import com.deniscerri.ytdl.playback.model.PlaybackChapter
+import com.deniscerri.ytdl.playback.model.PlaybackExtrasCodec
+import com.deniscerri.ytdl.playback.model.PlaybackSubtitle
+import com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenBundle
+import com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenCoordinator
+import com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenFormatting
 import com.google.gson.Gson
 import com.google.gson.Strictness
 import com.google.gson.reflect.TypeToken
@@ -59,12 +66,112 @@ import java.util.StringJoiner
 import java.util.UUID
 import java.util.zip.CRC32
 
+/**
+ * Output of a playback-only yt-dlp resolve. Either [singleUrl] is set (progressive/HLS/muxed or
+ * audio-only) or [videoUrl] + [audioUrl] are set (separate streams that need MergingMediaSource).
+ */
+data class PlaybackStreamInfo(
+    val singleUrl: String? = null,
+    val videoUrl: String? = null,
+    val audioUrl: String? = null,
+    val mimeType: String? = null,
+    val durationMs: Long? = null,
+    val isLive: Boolean = false,
+    val chapters: List<ChapterItem> = emptyList(),
+    val playbackChapters: List<PlaybackChapter> = emptyList(),
+    val subtitles: List<PlaybackSubtitle> = emptyList()
+) {
+    val isEmpty: Boolean
+        get() = singleUrl.isNullOrBlank() && videoUrl.isNullOrBlank() && audioUrl.isNullOrBlank()
+}
+
 class YTDLPUtil(private val context: Context, private val commandTemplateDao: CommandTemplateDao) {
     private var sharedPreferences: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
     private val formatUtil = FormatUtil(context)
     private val handler = Handler(Looper.getMainLooper())
 
-    private fun YTDLRequest.applyDefaultOptionsForFetchingData(url: String?) {
+    private companion object {
+        const val PLAYBACK_META_MARKER = "YTDLNIS_META:"
+        const val PLAYBACK_FORMATS_MARKER = "YTDLNIS_FORMATS:"
+
+        fun parsePlaybackSubtitles(
+            subtitlesObj: JSONObject?,
+            autoCaptionsObj: JSONObject?
+        ): List<PlaybackSubtitle> {
+            val deviceLang = Locale.getDefault().language.lowercase(Locale.ROOT)
+            val preferredExts = listOf("vtt", "srt", "ttml")
+            val result = ArrayList<PlaybackSubtitle>()
+            val seenKeys = HashSet<String>()
+
+            fun collect(obj: JSONObject?, isAuto: Boolean, maxEntries: Int) {
+                if (obj == null) return
+                val keys = mutableListOf<String>()
+                obj.keys().forEach { k ->
+                    if (!k.equals("live_chat", ignoreCase = true) && k.isNotBlank()) {
+                        keys.add(k)
+                    }
+                }
+                val sortedKeys = keys.sortedWith(
+                    compareByDescending<String> { it.substringBefore('-').lowercase(Locale.ROOT) == deviceLang }
+                        .thenByDescending { it.startsWith("en", ignoreCase = true) }
+                        .thenBy { it }
+                )
+                var count = 0
+                for (langKey in sortedKeys) {
+                    if (count >= maxEntries) break
+                    val variants = obj.optJSONArray(langKey) ?: continue
+                    var chosenObj: JSONObject? = null
+                    for (preferredExt in preferredExts) {
+                        for (i in 0 until variants.length()) {
+                            val candidate = variants.optJSONObject(i) ?: continue
+                            val ext = candidate.optString("ext").lowercase(Locale.ROOT)
+                            val url = candidate.optString("url")
+                            if (ext == preferredExt && url.isNotBlank()) {
+                                chosenObj = candidate
+                                break
+                            }
+                        }
+                        if (chosenObj != null) break
+                    }
+                    chosenObj ?: continue
+                    val subUrl = chosenObj.optString("url").takeIf { it.isNotBlank() } ?: continue
+                    val ext = chosenObj.optString("ext").lowercase(Locale.ROOT)
+                    val dedupeKey = "${langKey.lowercase(Locale.ROOT)}:$isAuto"
+                    if (!seenKeys.add(dedupeKey)) continue
+
+                    val rawName = chosenObj.optString("name").takeIf { it.isNotBlank() }
+                    val displayName = rawName ?: runCatching {
+                        Locale.forLanguageTag(langKey.replace('_', '-')).displayName
+                    }.getOrNull()?.takeIf { it.isNotBlank() } ?: langKey.uppercase(Locale.ROOT)
+
+                    result.add(
+                        PlaybackSubtitle(
+                            uri = subUrl,
+                            mimeType = PlaybackExtrasCodec.inferSubtitleMimeType(ext),
+                            language = langKey,
+                            label = if (isAuto && !displayName.contains("auto", ignoreCase = true)) {
+                                "$displayName (auto)"
+                            } else {
+                                displayName
+                            },
+                            isAutoGenerated = isAuto,
+                            isLocal = false
+                        )
+                    )
+                    count++
+                }
+            }
+
+            collect(subtitlesObj, isAuto = false, maxEntries = 20)
+            collect(autoCaptionsObj, isAuto = true, maxEntries = 8)
+            return result
+        }
+    }
+
+    private fun YTDLRequest.applyDefaultOptionsForFetchingData(
+        url: String?,
+        additionalCookieFile: File? = null
+    ) {
         addOption("--skip-download")
         addOption("--quiet")
         addOption("--ignore-errors")
@@ -84,7 +191,11 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
             addOption("-4")
         }
 
-        if (sharedPreferences.getBoolean("use_cookies", false)){
+        if (additionalCookieFile != null) {
+            // A read-only per-resolve snapshot keeps concurrent playback resolutions from
+            // sharing (or corrupting) one mutable cookie file.
+            addOption("--cookies", additionalCookieFile.absolutePath)
+        } else if (sharedPreferences.getBoolean("use_cookies", false)){
             FileUtil.getCookieFile(context){
                 addOption("--cookies", it)
             }
@@ -161,7 +272,8 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
             }
         }
         if (searchEngine == "ytsearch" || query.isYoutubeURL()) {
-            request.setYoutubeExtractorArgs(query)
+            val poBundle = PoTokenCoordinator.getOrMintForYtDlp(context, if (query.isURL()) query else null)
+            request.setYoutubeExtractorArgs(query, poBundle)
         }
 
         if (canApplyFlatPlaylist(query)) {
@@ -345,7 +457,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
 
     suspend fun getYoutubeWatchLater() : ArrayList<ResultItem> {
         val request = YTDLRequest(listOf())
-        request.setYoutubeExtractorArgs(null)
+        request.setYoutubeExtractorArgs(null, PoTokenCoordinator.getOrMintForYtDlp(context, null))
         request.addOption( "-j")
         request.addOption("--flat-playlist")
         request.applyDefaultOptionsForFetchingData(null)
@@ -366,7 +478,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
 
     suspend fun getYoutubeRecommendations() : ArrayList<ResultItem> {
         val request = YTDLRequest(listOf())
-        request.setYoutubeExtractorArgs(null)
+        request.setYoutubeExtractorArgs(null, PoTokenCoordinator.getOrMintForYtDlp(context, null))
         request.addOption( "-j")
         request.addOption("--flat-playlist")
         request.applyDefaultOptionsForFetchingData(null)
@@ -387,7 +499,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
 
     suspend fun getYoutubeLikedVideos() : ArrayList<ResultItem> {
         val request = YTDLRequest(listOf())
-        request.setYoutubeExtractorArgs(null)
+        request.setYoutubeExtractorArgs(null, PoTokenCoordinator.getOrMintForYtDlp(context, null))
         request.addOption( "-j")
         request.addOption("--flat-playlist")
         request.applyDefaultOptionsForFetchingData(null)
@@ -408,7 +520,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
 
     suspend fun getYoutubeWatchHistory() : ArrayList<ResultItem> {
         val request = YTDLRequest(listOf())
-        request.setYoutubeExtractorArgs(null)
+        request.setYoutubeExtractorArgs(null, PoTokenCoordinator.getOrMintForYtDlp(context, null))
         request.addOption( "-j")
         request.addOption("--flat-playlist")
         request.applyDefaultOptionsForFetchingData(null)
@@ -446,7 +558,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
             request.addOption("-a", urlsFile.absolutePath)
             request.applyDefaultOptionsForFetchingData(urls.firstOrNull { it.isURL() })
             if (urls.all { it.isYoutubeURL() }) {
-                request.setYoutubeExtractorArgs(urls[0])
+                request.setYoutubeExtractorArgs(urls[0], PoTokenCoordinator.getOrMintForYtDlp(context, urls[0]))
             }
             if (!request.hasOption("--no-check-certificates")) request.addOption("--no-check-certificates")
 
@@ -524,7 +636,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
         request.addOption("--print", "%(duration)s")
         request.applyDefaultOptionsForFetchingData(url)
         if (url.isYoutubeURL()) {
-            request.setYoutubeExtractorArgs(url)
+            request.setYoutubeExtractorArgs(url, PoTokenCoordinator.getOrMintForYtDlp(context, url))
         }
         if (!request.hasOption("--no-check-certificates")) request.addOption("--no-check-certificates")
 
@@ -669,6 +781,228 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
     }
 
 
+    /**
+     * Resolves direct stream URLs for the in-app player without downloading.
+     *
+     * Uses an isolated cookie snapshot per resolve, asks yt-dlp for the requested_formats object
+     * (never relies on positional ordering), and returns separate video/audio URLs when the
+     * selected format requires merging.
+     */
+    suspend fun resolvePlaybackStream(
+        url: String,
+        audioOnly: Boolean = false,
+        videoHeightCap: Int = 720,
+        preferHlsForLive: Boolean = true
+    ): Result<PlaybackStreamInfo> {
+        val cookieJobId = "playback-${System.currentTimeMillis()}"
+        var cookieFile: File? = null
+        try {
+            val request = YTDLRequest(url)
+            val useCookies = sharedPreferences.getBoolean("use_cookies", false)
+            if (useCookies) {
+                cookieFile = EphemeralCookieExporter.createEphemeralCookieFile(context, cookieJobId)
+            }
+            request.applyDefaultOptionsForFetchingData(url, additionalCookieFile = cookieFile)
+            request.addOption("--no-playlist")
+            // requested_formats is printed in full (not field-projected) so its entries keep
+            // vcodec/acodec. Older yt-dlp builds ignored the projection anyway; both shapes are
+            // handled by parsePlaybackOutput().
+            request.addOption("--print", "$PLAYBACK_META_MARKER%(.{url,duration,is_live,protocol,vcodec,acodec,chapters,subtitles,automatic_captions})j")
+            request.addOption("--print", "$PLAYBACK_FORMATS_MARKER%(requested_formats)j")
+
+            if (audioOnly) {
+                // Prefer AAC/M4A for broad device decoder support; Opus/WebM remains the fallback.
+                request.addOption("-f", "ba[acodec^=mp4a]/ba/b")
+            } else {
+                // H.264/AAC first, then any codec at the requested height. A muxed format is
+                // the next fallback and HLS is only the final live-stream fallback. Never sort
+                // every VOD resolve towards m3u8: YouTube's HLS variants are lower quality and
+                // can fail on devices without the right HLS/AAC combination.
+                val selector = buildString {
+                    append("bv*[height<=$videoHeightCap][vcodec^=avc1]+ba[acodec^=mp4a]")
+                    append("/bv*[height<=$videoHeightCap]+ba")
+                    append("/b[height<=$videoHeightCap]")
+                    if (preferHlsForLive) append("/b*[protocol^=m3u8]")
+                    append("/b")
+                }
+                request.addOption("-f", selector)
+            }
+
+            if (url.isYoutubeURL()) {
+                request.setYoutubeExtractorArgs(url, PoTokenCoordinator.getOrMintForYtDlp(context, url))
+            }
+
+            val response = RuntimeManager.getInstance().runKillable { processId ->
+                RuntimeManager.getInstance().execute(request, processId)
+            }
+            val output = parsePlaybackOutput(response.out)
+                ?: return Result.failure(Exception("yt-dlp returned no stream information"))
+
+            val meta = output.meta
+            val requestedFormats = output.requestedFormats
+            var video: String? = null
+            var audio: String? = null
+            var single: String? = null
+
+            if (requestedFormats != null && requestedFormats.length() > 0) {
+                val entries = (0 until requestedFormats.length()).mapNotNull { index ->
+                    requestedFormats.optJSONObject(index)?.let { format ->
+                        val formatUrl = format.optString("url").takeIf { it.isNotBlank() }
+                        if (formatUrl == null) null else RequestedFormat(
+                            url = formatUrl,
+                            hasVideo = format.optString("vcodec").let {
+                                it.isNotBlank() && it != "none"
+                            } || format.optString("resolution").let {
+                                it.isNotBlank() && it != "audio only"
+                            },
+                            hasAudio = format.optString("acodec").let {
+                                it.isNotBlank() && it != "none"
+                            }
+                        )
+                    }
+                }
+
+                val classifiedVideo = entries.firstOrNull { it.hasVideo && !it.hasAudio }
+                val classifiedAudio = entries.firstOrNull { it.hasAudio && !it.hasVideo }
+                if (audioOnly) {
+                    single = classifiedAudio?.url ?: meta?.optString("url")
+                        ?.takeIf { it.isNotBlank() } ?: entries.first().url
+                } else if (classifiedVideo != null && classifiedAudio != null) {
+                    video = classifiedVideo.url
+                    audio = classifiedAudio.url
+                } else if (entries.size == 2) {
+                    // Field projection stripped the codec metadata: yt-dlp preserves selector
+                    // order, so the video stream was requested first and audio second.
+                    if (entries[0].hasAudio && !entries[0].hasVideo &&
+                        entries[1].hasVideo && !entries[1].hasAudio
+                    ) {
+                        audio = entries[0].url
+                        video = entries[1].url
+                    } else {
+                        video = entries[0].url
+                        audio = entries[1].url
+                    }
+                } else if (entries.size == 1) {
+                    single = entries.first().url
+                } else {
+                    video = entries.firstOrNull { it.hasVideo }?.url ?: entries.first().url
+                    audio = entries.firstOrNull { it.hasAudio }?.url
+                    single = meta?.optString("url")?.takeIf { it.isNotBlank() }
+                }
+            } else {
+                single = meta?.optString("url")?.takeIf { it.isNotBlank() }
+            }
+
+            if (!audioOnly && single == null && (video == null || audio == null)) {
+                single = meta?.optString("url")?.takeIf { it.isNotBlank() }
+                if (single != null) {
+                    video = null
+                    audio = null
+                }
+            }
+
+            val chapters = mutableListOf<ChapterItem>()
+            meta?.optJSONArray("chapters")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    arr.optJSONObject(i)?.let {
+                        runCatching {
+                            chapters.add(Gson().fromJson(it.toString(), ChapterItem::class.java))
+                        }
+                    }
+                }
+            }
+
+            val durationMs = meta?.optDouble("duration", 0.0)
+                ?.takeIf { it > 0 }
+                ?.let { (it * 1000).toLong() }
+
+            val protocol = meta?.optString("protocol").orEmpty()
+            val effectiveUrl = single ?: video ?: audio
+            val playbackChapters = PlaybackExtrasCodec.parseYtDlpChapters(meta?.optJSONArray("chapters"))
+            val subtitles = parsePlaybackSubtitles(
+                meta?.optJSONObject("subtitles"),
+                meta?.optJSONObject("automatic_captions")
+            )
+            val info = PlaybackStreamInfo(
+                singleUrl = single,
+                videoUrl = video,
+                audioUrl = audio,
+                mimeType = if (single != null) playbackMimeType(protocol, effectiveUrl) else null,
+                durationMs = durationMs,
+                isLive = meta?.optBoolean("is_live", false) ?: false,
+                chapters = chapters,
+                playbackChapters = playbackChapters,
+                subtitles = subtitles
+            )
+            return if (info.isEmpty) {
+                Result.failure(Exception("No playable stream found"))
+            } else {
+                Result.success(info)
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            return Result.failure(e)
+        } finally {
+            EphemeralCookieExporter.deleteEphemeralCookieFile(cookieFile)
+        }
+    }
+
+    private data class RequestedFormat(
+        val url: String,
+        val hasVideo: Boolean,
+        val hasAudio: Boolean
+    )
+
+    private data class ParsedPlaybackOutput(
+        val meta: JSONObject?,
+        val requestedFormats: JSONArray?
+    )
+
+    /**
+     * Reads the marker lines emitted by [resolvePlaybackStream]. Falls back to the last JSON
+     * object on stdout so output from older yt-dlp builds keeps working.
+     */
+    private fun parsePlaybackOutput(raw: String): ParsedPlaybackOutput? {
+        var meta: JSONObject? = null
+        var formats: JSONArray? = null
+        var fallback: JSONObject? = null
+
+        raw.lineSequence().forEach { line ->
+            val trimmed = line.trim()
+            when {
+                trimmed.startsWith(PLAYBACK_META_MARKER) -> {
+                    val json = trimmed.removePrefix(PLAYBACK_META_MARKER).trim()
+                    meta = runCatching { JSONObject(json) }.getOrNull()
+                }
+
+                trimmed.startsWith(PLAYBACK_FORMATS_MARKER) -> {
+                    val json = trimmed.removePrefix(PLAYBACK_FORMATS_MARKER).trim()
+                    formats = runCatching { JSONArray(json) }.getOrNull()
+                }
+
+                trimmed.startsWith("{") && trimmed.endsWith("}") -> {
+                    fallback = runCatching { JSONObject(trimmed) }.getOrNull()
+                }
+            }
+        }
+
+        if (meta == null && formats == null && fallback == null) return null
+        return ParsedPlaybackOutput(
+            meta = meta ?: fallback,
+            requestedFormats = formats ?: (meta ?: fallback)?.optJSONArray("requested_formats")
+        )
+    }
+
+    private fun playbackMimeType(protocol: String, url: String?): String? {
+        val p = protocol.lowercase(Locale.US)
+        val u = url?.lowercase(Locale.US).orEmpty()
+        return when {
+            p.contains("m3u8") || u.contains(".m3u8") -> "application/x-mpegURL"
+            p.contains("dash") -> "application/dash+xml"
+            else -> null
+        }
+    }
+
     suspend fun getStreamingUrlAndChapters(url: String) : Result<Pair<List<String>, List<ChapterItem>?>> {
         try {
             val request = YTDLRequest(url)
@@ -677,7 +1011,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
             request.addOption("-S", "res:720,+proto:m3u8")
             request.applyDefaultOptionsForFetchingData(url)
             if (url.isYoutubeURL()) {
-                request.setYoutubeExtractorArgs(url)
+                request.setYoutubeExtractorArgs(url, PoTokenCoordinator.getOrMintForYtDlp(context, url))
             }
 
             val ytdlResponse = RuntimeManager.getInstance().runKillable { processId ->
@@ -817,7 +1151,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
     }
 
 
-    private fun YTDLRequest.setYoutubeExtractorArgs(url: String?) {
+    private fun YTDLRequest.setYoutubeExtractorArgs(url: String?, poTokenBundle: PoTokenBundle? = null) {
         val extractorArgs = mutableListOf<String>()
         val playerClients = mutableSetOf<String>()
         val poTokens = mutableListOf<String>()
@@ -867,10 +1201,9 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
                             }
                         }
 
-//                        if (dataSyncID.isBlank() && value.useVisitorData) {
-//                            extractorArgs.add("player_skip=webpage,configs")
-//                            extractorArgs.add("visitor_data=${value.visitorData}")
-//                        }
+                        if (value.useVisitorData && value.visitorData.isNotBlank()) {
+                            extractorArgs.add("visitor_data=${value.visitorData}")
+                        }
 
                     }
                 }
@@ -884,7 +1217,20 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
             //extractorArgs.add("player_client=default,-web,-web-safari,-android,-ios,-tv")
         }
 
-        if (poTokens.isNotEmpty() && sharedPreferences.getBoolean("use_cookies", false)) {
+        if (poTokenBundle != null) {
+            extractorArgs.removeAll { it.startsWith("visitor_data=") }
+            val (visitorArg, poTokenArg) = PoTokenFormatting.buildYtDlpPoTokenArgs(
+                poTokenBundle,
+                PoTokenFormatting.DEFAULT_YTDLP_WEB_CLIENTS
+            )
+            extractorArgs.add(visitorArg)
+            val generatedEntries = poTokenArg.removePrefix("po_token=").split(",").filter { it.isNotBlank() }
+            val generatedClients = generatedEntries.mapTo(mutableSetOf()) { it.substringBefore('.') }
+            poTokens.removeAll { it.substringBefore('.') in generatedClients }
+            poTokens.addAll(generatedEntries)
+        }
+
+        if (poTokens.isNotEmpty()) {
             extractorArgs.add("po_token=${poTokens.joinToString(",")}")
         }
 
@@ -1006,9 +1352,13 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
         val cacheDownloads = sharedPreferences.getBoolean("cache_downloads", true)
         val writtenPath = type == DownloadType.command && downloadItem.format.format_note.contains("-P ")
 
-        val writeDirectly = writtenPath || (!cacheDownloads && targetDir.canWrite())
+        val writeDirectly = !downloadItem.vaultMode && (writtenPath || (!cacheDownloads && targetDir.canWrite()))
         val downDir: File
-        if (writeDirectly) {
+        if (downloadItem.vaultMode) {
+            downDir = com.deniscerri.ytdl.vault.VaultStorage.tempDirForJob(context, downloadItem.vaultJobUuid).apply {
+                mkdirs()
+            }
+        } else if (writeDirectly) {
             downDir = targetDir
             request.addOption("--no-quiet")
             request.addOption("--no-simulate")
@@ -1056,8 +1406,27 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
             request.addOption("-4")
         }
         if (sharedPreferences.getBoolean("use_cookies", false)){
-            FileUtil.getCookieFile(context){
-                request.addOption("--cookies", it)
+            FileUtil.getCookieFile(context, true){
+                // Downloads create a per-job snapshot before the request is built. When it is
+                // present, prefer it over the shared cookies.txt file. The live session export
+                // lives under auth_cookies/, while the fallback copy lives in cacheDir/.
+                val preferredFile =
+                    com.deniscerri.ytdl.util.EphemeralCookieExporter.getEphemeralCookieFile(
+                        context,
+                        downloadItem.id.toString()
+                    )
+                val fallbackFile = File(context.cacheDir, "cookies_job_${downloadItem.id}.txt")
+                val ephemeralFile = when {
+                    preferredFile.exists() -> preferredFile
+                    fallbackFile.exists() -> fallbackFile
+                    else -> null
+                }
+
+                if (ephemeralFile != null) {
+                    request.addOption("--cookies", ephemeralFile.absolutePath)
+                } else {
+                    request.addOption("--cookies", it)
+                }
             }
         }
 
@@ -1071,7 +1440,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
         }
 
         val keepCache = sharedPreferences.getBoolean("keep_cache", false)
-        if(keepCache){
+        if(keepCache && !downloadItem.vaultMode){
             request.addOption("--keep-fragments")
         }
 
@@ -1088,7 +1457,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
                 request.addOption("--trim-filenames",  254 - downDir.absolutePath.length)
             }
 
-            if (downloadItem.SaveThumb) {
+            if (downloadItem.SaveThumb && !downloadItem.vaultMode) {
                 request.addOption("--write-thumbnail")
                 request.addOption("--convert-thumbnails", thumbnailFormat!!)
             }
@@ -1154,12 +1523,15 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
                 }
             }
 
-            if (sharedPreferences.getBoolean("write_description", false)){
+            if (!downloadItem.vaultMode && sharedPreferences.getBoolean("write_description", false)){
                 request.addOption("--write-description")
             }
 
             if (downloadItem.url.isYoutubeURL()) {
-                ytDlRequest.setYoutubeExtractorArgs(downloadItem.url)
+                ytDlRequest.setYoutubeExtractorArgs(
+                    downloadItem.url,
+                    PoTokenCoordinator.getCachedOrMintOnWorker(context, downloadItem.url)
+                )
             }
 
             /*
@@ -1167,6 +1539,7 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
             * Cant use info json when using download sections
             * */
             val canUseWriteInfoJson =
+                !downloadItem.vaultMode &&
                 !sharedPreferences.getBoolean("disable_write_info_json", false) &&
                 !request.toString().contains("--download-sections")
 
@@ -1182,13 +1555,13 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
             }
 
             val subDirectories = sharedPreferences.getStringSet("save_subdirectory", setOf())!!
-            if (subDirectories.contains("website")) {
+            if (!downloadItem.vaultMode && subDirectories.contains("website")) {
                 metadataCommands.addOption("--parse-metadata", "%(extractor_key,extractor,ie_key)s:^(?P<no_GH5ME>(?!Generic|HTML5MediaEmbed).*)$")
                 metadataCommands.addOption("--parse-metadata", "%(no_GH5ME,webpage_url_domain)s:%(fldr_website)s")
             }
         }
 
-        if (sharedPreferences.getString("prevent_duplicate_downloads", "")!! == "download_archive"){
+        if (!downloadItem.vaultMode && sharedPreferences.getString("prevent_duplicate_downloads", "")!! == "download_archive"){
             request.addOption("--download-archive", FileUtil.getDownloadArchivePath(context))
         }
 
@@ -1293,9 +1666,14 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
                     request.addOption("-S", formatSorting.joinToString(","))
                 }
 
-                request.addOption("-P", downDir.absolutePath)
+                if (downloadItem.vaultMode) {
+                    request.addOption("-P", "home:${downDir.absolutePath}")
+                    request.addOption("-P", "temp:${downDir.absolutePath}")
+                } else {
+                    request.addOption("-P", downDir.absolutePath)
+                }
 
-                if (downloadItem.audioPreferences.splitByChapters && downloadItem.downloadSections.isBlank()){
+                if (!downloadItem.vaultMode && downloadItem.audioPreferences.splitByChapters && downloadItem.downloadSections.isBlank()){
                     request.addOption("--split-chapters")
                     request.addOption("-o", "chapter:%(section_number)d - %(section_title)s.%(ext)s")
                 }else{
@@ -1354,22 +1732,26 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
 
                     }
 
-                    if (filenameTemplate.isNotBlank()){
-                        request.addOption("-o", "${filenameTemplate.removeSuffix(".%(ext)s")}.%(ext)s")
-                    }
+                    if (downloadItem.vaultMode) {
+                        request.addOption("-o", "${downloadItem.vaultJobUuid}.%(ext)s")
+                    } else {
+                        if (filenameTemplate.isNotBlank()){
+                            request.addOption("-o", "${filenameTemplate.removeSuffix(".%(ext)s")}.%(ext)s")
+                        }
 
-                    //lyrics timing and duration only make sense for the full track
-                    val audioPrefs = downloadItem.audioPreferences
-                    if ((audioPrefs.embedLyrics || audioPrefs.saveLrc) && downloadItem.downloadSections.isBlank()) {
-                        val args = mutableListOf(
-                            //after_move so it runs once audio extraction, metadata and thumbnail are done
-                            "when=after_move",
-                            "embed=${if (audioPrefs.embedLyrics) 1 else 0}",
-                            "lrc=${if (audioPrefs.saveLrc) 1 else 0}",
-                            "offset=${audioPrefs.lyricsOffset}"
-                        )
-                        if (audioPrefs.lyricsId > 0) args.add("id=${audioPrefs.lyricsId}")
-                        request.addOption("--use-postprocessor", "Lyrics:${args.joinToString(";")}")
+                        //lyrics timing and duration only make sense for the full track
+                        val audioPrefs = downloadItem.audioPreferences
+                        if ((audioPrefs.embedLyrics || audioPrefs.saveLrc) && downloadItem.downloadSections.isBlank()) {
+                            val args = mutableListOf(
+                                //after_move so it runs once audio extraction, metadata and thumbnail are done
+                                "when=after_move",
+                                "embed=${if (audioPrefs.embedLyrics) 1 else 0}",
+                                "lrc=${if (audioPrefs.saveLrc) 1 else 0}",
+                                "offset=${audioPrefs.lyricsOffset}"
+                            )
+                            if (audioPrefs.lyricsId > 0) args.add("id=${audioPrefs.lyricsId}")
+                            request.addOption("--use-postprocessor", "Lyrics:${args.joinToString(";")}")
+                        }
                     }
                 }
 
@@ -1392,23 +1774,23 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
                     metadataCommands.add("--embed-metadata")
                 }
 
-                if (downloadItem.videoPreferences.writeSubs){
+                if (!downloadItem.vaultMode && downloadItem.videoPreferences.writeSubs){
                     request.addOption("--write-subs")
                 }
 
-                if(downloadItem.videoPreferences.writeAutoSubs){
+                if(!downloadItem.vaultMode && downloadItem.videoPreferences.writeAutoSubs){
                     request.addOption("--write-auto-subs")
                 }
 
                 if (downloadItem.videoPreferences.embedSubs) {
-                    if (sharedPreferences.getBoolean("no_keep_subs", false) && (downloadItem.videoPreferences.writeSubs || downloadItem.videoPreferences.writeAutoSubs)) {
+                    if (downloadItem.vaultMode || (sharedPreferences.getBoolean("no_keep_subs", false) && (downloadItem.videoPreferences.writeSubs || downloadItem.videoPreferences.writeAutoSubs))) {
                         request.addOption("--compat-options", "no-keep-subs")
                     }
 
                     request.addOption("--embed-subs")
                 }
 
-                if (downloadItem.videoPreferences.embedSubs || downloadItem.videoPreferences.writeSubs || downloadItem.videoPreferences.writeAutoSubs){
+                if (downloadItem.videoPreferences.embedSubs || (!downloadItem.vaultMode && (downloadItem.videoPreferences.writeSubs || downloadItem.videoPreferences.writeAutoSubs))){
                     val subFormat = sharedPreferences.getString("sub_format", "")
                     if(subFormat!!.isNotBlank()){
                         request.addOption("--sub-format", "${subFormat}/best")
@@ -1698,13 +2080,20 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
                     request.addOption("--ppa", "CopyStream:$copyStream")
                 }
 
-                request.addOption("-P", downDir.absolutePath)
+                if (downloadItem.vaultMode) {
+                    request.addOption("-P", "home:${downDir.absolutePath}")
+                    request.addOption("-P", "temp:${downDir.absolutePath}")
+                } else {
+                    request.addOption("-P", downDir.absolutePath)
+                }
 
-                if (downloadItem.videoPreferences.splitByChapters  && downloadItem.downloadSections.isBlank()){
+                if (!downloadItem.vaultMode && downloadItem.videoPreferences.splitByChapters  && downloadItem.downloadSections.isBlank()){
                     request.addOption("--split-chapters")
                     request.addOption("-o", "chapter:%(section_number)d - %(section_title)s.%(ext)s")
                 }else{
-                    if (filenameTemplate.isNotBlank()){
+                    if (downloadItem.vaultMode) {
+                        request.addOption("-o", "${downloadItem.vaultJobUuid}.%(ext)s")
+                    } else if (filenameTemplate.isNotBlank()){
                         request.addOption("-o", "${filenameTemplate.removeSuffix(".%(ext)s")}.%(ext)s")
                     }
                 }
@@ -1721,7 +2110,11 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
 
             }
             DownloadType.command -> {
-                if (!writtenPath) {
+                if (downloadItem.vaultMode) {
+                    request.addOption("-P", "home:${downDir.absolutePath}")
+                    request.addOption("-P", "temp:${downDir.absolutePath}")
+                    request.addOption("-o", "${downloadItem.vaultJobUuid}.%(ext)s")
+                } else if (!writtenPath) {
                     request.addOption("-P", downDir.absolutePath)
                 }
 
@@ -1742,7 +2135,11 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
             if (sponsorBlockURL.isNotBlank()) request.addOption("--sponsorblock-api", sponsorBlockURL)
         }
 
-        val cache = File(FileUtil.getCacheDownloadsPath(context))
+        val cache = if (downloadItem.vaultMode) {
+            downDir
+        } else {
+            File(FileUtil.getCacheDownloadsPath(context))
+        }
         cache.mkdirs()
         val conf = File(cache.absolutePath + "/${System.currentTimeMillis()}${UUID.randomUUID()}.txt")
         conf.createNewFile()
@@ -1751,8 +2148,12 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
         tmp.addOption("--config-locations", conf.absolutePath)
         ytDlRequest.addCommands(tmp)
 
-        val ytdlpCache = File(FileUtil.getCacheYTDLPPath(context))
-        ytDlRequest.addOption("--cache-dir", ytdlpCache.absolutePath)
+        if (downloadItem.vaultMode) {
+            ytDlRequest.addOption("--no-cache-dir")
+        } else {
+            val ytdlpCache = File(FileUtil.getCacheYTDLPPath(context))
+            ytDlRequest.addOption("--cache-dir", ytdlpCache.absolutePath)
+        }
         return ytDlRequest
     }
 }

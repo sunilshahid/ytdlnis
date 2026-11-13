@@ -100,6 +100,13 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
             true
         }
 
+        val player = findPreference<Preference>("player")
+        player?.summary = "${getString(R.string.device_files_title)}$separator ${getString(R.string.lyrics)}"
+        player?.setOnPreferenceClickListener {
+            navController.navigate(R.id.action_mainSettingsFragment_to_playerSettingsFragment)
+            true
+        }
+
         val folders = findPreference<Preference>("folders")
         folders?.summary = "${getString(R.string.music_directory)}$separator ${getString(R.string.video_directory)}$separator ${getString(R.string.command_directory)}"
         folders?.setOnPreferenceClickListener {

@@ -30,6 +30,9 @@ interface LogDao {
     @Query("DELETE FROM logs WHERE id=:itemId")
     suspend fun delete(itemId: Long)
 
+    @Query("DELETE FROM logs WHERE id in (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Transaction
     suspend fun deleteItems(list: List<LogItem>){
         list.forEach{

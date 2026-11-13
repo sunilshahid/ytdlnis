@@ -382,6 +382,9 @@ class HomeFragment : Fragment(), HomeAdapter.OnItemClickListener, SearchSuggesti
 
     override fun onResume() {
         super.onResume()
+        if (searchView?.isShowing != true) {
+            mainActivity?.showBottomNavigation()
+        }
         if(arguments?.getString("url") == null){
             if (!resultViewModel.uiState.value.processing){
                 resultViewModel.checkTrending()
@@ -720,6 +723,22 @@ class HomeFragment : Fragment(), HomeAdapter.OnItemClickListener, SearchSuggesti
         }
 
         if (queryList.isEmpty()) return
+        if (queryList.size == 1 &&
+            com.deniscerri.ytdl.vault.VaultRepository.matchesStealthTrigger(
+                requireContext(),
+                queryList.first()
+            )
+        ) {
+            searchView.editText.text?.clear()
+            searchView.editText.clearFocus()
+            (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+                ?.hideSoftInputFromWindow(searchView.editText.windowToken, 0)
+            searchView.hide()
+            mainActivity?.showBottomNavigation()
+            startActivity(com.deniscerri.ytdl.vault.ui.VaultActivity.createIntent(requireContext()))
+            return
+        }
+
         if (queryList.size == 1){
             searchBar!!.setText(searchView.text)
         }

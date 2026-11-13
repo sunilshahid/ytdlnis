@@ -11,6 +11,7 @@ import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.ui.more.settings.BaseSettingsFragment
 import com.deniscerri.ytdl.ui.more.settings.SettingsRegistry
+import com.deniscerri.ytdl.ui.play.device.DeviceFilesPrefs
 import com.deniscerri.ytdl.util.ThemeUtil
 import com.deniscerri.ytdl.util.UiUtil
 
@@ -28,6 +29,8 @@ class GeneralSettingsFragment : BaseSettingsFragment() {
         findPreference<Preference>("reset_preferences")?.setOnPreferenceClickListener {
             UiUtil.showGenericConfirmDialog(requireContext(), getString(R.string.reset), getString(R.string.reset_preferences_in_screen)) {
                 resetPreferences(editor, preferenceXMLRes)
+                DeviceFilesPrefs.reset(requireContext())
+                DeviceFilesPrefs.clearFolder(requireContext())
                 ThemeUtil.updateThemes()
                 findNavController().currentDestination?.id?.apply {
                     findNavController().popBackStack(this,true)

@@ -90,6 +90,18 @@ class DownloadBottomSheetDialog : BottomSheetDialogFragment() {
     private var disableUpdateData : Boolean = false
     private var currentDownloadItem: DownloadItem? = null
     private var incognito: Boolean = false
+    private var vaultMode: Boolean = false
+    private var pendingVaultToggleApply: (() -> Unit)? = null
+
+    private val vaultSetupLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { res ->
+        if (res.resultCode == android.app.Activity.RESULT_OK) {
+            vaultMode = true
+            pendingVaultToggleApply?.invoke()
+        }
+        pendingVaultToggleApply = null
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,7 +125,8 @@ class DownloadBottomSheetDialog : BottomSheetDialogFragment() {
         }
         result = res
         currentDownloadItem = dwl
-        incognito = currentDownloadItem?.incognito ?: sharedPreferences.getBoolean("incognito", false)
+        vaultMode = currentDownloadItem?.vaultMode == true
+        incognito = (currentDownloadItem?.incognito ?: sharedPreferences.getBoolean("incognito", false)) || vaultMode
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -196,7 +209,8 @@ class DownloadBottomSheetDialog : BottomSheetDialogFragment() {
             result,
             currentDownloadItem,
             nonSpecific = result.url.endsWith(".txt"),
-            isIncognito = incognito
+            isIncognito = incognito,
+            isVaultMode = vaultMode
         )
 
         viewPager2.adapter = fragmentAdapter
@@ -396,6 +410,10 @@ class DownloadBottomSheetDialog : BottomSheetDialogFragment() {
         }
 
         download.setOnLongClickListener {
+            if (vaultMode) {
+                Toast.makeText(requireContext(), R.string.vault_save_enabled, Toast.LENGTH_SHORT).show()
+                return@setOnLongClickListener true
+            }
             val dd = MaterialAlertDialogBuilder(requireContext())
             dd.setTitle(getString(R.string.save_for_later))
             dd.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
@@ -443,18 +461,46 @@ class DownloadBottomSheetDialog : BottomSheetDialogFragment() {
         }
 
         val incognitoBtn = view.findViewById<Button>(R.id.bottomsheet_incognito)
-        incognitoBtn.alpha = if (incognito) 1f else 0.3f
-        incognitoBtn.setOnClickListener {
-            if (incognito) {
-                it.alpha = 0.3f
-            }else{
-                it.alpha = 1f
-            }
+        val vaultBtn = view.findViewById<Button>(R.id.bottomsheet_vault)
 
-            incognito = !incognito
+        fun applyPrivacyButtonsUi() {
+            incognito = incognito || vaultMode
+            incognitoBtn.alpha = if (incognito) 1f else 0.3f
+            vaultBtn.alpha = if (vaultMode) 1f else 0.3f
             fragmentAdapter.isIncognito = incognito
+            fragmentAdapter.isVaultMode = vaultMode
+            scheduleBtn.isEnabled = !vaultMode
+            scheduleBtn.alpha = if (vaultMode) 0.35f else 1f
+        }
+
+        applyPrivacyButtonsUi()
+        incognitoBtn.setOnClickListener {
+            if (vaultMode) {
+                Snackbar.make(incognitoBtn, R.string.vault_save_enabled, Snackbar.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            incognito = !incognito
+            applyPrivacyButtonsUi()
             val onOff = if (incognito) getString(R.string.ok) else getString(R.string.disabled)
             Snackbar.make(incognitoBtn, "${getString(R.string.incognito)}: $onOff", Snackbar.LENGTH_SHORT).show()
+        }
+
+        vaultBtn.setOnClickListener {
+            if (!vaultMode && !com.deniscerri.ytdl.vault.VaultRepository.isInitialized(requireContext())) {
+                pendingVaultToggleApply = {
+                    applyPrivacyButtonsUi()
+                    Snackbar.make(vaultBtn, R.string.vault_save_enabled, Snackbar.LENGTH_SHORT).show()
+                }
+                Toast.makeText(requireContext(), R.string.vault_setup_required_prompt, Toast.LENGTH_SHORT).show()
+                vaultSetupLauncher.launch(
+                    com.deniscerri.ytdl.vault.ui.VaultActivity.createSetupIntent(requireContext())
+                )
+                return@setOnClickListener
+            }
+            vaultMode = !vaultMode
+            applyPrivacyButtonsUi()
+            val msgRes = if (vaultMode) R.string.vault_save_enabled else R.string.vault_save_disabled
+            Snackbar.make(vaultBtn, msgRes, Snackbar.LENGTH_SHORT).show()
         }
 
 

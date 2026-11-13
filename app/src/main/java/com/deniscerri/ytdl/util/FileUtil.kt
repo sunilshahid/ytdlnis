@@ -424,11 +424,73 @@ object FileUtil {
             request.getArguments("--config")?.forEach {
                 if (it != null) File(it).delete()
             }
+            request.getArguments("--cookies")?.forEach { path ->
+                if (path != null && File(path).name.startsWith("cookies_job_")) {
+                    File(path).delete()
+                }
+            }
             request.getArguments("--config-locations")?.forEach {
                 if (it != null) File(it).delete()
             }
             request.getArguments("-o")?.firstOrNull { it?.startsWith("infojson:") == true }?.apply {
                 File(this.removePrefix("infojson:")).delete()
+            }
+        }
+    }
+
+    fun cleanPartialDownloadFiles(downloadPath: String?, tempDir: File?, title: String? = null) {
+        runCatching {
+            tempDir?.deleteRecursively()
+        }
+
+        if (downloadPath.isNullOrBlank()) return
+
+        runCatching {
+            val partialRegex = Regex(
+                """(\.(part|ytdl|temp|frag|aria2)(\.[^.]+)?$)|(\.part-Frag\d+)|(\.f\d+\.[^.]+(\.part)?$)""",
+                RegexOption.IGNORE_CASE
+            )
+
+            fun isMatchingTitle(fileName: String): Boolean {
+                if (title.isNullOrBlank()) return true
+                val cleanTitle = title.replace(Regex("""[^\p{L}\p{Nd}]+"""), " ").trim().lowercase(Locale.ROOT)
+                if (cleanTitle.isEmpty()) return true
+                val cleanFileName = fileName.replace(Regex("""[^\p{L}\p{Nd}]+"""), " ").trim().lowercase(Locale.ROOT)
+                if (cleanFileName.contains(cleanTitle)) return true
+                val words = cleanTitle.split(" ").filter { it.length >= 3 }
+                return if (words.isNotEmpty()) {
+                    words.take(3).all { cleanFileName.contains(it) }
+                } else {
+                    cleanFileName.contains(cleanTitle.take(5))
+                }
+            }
+
+            // Check if SAF URI
+            if (downloadPath.startsWith("content://")) {
+                val uri = Uri.parse(downloadPath)
+                val dir = DocumentFile.fromTreeUri(App.instance, uri)
+                dir?.listFiles()?.forEach { doc ->
+                    if (doc.isFile) {
+                        val name = doc.name ?: ""
+                        if (partialRegex.containsMatchIn(name) && isMatchingTitle(name)) {
+                            doc.delete()
+                        }
+                    }
+                }
+            }
+
+            // Also check standard filesystem path
+            val formatted = formatPath(downloadPath)
+            val dir = File(formatted)
+            if (dir.exists() && dir.isDirectory) {
+                dir.listFiles()?.forEach { file ->
+                    if (file.isFile) {
+                        val name = file.name
+                        if (partialRegex.containsMatchIn(name) && isMatchingTitle(name)) {
+                            deleteFile(file.absolutePath)
+                        }
+                    }
+                }
             }
         }
     }

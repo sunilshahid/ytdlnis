@@ -11,7 +11,10 @@ import com.deniscerri.ytdl.database.dao.CookieDao
 import com.deniscerri.ytdl.database.dao.DownloadDao
 import com.deniscerri.ytdl.database.dao.HistoryDao
 import com.deniscerri.ytdl.database.dao.LogDao
+import com.deniscerri.ytdl.database.dao.LyricsCacheDao
 import com.deniscerri.ytdl.database.dao.ObserveSourcesDao
+import com.deniscerri.ytdl.database.dao.PlaybackHistoryDao
+import com.deniscerri.ytdl.database.dao.PlaybackQueueDao
 import com.deniscerri.ytdl.database.dao.ResultDao
 import com.deniscerri.ytdl.database.dao.SearchHistoryDao
 import com.deniscerri.ytdl.database.dao.TerminalDao
@@ -20,6 +23,10 @@ import com.deniscerri.ytdl.database.models.CookieItem
 import com.deniscerri.ytdl.database.models.DownloadItem
 import com.deniscerri.ytdl.database.models.HistoryItem
 import com.deniscerri.ytdl.database.models.LogItem
+import com.deniscerri.ytdl.database.models.LyricsCacheItem
+import com.deniscerri.ytdl.database.models.PlaybackHistoryItem
+import com.deniscerri.ytdl.database.models.PlaybackQueueItem
+import com.deniscerri.ytdl.database.models.PlaybackQueueState
 import com.deniscerri.ytdl.database.models.ResultItem
 import com.deniscerri.ytdl.database.models.SearchHistoryItem
 import com.deniscerri.ytdl.database.models.TemplateShortcut
@@ -38,9 +45,13 @@ import com.deniscerri.ytdl.database.models.observeSources.ObserveSourcesItem
         CookieItem::class,
         LogItem::class,
         TerminalItem::class,
-        ObserveSourcesItem::class
+        ObserveSourcesItem::class,
+        PlaybackQueueState::class,
+        PlaybackQueueItem::class,
+        PlaybackHistoryItem::class,
+        LyricsCacheItem::class
    ],
-    version = 29,
+    version = 31,
     autoMigrations = [
         AutoMigration (from = 1, to = 2),
         AutoMigration (from = 2, to = 3),
@@ -69,7 +80,9 @@ import com.deniscerri.ytdl.database.models.observeSources.ObserveSourcesItem
         //AutoMigration(from = 25, to = 26) MANUALLY HANDLED
         AutoMigration(from = 26, to = 27),
         AutoMigration(from = 27, to = 28),
-        AutoMigration(from = 28, to = 29)
+        AutoMigration(from = 28, to = 29),
+        AutoMigration(from = 29, to = 30),
+        AutoMigration(from = 30, to = 31)
     ]
 )
 abstract class DBManager : RoomDatabase(){
@@ -82,6 +95,9 @@ abstract class DBManager : RoomDatabase(){
     abstract val logDao: LogDao
     abstract val terminalDao: TerminalDao
     abstract val observeSourcesDao: ObserveSourcesDao
+    abstract val playbackQueueDao: PlaybackQueueDao
+    abstract val playbackHistoryDao: PlaybackHistoryDao
+    abstract val lyricsCacheDao: LyricsCacheDao
 
     enum class SORTING{
         DESC, ASC

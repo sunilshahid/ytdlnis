@@ -16,6 +16,7 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavOptions
 import androidx.navigation.fragment.findNavController
 import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.MainActivity
@@ -39,6 +40,7 @@ class MoreFragment : Fragment() {
     private lateinit var downloads: TextView
     private lateinit var cookies: TextView
     private lateinit var observeSources: TextView
+    private lateinit var privateVault: TextView
     private lateinit var terminateApp: TextView
     private lateinit var settings: TextView
     private lateinit var mainActivity: MainActivity
@@ -64,8 +66,11 @@ class MoreFragment : Fragment() {
         downloadQueue = view.findViewById(R.id.download_queue)
         cookies = view.findViewById(R.id.cookies)
         observeSources = view.findViewById(R.id.observe_sources)
+        privateVault = view.findViewById(R.id.private_vault)
         terminateApp = view.findViewById(R.id.terminate)
         settings = view.findViewById(R.id.settings)
+
+        privateVault.isVisible = !com.deniscerri.ytdl.vault.VaultRepository.isStealthEnabled(requireContext())
 
         val appIcon = view.findViewById<ImageView>(R.id.app_icon)
         if (mainSharedPreferences.getString("theme_accent", "blue") == "Default" && Build.VERSION.SDK_INT >= 32) {
@@ -93,28 +98,39 @@ class MoreFragment : Fragment() {
             startActivity(intent)
         }
 
+        val slideNavOptions = NavOptions.Builder()
+            .setEnterAnim(R.anim.nav_slide_in_right)
+            .setExitAnim(R.anim.nav_slide_out_left)
+            .setPopEnterAnim(R.anim.nav_slide_in_left)
+            .setPopExitAnim(R.anim.nav_slide_out_right)
+            .build()
+
         logs.setOnClickListener {
-            findNavController().navigate(R.id.downloadLogListFragment)
+            findNavController().navigate(R.id.downloadLogListFragment, null, slideNavOptions)
         }
 
         commandTemplates.setOnClickListener {
-            findNavController().navigate(R.id.commandTemplatesFragment)
+            findNavController().navigate(R.id.commandTemplatesFragment, null, slideNavOptions)
         }
 
         downloads.setOnClickListener {
-            findNavController().navigate(R.id.historyFragment)
+            findNavController().navigate(R.id.historyFragment, null, slideNavOptions)
         }
 
         downloadQueue.setOnClickListener {
-            findNavController().navigate(R.id.downloadQueueMainFragment)
+            findNavController().navigate(R.id.downloadQueueMainFragment, null, slideNavOptions)
         }
 
         cookies.setOnClickListener {
-            findNavController().navigate(R.id.cookiesFragment)
+            findNavController().navigate(R.id.cookiesFragment, null, slideNavOptions)
         }
 
         observeSources.setOnClickListener {
-            findNavController().navigate(R.id.observeSourcesFragment)
+            findNavController().navigate(R.id.observeSourcesFragment, null, slideNavOptions)
+        }
+
+        privateVault.setOnClickListener {
+            startActivity(com.deniscerri.ytdl.vault.ui.VaultActivity.createIntent(requireContext()))
         }
 
         terminateApp.setOnClickListener {
@@ -130,6 +146,13 @@ class MoreFragment : Fragment() {
             startActivity(intent)
         }
 
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::privateVault.isInitialized) {
+            privateVault.isVisible = !com.deniscerri.ytdl.vault.VaultRepository.isStealthEnabled(requireContext())
+        }
     }
 
     fun showTerminateConfirmationDialog(skipPreference: Boolean = false) {

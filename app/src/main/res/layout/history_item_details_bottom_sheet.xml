@@ -218,49 +218,78 @@
             android:textSize="15sp"
             app:icon="@drawable/ic_link" />
 
-        <LinearLayout
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:gravity="end"
-            android:layout_margin="10dp"
-            android:orientation="horizontal">
+            android:scrollbars="none">
 
-            <Button
-                style="@style/Widget.Material3.Button.OutlinedButton.Icon"
-                android:id="@+id/bottomsheet_remove_button"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="10dp"
-                android:outlineProvider="none"
-                android:stateListAnimator="@null"
-                app:icon="@drawable/ic_baseline_delete_outline_24"
-                android:text="@string/Remove" />
+                android:layout_gravity="end"
+                android:gravity="end"
+                android:layout_margin="10dp"
+                android:orientation="horizontal">
 
-            <Button
-                style="@style/Widget.Material3.Button.ElevatedButton.Icon"
-                android:id="@+id/bottomsheet_open_file_button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/Open_File"
-                android:outlineProvider="none"
-                android:stateListAnimator="@null"
-                android:layout_marginEnd="10dp"
-                app:icon="@drawable/ic_open_file"
-                />
+                <Button
+                    style="@style/Widget.Material3.Button.Icon"
+                    android:id="@+id/bottomsheet_play_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="10dp"
+                    android:outlineProvider="none"
+                    android:stateListAnimator="@null"
+                    android:text="@string/play"
+                    app:icon="@drawable/ic_lyrics_play" />
 
-            <Button
-                android:id="@+id/bottomsheet_redownload_button"
-                style="@style/Widget.Material3.Button.ElevatedButton.Icon"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="10dp"
-                android:outlineProvider="none"
-                android:stateListAnimator="@null"
-                android:text="@string/redownload"
-                app:icon="@drawable/ic_refresh" />
+                <Button
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:id="@+id/bottomsheet_move_to_vault_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="10dp"
+                    android:outlineProvider="none"
+                    android:stateListAnimator="@null"
+                    android:text="@string/move_to_vault"
+                    app:icon="@drawable/ic_lock" />
 
-        </LinearLayout>
+                <Button
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:id="@+id/bottomsheet_remove_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="10dp"
+                    android:outlineProvider="none"
+                    android:stateListAnimator="@null"
+                    app:icon="@drawable/ic_baseline_delete_outline_24"
+                    android:text="@string/Remove" />
+
+                <Button
+                    style="@style/Widget.Material3.Button.ElevatedButton.Icon"
+                    android:id="@+id/bottomsheet_open_file_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/Open_File"
+                    android:outlineProvider="none"
+                    android:stateListAnimator="@null"
+                    android:layout_marginEnd="10dp"
+                    app:icon="@drawable/ic_open_file"
+                    />
+
+                <Button
+                    android:id="@+id/bottomsheet_redownload_button"
+                    style="@style/Widget.Material3.Button.ElevatedButton.Icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="10dp"
+                    android:outlineProvider="none"
+                    android:stateListAnimator="@null"
+                    android:text="@string/redownload"
+                    app:icon="@drawable/ic_refresh" />
+
+            </LinearLayout>
+        </HorizontalScrollView>
 
     </LinearLayout>
 

@@ -25,12 +25,27 @@ import androidx.core.content.edit
 import androidx.preference.EditTextPreference
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.ui.more.settings.SettingHost
+import com.deniscerri.ytdl.util.IncognitoSessionManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 object DownloadSettingsModule : SettingModule {
     override fun bindLogic(pref: Preference, host: SettingHost) {
         val context = pref.context
         val preferences = PreferenceManager.getDefaultSharedPreferences(context)
         when(pref.key) {
+            "incognito" -> {
+                pref.setOnPreferenceChangeListener { _, newValue ->
+                    val isIncognito = newValue as Boolean
+                    if (!isIncognito) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            IncognitoSessionManager.purgeIncognitoSession(context)
+                        }
+                    }
+                    true
+                }
+            }
             "remember_download_type" -> {
                 val rememberDownloadType = pref as SwitchPreferenceCompat
                 rememberDownloadType.setOnPreferenceChangeListener { _, newValue ->

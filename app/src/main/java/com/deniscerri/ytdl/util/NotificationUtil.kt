@@ -132,6 +132,25 @@ class NotificationUtil(var context: Context) {
             .build()
     }
 
+    /**
+     * Neutral OS-compliant foreground service notification for vault-isolated worker runs.
+     * Exposes zero download/vault titles, URLs, counts, or private labels.
+     */
+    fun createNeutralWorkerNotification() : Notification {
+        val notificationBuilder = getBuilder(DOWNLOAD_WORKER_CHANNEL_ID)
+
+        return notificationBuilder
+            .setContentTitle(resources.getString(R.string.app_name))
+            .setContentText(resources.getString(R.string.vault_neutral_worker_text))
+            .setOngoing(true)
+            .setSmallIcon(R.drawable.ic_launcher_foreground_large)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .clearActions()
+            .build()
+    }
+
     fun createObserveSourcesNotification(title: String) : Notification {
         val notificationBuilder = getBuilder(DOWNLOAD_WORKER_CHANNEL_ID)
 

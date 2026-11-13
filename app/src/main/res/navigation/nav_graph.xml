@@ -147,6 +147,9 @@
                 android:id="@+id/action_mainSettingsFragment_to_appearanceSettingsFragment"
                 app:destination="@id/appearanceSettingsFragment" />
             <action
+                android:id="@+id/action_mainSettingsFragment_to_playerSettingsFragment"
+                app:destination="@id/playerSettingsFragment" />
+            <action
                 android:id="@+id/action_mainSettingsFragment_to_folderSettingsFragment"
                 app:destination="@id/folderSettingsFragment" />
             <action
@@ -163,6 +166,10 @@
             android:id="@+id/appearanceSettingsFragment"
             android:name="com.deniscerri.ytdl.ui.more.settings.general.GeneralSettingsFragment"
             android:label="AppearanceSettingsFragment" />
+        <fragment
+            android:id="@+id/playerSettingsFragment"
+            android:name="com.deniscerri.ytdl.ui.more.settings.player.PlayerSettingsFragment"
+            android:label="PlayerSettingsFragment" />
     </navigation>
     <dialog
         android:id="@+id/downloadBottomSheetDialog"
@@ -204,4 +211,13 @@
         android:id="@+id/downloadsAlreadyExistDialog"
         android:name="com.deniscerri.ytdl.ui.downloadcard.DownloadsAlreadyExistDialog"
         android:label="DownloadsAlreadyExistDialog" />
+    <fragment
+        android:id="@+id/playFragment"
+        android:name="com.deniscerri.ytdl.ui.play.PlayFragment"
+        android:label="@string/play"
+        tools:layout="@layout/fragment_play">
+        <action
+            android:id="@+id/action_playFragment_to_downloadBottomSheetDialog"
+            app:destination="@id/downloadBottomSheetDialog" />
+    </fragment>
 </navigation>

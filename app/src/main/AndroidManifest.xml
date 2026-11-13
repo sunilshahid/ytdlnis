@@ -26,6 +26,10 @@
 <!--    foreground service permission for android 14 and up-->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- media playback service (Android 14+ requires the typed foreground permission) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <queries>
         <!-- YTDLnis recognized packages -->
         <package android:name="com.deniscerri.ytdl.python" />
@@ -535,6 +539,13 @@
         <activity android:name=".ui.more.cookies.WebViewActivityIncognito" android:process=":incognito_process" />
 
         <activity
+            android:name=".ui.more.cookies.YouTubeLoginActivity"
+            android:configChanges="locale"
+            android:exported="false"
+            android:launchMode="standard"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".ui.more.settings.advanced.generateyoutubepotokens.webview.PoTokenWebViewLoginActivity"
             android:configChanges="locale"
             android:exported="true"
@@ -545,6 +556,64 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.play.AudioPlayerActivity"
+            android:configChanges="locale"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.play.VideoPlayerActivity"
+            android:configChanges="screenLayout|smallestScreenSize|orientation|screenSize|locale|keyboardHidden"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/Theme.VideoPlayer" />
+
+        <activity
+            android:name=".vault.ui.VaultActivity"
+            android:configChanges="screenLayout|smallestScreenSize|orientation|screenSize|locale|keyboardHidden|keyboard"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:resizeableActivity="false"
+            android:supportsPictureInPicture="false"
+            android:taskAffinity="com.deniscerri.ytdl.vault"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".vault.ui.VaultVideoPlayerActivity"
+            android:configChanges="screenLayout|smallestScreenSize|orientation|screenSize|locale|keyboardHidden|keyboard"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:resizeableActivity="false"
+            android:supportsPictureInPicture="false"
+            android:taskAffinity="com.deniscerri.ytdl.vault"
+            android:theme="@style/Theme.VideoPlayer" />
+
+        <activity
+            android:name=".vault.ui.VaultImportActivity"
+            android:configChanges="screenLayout|smallestScreenSize|orientation|screenSize|locale|keyboardHidden|keyboard"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:resizeableActivity="false"
+            android:supportsPictureInPicture="false"
+            android:taskAffinity="com.deniscerri.ytdl.vault"
+            android:theme="@style/Theme.VideoPlayer"
+            android:windowSoftInputMode="adjustResize" />
+
+        <service
+            android:name=".playback.PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
 
         <receiver android:name=".receiver.CancelDownloadNotificationReceiver" />
         <receiver android:name=".receiver.CancelWorkReceiver" />
