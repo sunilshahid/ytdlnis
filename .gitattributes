@@ -1,5 +1,10 @@
 # Exclude vendored native C/Assembly decoder (dav1d) from language statistics
 app/src/main/jni/** linguist-vendored
+app/src/main/jni/** linguist-detectable=false
+
+*.asm linguist-detectable=false
+*.S linguist-detectable=false
+*.s linguist-detectable=false
 
 # Exclude generated Room schemas
 schemas/** linguist-generated
