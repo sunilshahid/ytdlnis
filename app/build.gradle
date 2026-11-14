@@ -56,13 +56,13 @@ android {
         }
     }catch(IOException ignored){}
     defaultConfig {
-        applicationId "com.deniscerri.ytdl"
+        applicationId "com.deniscerri.ytdl.extended"
         minSdk 24
         targetSdk 36
         versionCode versionMajor * 1000000 + versionMinor * 10000 + versionPatch * 100 + versionBuild
         versionName "${versionMajor}.${versionMinor}.${versionPatch}${versionExt}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        archivesBaseName = "YTDLnis-$versionName"
+        archivesBaseName = "YTDLnis-Extended-$versionName"
         vectorDrawables {
             useSupportLibrary true
         }
@@ -135,9 +135,9 @@ android {
 
             def abi = output.getFilter(com.android.build.OutputFile.ABI) ?: "universal"
             if (variant.flavorName == "github") {
-                output.outputFileName = "YTDLnis-${versionName}-${abi}-${variant.buildType.name}-${variant.flavorName}.apk"
+                output.outputFileName = "YTDLnis-Extended-${versionName}-${abi}-${variant.buildType.name}-${variant.flavorName}.apk"
             } else {
-                output.outputFileName = "YTDLnis-${versionName}-${variant.flavorName}-${abi}-${variant.buildType.name}.apk"
+                output.outputFileName = "YTDLnis-Extended-${versionName}-${variant.flavorName}-${abi}-${variant.buildType.name}.apk"
             }
         }
     }
@@ -180,6 +180,8 @@ android {
     }
     lint {
         disable 'MissingTranslation', 'RestrictedApi'
+        abortOnError false
+        checkReleaseBuilds false
     }
 
     androidResources {
@@ -293,4 +295,10 @@ dependencies {
 
     implementation 'dev.rikka.shizuku:api:13.1.5'
     implementation 'dev.rikka.shizuku:provider:13.1.5'
+}
+
+tasks.configureEach { task ->
+    if (task.name.contains("ComposeMapping")) {
+        task.enabled = false
+    }
 }

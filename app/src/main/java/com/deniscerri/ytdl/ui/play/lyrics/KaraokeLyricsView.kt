@@ -350,8 +350,10 @@ class KaraokeLyricsView @JvmOverloads constructor(
         super.onSizeChanged(w, h, oldw, oldh)
         rebuildLayout()
         updateScrims(w, h)
-        if (document?.isSynced == true && !isUserScrolling()) {
-            scrollY = targetScrollForActive() ?: scrollY
+        if (oldh == 0 && document?.isSynced == true) {
+            scrollY = targetScrollForActive() ?: 0f
+        } else {
+            scrollY = scrollY.coerceIn(0f, maxScroll)
         }
     }
 
@@ -898,7 +900,6 @@ class KaraokeLyricsView @JvmOverloads constructor(
                         onLyricsClickListener?.invoke()
                     }
                     performClick()
-                    scheduleSnap()
                     return true
                 }
                 isDragging = false
@@ -1058,7 +1059,7 @@ class KaraokeLyricsView @JvmOverloads constructor(
 
     private companion object {
         /** Hold time after the last gesture frame before snapping back. */
-        const val SNAP_DELAY_MS = 550L
+        const val SNAP_DELAY_MS = 4500L
 
         /** Snap-back completes inside one second after the user stops. */
         const val SNAP_ANIMATION_MS = 320L

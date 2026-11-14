@@ -9,6 +9,8 @@
 .externalNativeBuild
 /benchmark
 *.png
+!screenshots/*.png
+!fastlane/**/*.png
 app/src/main/jniLibs
 # vendored dav1d AV1 decoder build artifacts (keep app/src/main/jni sources)
 third_party/

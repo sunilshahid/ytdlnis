@@ -181,9 +181,8 @@ class LyricsSheetFragment : DialogFragment() {
                 val offset = renderedDocument?.offsetMs ?: 0L
                 PlaybackController.seekTo((start + offset).coerceAtLeast(0L))
             }
-            showHeaderImmersion()
         }
-        lyricsView.onLyricsClickListener = { showHeaderImmersion() }
+        lyricsView.onLyricsClickListener = null
         lyricsView.onScrollDirectionListener = { isScrollingUpToHeader ->
             if (isScrollingUpToHeader) {
                 showHeaderImmersion()
@@ -191,6 +190,9 @@ class LyricsSheetFragment : DialogFragment() {
                 hideHeaderImmersion()
             }
         }
+        view.findViewById<View>(R.id.lyrics_sheet_top_bar).setOnClickListener { showHeaderImmersion() }
+        titleView.setOnClickListener { showHeaderImmersion() }
+        artistView.setOnClickListener { showHeaderImmersion() }
         root.setOnClickListener { showHeaderImmersion() }
 
         val playback = PlaybackController.state.value
