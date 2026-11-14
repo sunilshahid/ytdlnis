@@ -1,4 +1,4 @@
-# YTDLnis Extended v1.9.1
+# YTDLnis Extended v1.9.2
 
 **YTDLnis Extended** is an enhanced, privacy-focused media suite and downloader built on top of [YTDLnis](https://github.com/deniscerri/ytdlnis) by Denis Çerri.
 
