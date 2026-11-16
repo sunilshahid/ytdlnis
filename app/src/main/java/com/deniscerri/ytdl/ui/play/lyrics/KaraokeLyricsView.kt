@@ -643,11 +643,11 @@ class KaraokeLyricsView @JvmOverloads constructor(
         alpha: Float = 1f
     ) {
         var y = top + rowHeight * 0.78f
+        val pos = effectivePositionMs()
         if (isActive) {
             layout.rows.forEach { row ->
                 row.boxes.forEach { box ->
                     val paint = activePaint
-                    val pos = effectivePositionMs()
                     val wordStart = box.startMs
                     val wordEnd = box.endMs
                     val wordProgress = if (
@@ -832,6 +832,31 @@ class KaraokeLyricsView @JvmOverloads constructor(
                 canvas.drawText(romLine, romX, romY, translationPaint)
                 romY += romLineHeight
             }
+        }
+
+        if (isActive && doc.isInstrumentalBreak(pos)) {
+            val dotRadius = 3.2f * density
+            val dotSpacing = 16f * density
+            val indicatorY = (if (layout.romLines.isNotEmpty()) top + layout.romTop + translationPaint.textSize * 1.35f * layout.romLines.size + 12f * density else y + 10f * density)
+            val startX = if (layout.isRtl) {
+                width - horizontalPadding - (2 * dotSpacing)
+            } else {
+                horizontalPadding + dotRadius
+            }
+            val now = android.os.SystemClock.uptimeMillis()
+            val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+            }
+            for (i in 0..2) {
+                val phase = ((now + i * 200L) % 1200L) / 1200.0
+                val bounce = kotlin.math.sin(phase * Math.PI).toFloat().coerceIn(0f, 1f)
+                val dotAlpha = (alpha * (0.35f + 0.65f * bounce)).coerceIn(0f, 1f)
+                val dotY = indicatorY - bounce * 4f * density
+                val dotX = startX + i * dotSpacing
+                dotPaint.color = applyAlpha(accentColor, dotAlpha)
+                canvas.drawCircle(dotX, dotY, dotRadius * (1f + 0.25f * bounce), dotPaint)
+            }
+            postInvalidateOnAnimation()
         }
     }
 

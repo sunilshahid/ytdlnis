@@ -33,6 +33,8 @@ import com.deniscerri.ytdl.util.Extensions.toStringTimeStamp
 import com.deniscerri.ytdl.util.PlaybackColors
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.MaterialColors
+import com.google.android.material.transition.platform.MaterialArcMotion
+import com.google.android.material.transition.platform.MaterialContainerTransform
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -48,23 +50,25 @@ class AudioPlayerActivity : BaseActivity() {
     private var coloredForMediaId: String? = null
     private var showRemainingTime = false
     private var currentDominantColor: Int? = null
+    private var lastPlayingState: Boolean? = null
+    private var lastMediaId: String? = null
 
     private val speeds = listOf(1.0f, 1.25f, 1.5f, 0.75f)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val enterShared = android.transition.TransitionSet().apply {
-            addTransition(android.transition.ChangeBounds())
-            addTransition(android.transition.ChangeTransform())
-            addTransition(android.transition.ChangeImageTransform())
+        val enterShared = MaterialContainerTransform().apply {
+            addTarget(R.id.audio_art)
             duration = 340L
+            scrimColor = Color.TRANSPARENT
+            setPathMotion(MaterialArcMotion())
             interpolator = DecelerateInterpolator(1.8f)
         }
-        val returnShared = android.transition.TransitionSet().apply {
-            addTransition(android.transition.ChangeBounds())
-            addTransition(android.transition.ChangeTransform())
-            addTransition(android.transition.ChangeImageTransform())
+        val returnShared = MaterialContainerTransform().apply {
+            addTarget(R.id.audio_art)
             duration = 320L
+            scrimColor = Color.TRANSPARENT
+            setPathMotion(MaterialArcMotion())
             interpolator = DecelerateInterpolator(1.8f)
         }
         window.sharedElementEnterTransition = enterShared
@@ -344,9 +348,16 @@ class AudioPlayerActivity : BaseActivity() {
             applyAmbientBackground(null)
             return
         }
-        findViewById<TextView>(R.id.audio_title).text = item.title
-        findViewById<TextView>(R.id.audio_artist).text =
-            item.artist?.takeIf { it.isNotBlank() } ?: getString(R.string.unknown_artist)
+        val isTrackChanged = lastMediaId != null && lastMediaId != item.mediaId
+        lastMediaId = item.mediaId
+
+        val artistStr = item.artist?.takeIf { it.isNotBlank() } ?: getString(R.string.unknown_artist)
+        if (isTrackChanged) {
+            updateMetadataWithSlide(item.title, artistStr)
+        } else {
+            findViewById<TextView>(R.id.audio_title).text = item.title
+            findViewById<TextView>(R.id.audio_artist).text = artistStr
+        }
         findViewById<TextView>(R.id.audio_source).text = buildString {
             append(
                 when (item.source) {
@@ -384,7 +395,8 @@ class AudioPlayerActivity : BaseActivity() {
         applyDynamicControlsTint(currentDominantColor)
 
         val art = findViewById<ImageView>(R.id.audio_art)
-        PlaybackArtworkLoader.load(art, item)
+        PlaybackArtworkLoader.load(art, item, crossfade = isTrackChanged)
+        updateArtworkPlayState(state.playing, animate = (lastPlayingState != null))
 
         if (coloredForMediaId != item.mediaId) {
             coloredForMediaId = item.mediaId
@@ -392,6 +404,71 @@ class AudioPlayerActivity : BaseActivity() {
         }
 
         updateLikeState(item)
+    }
+
+    private fun updateArtworkPlayState(isPlaying: Boolean, animate: Boolean = true) {
+        if (lastPlayingState == isPlaying) return
+        lastPlayingState = isPlaying
+        val art = findViewById<ImageView>(R.id.audio_art) ?: return
+        val targetScale = if (isPlaying) 1.0f else 0.92f
+        val targetElevation = (if (isPlaying) 16f else 4f) * resources.displayMetrics.density
+
+        if (!animate) {
+            art.scaleX = targetScale
+            art.scaleY = targetScale
+            art.translationZ = targetElevation
+            return
+        }
+
+        val interpolator = if (isPlaying) OvershootInterpolator(1.25f) else DecelerateInterpolator(1.6f)
+        val duration = if (isPlaying) 400L else 320L
+        art.animate()
+            .scaleX(targetScale)
+            .scaleY(targetScale)
+            .translationZ(targetElevation)
+            .setDuration(duration)
+            .setInterpolator(interpolator)
+            .start()
+    }
+
+    private fun updateMetadataWithSlide(title: String, artist: String) {
+        val titleView = findViewById<TextView>(R.id.audio_title) ?: return
+        val artistView = findViewById<TextView>(R.id.audio_artist) ?: return
+
+        val slideDistance = 32f * resources.displayMetrics.density
+        titleView.animate()
+            .translationX(-slideDistance)
+            .alpha(0f)
+            .setDuration(140)
+            .setInterpolator(AccelerateInterpolator())
+            .withEndAction {
+                titleView.text = title
+                titleView.translationX = slideDistance
+                titleView.animate()
+                    .translationX(0f)
+                    .alpha(1f)
+                    .setDuration(220)
+                    .setInterpolator(DecelerateInterpolator())
+                    .start()
+            }
+            .start()
+
+        artistView.animate()
+            .translationX(-slideDistance)
+            .alpha(0f)
+            .setDuration(140)
+            .setInterpolator(AccelerateInterpolator())
+            .withEndAction {
+                artistView.text = artist
+                artistView.translationX = slideDistance
+                artistView.animate()
+                    .translationX(0f)
+                    .alpha(1f)
+                    .setDuration(220)
+                    .setInterpolator(DecelerateInterpolator())
+                    .start()
+            }
+            .start()
     }
 
     private fun applyDynamicControlsTint(dominantColor: Int?) {

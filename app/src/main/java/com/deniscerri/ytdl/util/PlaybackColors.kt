@@ -18,6 +18,14 @@ import kotlin.math.min
  */
 object PlaybackColors {
 
+    private val colorCache = androidx.collection.LruCache<String, Int>(256)
+
+    fun cachedColor(key: String): Int? = colorCache.get(key)
+
+    fun putCachedColor(key: String, color: Int) {
+        colorCache.put(key, color)
+    }
+
     data class LyricsPalette(val base: Int, val active: Int)
 
     /** Reads the `lyrics_text_color` preference. Returns null for "default (from artwork)". */
@@ -66,8 +74,12 @@ object PlaybackColors {
     }
 
     private suspend fun dominantArtworkColor(context: Context, item: PlaybackItem): Int? {
+        val cacheKey = item.mediaId
+        colorCache.get(cacheKey)?.let { return it }
         val bitmap = PlaybackArtworkLoader.bitmapFor(context, item) ?: return null
-        return extractDominant(bitmap)
+        val extracted = extractDominant(bitmap) ?: return null
+        colorCache.put(cacheKey, extracted)
+        return extracted
     }
 
     /**

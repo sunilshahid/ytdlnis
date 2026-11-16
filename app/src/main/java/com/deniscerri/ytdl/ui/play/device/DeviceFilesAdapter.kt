@@ -5,8 +5,11 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
@@ -107,6 +110,24 @@ class DeviceFilesAdapter(
         }
     }
 
+    override fun onBindViewHolder(
+        holder: RecyclerView.ViewHolder,
+        position: Int,
+        payloads: MutableList<Any>
+    ) {
+        if (payloads.contains(PAYLOAD_PLAYING_STATE)) {
+            val row = getItem(position) as? DeviceRow.File
+            if (row != null) {
+                when (holder) {
+                    is ListHolder -> holder.updatePlayingState(row)
+                    is GridHolder -> holder.updatePlayingState(row)
+                }
+                return
+            }
+        }
+        super.onBindViewHolder(holder, position, payloads)
+    }
+
     private inner class ListHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val root: View = view.findViewById(R.id.play_track_root)
         private val art: ImageView = view.findViewById(R.id.play_row_art)
@@ -147,6 +168,7 @@ class DeviceFilesAdapter(
             typeBadge.isVisible = media.type == PlaybackType.VIDEO
             typeBadge.setImageResource(R.drawable.ic_video)
             setActiveBackground(root, row.isCurrent || isSelected)
+            itemView.applyTactilePressAnimation()
 
             itemView.setOnClickListener {
                 onFileClick(media, visibleFiles())
@@ -162,6 +184,13 @@ class DeviceFilesAdapter(
                 true
             }
             menu.setOnClickListener { onFileMenu(menu, media) }
+        }
+
+        fun updatePlayingState(row: DeviceRow.File) {
+            val isSelected = selectionMode && row.media.mediaId in selectedMediaIds
+            title.setTextColor(if (row.isCurrent || isSelected) colorPrimary else colorOnSurface)
+            equalizer.isVisible = row.isCurrent && !selectionMode
+            setActiveBackground(root, row.isCurrent || isSelected)
         }
 
         fun bindFolder(folder: DeviceFolder) {
@@ -239,6 +268,7 @@ class DeviceFilesAdapter(
             art.imageTintList = null
             thumbnails.load(art, media)
             setActiveCard(row.isCurrent || isSelected)
+            itemView.applyTactilePressAnimation()
             itemView.setOnClickListener { onFileClick(media, visibleFiles()) }
             itemView.setOnLongClickListener { view ->
                 val handler = onFileLongClick
@@ -251,6 +281,12 @@ class DeviceFilesAdapter(
                 true
             }
             menu.setOnClickListener { onFileMenu(menu, media) }
+        }
+
+        fun updatePlayingState(row: DeviceRow.File) {
+            val isSelected = selectionMode && row.media.mediaId in selectedMediaIds
+            playing.isVisible = row.isCurrent
+            setActiveCard(row.isCurrent || isSelected)
         }
 
         fun bindFolder(folder: DeviceFolder) {
@@ -327,14 +363,53 @@ class DeviceFilesAdapter(
 
         override fun areContentsTheSame(oldItem: DeviceRow, newItem: DeviceRow): Boolean =
             oldItem == newItem
+
+        override fun getChangePayload(oldItem: DeviceRow, newItem: DeviceRow): Any? {
+            if (oldItem is DeviceRow.File && newItem is DeviceRow.File) {
+                if (oldItem.media.mediaId == newItem.media.mediaId &&
+                    oldItem.isCurrent != newItem.isCurrent &&
+                    oldItem.status == newItem.status &&
+                    oldItem.fields == newItem.fields
+                ) {
+                    return PAYLOAD_PLAYING_STATE
+                }
+            }
+            return null
+        }
     }
 
-    private companion object {
-        const val TYPE_HEADER = 0
-        const val TYPE_FILE_LIST = 1
-        const val TYPE_FILE_GRID = 2
-        const val TYPE_FOLDER_LIST = 3
-        const val TYPE_FOLDER_GRID = 4
-        const val TYPE_MESSAGE = 5
+    companion object {
+        const val PAYLOAD_PLAYING_STATE = "payload_playing_state"
+        private const val TYPE_HEADER = 0
+        private const val TYPE_FILE_LIST = 1
+        private const val TYPE_FILE_GRID = 2
+        private const val TYPE_FOLDER_LIST = 3
+        private const val TYPE_FOLDER_GRID = 4
+        private const val TYPE_MESSAGE = 5
+    }
+}
+
+@SuppressLint("ClickableViewAccessibility")
+private fun View.applyTactilePressAnimation() {
+    setOnTouchListener { v, event ->
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                v.animate()
+                    .scaleX(0.97f)
+                    .scaleY(0.97f)
+                    .setDuration(90)
+                    .setInterpolator(DecelerateInterpolator())
+                    .start()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                v.animate()
+                    .scaleX(1.0f)
+                    .scaleY(1.0f)
+                    .setDuration(130)
+                    .setInterpolator(OvershootInterpolator(1.1f))
+                    .start()
+            }
+        }
+        false
     }
 }

@@ -1,8 +1,14 @@
 package com.deniscerri.ytdl.ui.play
 
+import android.animation.ValueAnimator
+import android.annotation.SuppressLint
+import android.graphics.Color
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
@@ -127,6 +133,21 @@ class PlayAdapter(
             is PlayRow.Track -> (holder as TrackHolder).bind(row)
             is PlayRow.Empty -> (holder as EmptyHolder).bind(row)
         }
+    }
+
+    override fun onBindViewHolder(
+        holder: RecyclerView.ViewHolder,
+        position: Int,
+        payloads: MutableList<Any>
+    ) {
+        if (payloads.contains(PAYLOAD_PLAYING_STATE)) {
+            val row = getItem(position) as? PlayRow.Track
+            if (row != null && holder is TrackHolder) {
+                holder.updatePlayingState(row)
+                return
+            }
+        }
+        super.onBindViewHolder(holder, position, payloads)
     }
 
     private inner class ContinueHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -342,12 +363,38 @@ class PlayAdapter(
             }
 
             loadArtwork(art, row.item)
+            itemView.applyTactilePressAnimation()
             itemView.setOnClickListener { onTrackClick(row) }
             itemView.setOnLongClickListener {
                 onTrackMenu(it, row)
                 true
             }
             menu.setOnClickListener { onTrackMenu(menu, row) }
+        }
+
+        fun updatePlayingState(row: PlayRow.Track) {
+            title.setTextColor(if (row.isCurrent) colorPrimary else colorOnSurface)
+            equalizer.isVisible = row.isCurrent
+            val density = itemView.resources.displayMetrics.density
+            if (root is MaterialCardView) {
+                if (row.isCurrent) {
+                    root.strokeColor = colorPrimary
+                    root.strokeWidth = (2f * density).toInt()
+                } else {
+                    root.strokeColor = colorOutlineVariant
+                    root.strokeWidth = (1f * density).toInt()
+                }
+            } else if (row.isCurrent) {
+                root.setBackgroundResource(R.drawable.bg_active_track_row)
+            } else {
+                val outValue = android.util.TypedValue()
+                itemView.context.theme.resolveAttribute(
+                    android.R.attr.selectableItemBackground,
+                    outValue,
+                    true
+                )
+                root.setBackgroundResource(outValue.resourceId)
+            }
         }
     }
 
@@ -390,14 +437,53 @@ class PlayAdapter(
 
         override fun areContentsTheSame(oldItem: PlayRow, newItem: PlayRow): Boolean =
             oldItem == newItem
+
+        override fun getChangePayload(oldItem: PlayRow, newItem: PlayRow): Any? {
+            if (oldItem is PlayRow.Track && newItem is PlayRow.Track) {
+                if (oldItem.item.mediaId == newItem.item.mediaId &&
+                    oldItem.isCurrent != newItem.isCurrent &&
+                    oldItem.subtitle == newItem.subtitle &&
+                    oldItem.trailing == newItem.trailing
+                ) {
+                    return PAYLOAD_PLAYING_STATE
+                }
+            }
+            return null
+        }
     }
 
     companion object {
+        const val PAYLOAD_PLAYING_STATE = "payload_playing_state"
         private const val TYPE_CONTINUE = 0
         private const val TYPE_ACTIONS = 1
         private const val TYPE_HEADER = 2
         private const val TYPE_TRACK = 3
         private const val TYPE_TRACK_GRID = 4
         private const val TYPE_EMPTY = 5
+    }
+}
+
+@SuppressLint("ClickableViewAccessibility")
+private fun View.applyTactilePressAnimation() {
+    setOnTouchListener { v, event ->
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                v.animate()
+                    .scaleX(0.97f)
+                    .scaleY(0.97f)
+                    .setDuration(90)
+                    .setInterpolator(DecelerateInterpolator())
+                    .start()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                v.animate()
+                    .scaleX(1.0f)
+                    .scaleY(1.0f)
+                    .setDuration(130)
+                    .setInterpolator(OvershootInterpolator(1.1f))
+                    .start()
+            }
+        }
+        false
     }
 }

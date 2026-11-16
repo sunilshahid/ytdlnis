@@ -94,7 +94,16 @@ data class LyricsDocument(
         val index = activeLineIndex(positionMs)
         val line = lines.getOrNull(index) ?: return 0f
         val start = line.startMs ?: return 0f
-        val end = line.endMs ?: lines.getOrNull(index + 1)?.startMs ?: return 0f
+        val nextStart = lines.getOrNull(index + 1)?.startMs?.takeIf { it > start }
+        val tokens = line.text.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val wordCount = tokens.size.coerceAtLeast(1)
+        val maxSingingDuration = maxOf(2500L, wordCount * 550L)
+        val cappedDuration = if (nextStart != null) {
+            minOf(nextStart - start, maxSingingDuration)
+        } else {
+            maxSingingDuration
+        }
+        val end = line.endMs?.takeIf { it > start } ?: (start + cappedDuration)
         val shifted = positionMs - offsetMs
         if (end <= start) return 0f
         return ((shifted - start).toFloat() / (end - start)).coerceIn(0f, 1f)
@@ -112,6 +121,7 @@ data class LyricsDocument(
     /**
      * Derives deterministic, explicitly approximate per-word intervals weighted by non-whitespace
      * character count when a line has only line-level timing. Never flips [hasWordTimings].
+     * Capped to avoid stretching lines over long instrumental breaks.
      */
     fun approximateWordsForLine(lineIndex: Int): List<LyricsWord> {
         val line = lines.getOrNull(lineIndex) ?: return emptyList()
@@ -121,8 +131,14 @@ data class LyricsDocument(
         if (tokens.isEmpty()) return emptyList()
 
         val nextStart = lines.getOrNull(lineIndex + 1)?.startMs?.takeIf { it > lineStart }
-        val fallbackDuration = (line.text.length * 80L).coerceIn(1_800L, 6_000L)
-        val lineEnd = line.endMs?.takeIf { it > lineStart } ?: nextStart ?: (lineStart + fallbackDuration)
+        val wordCount = tokens.size.coerceAtLeast(1)
+        val maxSingingDuration = maxOf(2500L, wordCount * 550L)
+        val cappedDuration = if (nextStart != null) {
+            minOf(nextStart - lineStart, maxSingingDuration)
+        } else {
+            maxSingingDuration
+        }
+        val lineEnd = line.endMs?.takeIf { it > lineStart } ?: (lineStart + cappedDuration)
         val totalDuration = (lineEnd - lineStart).coerceAtLeast(tokens.size * 40L)
 
         val weights = tokens.map { token -> token.count { it.isLetterOrDigit() }.coerceAtLeast(1) }
@@ -141,6 +157,20 @@ data class LyricsDocument(
             result.add(LyricsWord(text = token, startMs = wStart, endMs = wEnd))
         }
         return result
+    }
+
+    /** Returns whether [positionMs] falls into an instrumental break after the active line's singing has ended. */
+    fun isInstrumentalBreak(positionMs: Long): Boolean {
+        val index = activeLineIndex(positionMs)
+        val line = lines.getOrNull(index) ?: return false
+        val start = line.startMs ?: return false
+        val nextStart = lines.getOrNull(index + 1)?.startMs?.takeIf { it > start } ?: return false
+        val tokens = line.text.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val wordCount = tokens.size.coerceAtLeast(1)
+        val maxSingingDuration = maxOf(2500L, wordCount * 550L)
+        val singingEnd = line.endMs?.takeIf { it > start } ?: (start + minOf(nextStart - start, maxSingingDuration))
+        val shifted = positionMs - offsetMs
+        return shifted in singingEnd until nextStart && (nextStart - singingEnd >= 2000L)
     }
 
     fun effectiveWordProgress(startMs: Long?, endMs: Long?, positionMs: Long): Float? {

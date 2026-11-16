@@ -679,7 +679,12 @@ class DeviceThumbnailLoader(context: Context) {
                     extracted
                 }
             }
-            if (bitmap != null) cache.put(key, bitmap)
+            if (bitmap != null) {
+                cache.put(key, bitmap)
+                if (PlaybackColors.cachedColor(key) == null) {
+                    PlaybackColors.extractDominant(bitmap)?.let { PlaybackColors.putCachedColor(key, it) }
+                }
+            }
             if (target.tag == key) {
                 if (bitmap != null) {
                     target.setImageBitmap(bitmap)
@@ -718,6 +723,9 @@ class DeviceThumbnailLoader(context: Context) {
                             if (bitmap != null) {
                                 cache.put(item.mediaId, bitmap)
                                 saveToDiskCache(item.mediaId, bitmap)
+                                PlaybackColors.extractDominant(bitmap)?.let {
+                                    PlaybackColors.putCachedColor(item.mediaId, it)
+                                }
                             }
                         }
                     }

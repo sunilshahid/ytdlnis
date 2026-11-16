@@ -57,23 +57,40 @@ object PlaybackArtworkLoader {
         }
     }
 
-    fun load(target: ImageView, item: PlaybackItem) {
+    fun load(target: ImageView, item: PlaybackItem, crossfade: Boolean = false) {
         val context = target.context.applicationContext
         appContextRef = context
 
         val key = "${item.mediaId}|${item.artworkUri.orEmpty()}|${item.localUri.orEmpty()}"
         if (target.tag == key) return
+        val prevDrawable = if (crossfade) target.drawable else null
         target.tag = key
 
         val fallback = when (item.type) {
             PlaybackType.VIDEO -> R.drawable.ic_video
             PlaybackType.AUDIO -> R.drawable.ic_music
         }
+
+        fun applyBitmap(bm: Bitmap) {
+            if (prevDrawable != null) {
+                val nextDrawable = android.graphics.drawable.BitmapDrawable(target.resources, bm)
+                val transition = android.graphics.drawable.TransitionDrawable(arrayOf(prevDrawable, nextDrawable)).apply {
+                    isCrossFadeEnabled = true
+                }
+                target.setImageDrawable(transition)
+                transition.startTransition(260)
+            } else {
+                target.setImageBitmap(bm)
+            }
+        }
+
         cache.get(key)?.let {
-            target.setImageBitmap(it)
+            applyBitmap(it)
             return
         }
-        target.setImageResource(fallback)
+        if (prevDrawable == null) {
+            target.setImageResource(fallback)
+        }
 
         // Anything backed by a local file goes through the local pipeline (system thumbnail,
         // embedded picture, ffmpeg frame). This includes recent/queue rows whose persisted
@@ -82,13 +99,13 @@ object PlaybackArtworkLoader {
         if (!preferLocal) {
             val uri = item.artworkUri?.takeIf { it.isNotBlank() }
             if (uri == null) return
-            Picasso.get()
-                .load(uri)
-                .placeholder(fallback)
-                .error(fallback)
-                .fit()
-                .centerCrop()
-                .into(target)
+            val request = Picasso.get().load(uri).fit().centerCrop()
+            if (prevDrawable != null) {
+                request.placeholder(prevDrawable)
+            } else {
+                request.placeholder(fallback)
+            }
+            request.error(fallback).into(target)
             return
         }
 
@@ -103,18 +120,18 @@ object PlaybackArtworkLoader {
             if (bitmap != null) cache.put(key, bitmap)
             if (target.tag == key) {
                 if (bitmap != null) {
-                    target.setImageBitmap(bitmap)
+                    applyBitmap(bitmap)
                 } else {
                     // Local extraction produced nothing — fall back to remote art when present.
                     val remote = item.artworkUri?.takeIf { it.isNotBlank() }
                     if (remote != null && !remote.startsWith("file:")) {
-                        Picasso.get()
-                            .load(remote)
-                            .placeholder(fallback)
-                            .error(fallback)
-                            .fit()
-                            .centerCrop()
-                            .into(target)
+                        val request = Picasso.get().load(remote).fit().centerCrop()
+                        if (prevDrawable != null) {
+                            request.placeholder(prevDrawable)
+                        } else {
+                            request.placeholder(fallback)
+                        }
+                        request.error(fallback).into(target)
                     } else {
                         target.setImageResource(fallback)
                     }

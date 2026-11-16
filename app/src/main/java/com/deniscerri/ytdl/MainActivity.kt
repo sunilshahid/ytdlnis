@@ -604,8 +604,17 @@ class MainActivity : BaseActivity() {
         }
         next.setOnClickListener { PlaybackController.next() }
         close.setOnClickListener {
-            PlaybackController.stop(dismissed = true)
-            mini.isVisible = false
+            val slideHeight = mini.height.toFloat().takeIf { it > 0f } ?: (72f * resources.displayMetrics.density)
+            mini.animate()
+                .translationY(slideHeight)
+                .setDuration(220)
+                .setInterpolator(android.view.animation.AccelerateInterpolator())
+                .withEndAction {
+                    PlaybackController.stop(dismissed = true)
+                    mini.isVisible = false
+                    mini.translationY = 0f
+                }
+                .start()
         }
 
         lifecycleScope.launch {
@@ -625,8 +634,35 @@ class MainActivity : BaseActivity() {
         val isDismissed = PreferenceManager.getDefaultSharedPreferences(this)
             .getBoolean("playback_dismissed", false)
         val visible = item != null && miniPlayerAllowed && (!isDismissed || state.playing)
-        mini.isVisible = visible
-        if (!visible || item == null) return
+        val wasVisible = mini.isVisible
+
+        if (visible && !wasVisible) {
+            val slideHeight = mini.height.toFloat().takeIf { it > 0f } ?: (72f * resources.displayMetrics.density)
+            mini.translationY = slideHeight
+            mini.isVisible = true
+            mini.animate()
+                .translationY(0f)
+                .setDuration(280)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f))
+                .start()
+        } else if (!visible && wasVisible) {
+            val slideHeight = mini.height.toFloat().takeIf { it > 0f } ?: (72f * resources.displayMetrics.density)
+            mini.animate()
+                .translationY(slideHeight)
+                .setDuration(220)
+                .setInterpolator(android.view.animation.AccelerateInterpolator())
+                .withEndAction {
+                    mini.isVisible = false
+                    mini.translationY = 0f
+                }
+                .start()
+            return
+        } else if (!visible) {
+            mini.isVisible = false
+            return
+        }
+
+        if (item == null) return
 
         mini.findViewById<TextView>(R.id.mini_player_title).text = item.title
         // Mirror the Play-tab row subtitle: artist · source · type, so a video never
