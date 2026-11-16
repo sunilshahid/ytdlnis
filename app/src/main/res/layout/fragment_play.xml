@@ -4,6 +4,7 @@
     android:id="@+id/play_drawer"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
     android:fitsSystemWindows="true">
 
     <androidx.coordinatorlayout.widget.CoordinatorLayout
@@ -26,8 +27,10 @@
                 app:menu="@menu/play_menu"
                 app:navigationContentDescription="@string/open_menu"
                 app:navigationIcon="@drawable/ic_menu"
+                app:navigationIconTint="?attr/colorOnSurface"
                 app:title="@string/play_tab"
-                app:titleTextAppearance="@style/TextAppearance.Material3.TitleLarge" />
+                app:titleTextAppearance="@style/TextAppearance.Material3.TitleLarge"
+                app:titleTextColor="?attr/colorOnSurface" />
 
         </com.google.android.material.appbar.AppBarLayout>
 

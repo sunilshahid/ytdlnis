@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -56,6 +57,7 @@ import com.deniscerri.ytdl.vault.VaultUiItem
 import com.deniscerri.ytdl.vault.ingest.VaultImporter
 import com.deniscerri.ytdl.vault.sortVaultItems
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -108,6 +110,7 @@ class VaultActivity : AppCompatActivity() {
     private lateinit var settingsStealthPinLayout: TextInputLayout
     private lateinit var settingsStealthPinInput: TextInputEditText
     private lateinit var settingsStealthSaveBtn: MaterialButton
+    private lateinit var settingsDecoyStatus: TextView
     private lateinit var settingsDecoyBtn: MaterialButton
     private lateinit var settingsClearDecoyBtn: MaterialButton
     private lateinit var settingsKeepOpenSwitch: MaterialSwitch
@@ -276,6 +279,7 @@ class VaultActivity : AppCompatActivity() {
         settingsStealthPinLayout = findViewById(R.id.vault_setting_stealth_pin_layout)
         settingsStealthPinInput = findViewById(R.id.vault_setting_stealth_pin_input)
         settingsStealthSaveBtn = findViewById(R.id.vault_setting_stealth_save_btn)
+        settingsDecoyStatus = findViewById(R.id.vault_setting_decoy_status)
         settingsDecoyBtn = findViewById(R.id.vault_setting_decoy_btn)
         settingsClearDecoyBtn = findViewById(R.id.vault_setting_clear_decoy_btn)
         settingsKeepOpenSwitch = findViewById(R.id.vault_setting_keep_open_switch)
@@ -548,7 +552,7 @@ class VaultActivity : AppCompatActivity() {
         }
         confirm.fill('\u0000')
         setupErrorText.visibility = View.GONE
-        showBusy(getString(R.string.vault_create_button))
+        showBusy(getString(R.string.vault_creating_vault))
         lifecycleScope.launch {
             runCatching {
                 VaultRepository.createVault(this@VaultActivity, pw)
@@ -1541,18 +1545,22 @@ class VaultActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             settingsStealthPinLayout.error = null
-            val cur = VaultRepository.loadSettings(this)
-            VaultRepository.updateSettings(
-                context = this,
-                newSettings = cur.copy(stealthMode = true),
-                newStealthPinChars = pinChars
-            )
-            suppressSettingsListeners = true
-            settingsStealthSwitch.isChecked = true
-            suppressSettingsListeners = false
-            settingsStealthStatus.setText(R.string.vault_stealth_pin_active)
-            hideKeyboard(settingsStealthPinInput)
-            Toast.makeText(this, R.string.vault_stealth_pin_active, Toast.LENGTH_SHORT).show()
+            showBusy(getString(R.string.vault_saving_stealth))
+            lifecycleScope.launch {
+                val cur = VaultRepository.loadSettings(this@VaultActivity)
+                VaultRepository.updateSettings(
+                    context = this@VaultActivity,
+                    newSettings = cur.copy(stealthMode = true),
+                    newStealthPinChars = pinChars
+                )
+                hideBusy()
+                suppressSettingsListeners = true
+                settingsStealthSwitch.isChecked = true
+                suppressSettingsListeners = false
+                settingsStealthStatus.setText(R.string.vault_stealth_pin_active)
+                hideKeyboard(settingsStealthPinInput)
+                Toast.makeText(this@VaultActivity, R.string.vault_stealth_pin_active, Toast.LENGTH_SHORT).show()
+            }
         }
 
         settingsStealthPinInput.setOnEditorActionListener { _, actionId, _ ->
@@ -1566,8 +1574,17 @@ class VaultActivity : AppCompatActivity() {
 
         settingsDecoyBtn.setOnClickListener { showDecoyPasswordDialog() }
         settingsClearDecoyBtn.setOnClickListener {
-            VaultRepository.clearDecoyPassword(this)
-            settingsClearDecoyBtn.visibility = View.GONE
+            showBusy(getString(R.string.vault_removing_decoy))
+            lifecycleScope.launch {
+                VaultRepository.clearDecoyPassword(this@VaultActivity)
+                hideBusy()
+                settingsClearDecoyBtn.visibility = View.GONE
+                settingsDecoyStatus.setText(R.string.vault_setting_decoy_not_set)
+                val mutedColor = MaterialColors.getColor(this@VaultActivity, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.GRAY)
+                settingsDecoyStatus.setTextColor(mutedColor)
+                settingsDecoyBtn.setText(R.string.vault_setting_decoy_password)
+                Toast.makeText(this@VaultActivity, R.string.vault_setting_decoy_not_set, Toast.LENGTH_SHORT).show()
+            }
         }
         settingsWipeBtn.setOnClickListener { confirmWipeVault() }
     }
@@ -1622,7 +1639,13 @@ class VaultActivity : AppCompatActivity() {
         settingsStealthStatus.setText(
             if (env.hasStealthPin()) R.string.vault_stealth_pin_active else R.string.vault_stealth_pin_not_set
         )
-        settingsClearDecoyBtn.visibility = if (env.hasDecoy()) View.VISIBLE else View.GONE
+        val hasDecoy = env.hasDecoy()
+        settingsClearDecoyBtn.visibility = if (hasDecoy) View.VISIBLE else View.GONE
+        settingsDecoyStatus.setText(if (hasDecoy) R.string.vault_setting_decoy_active else R.string.vault_setting_decoy_not_set)
+        val primaryColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.WHITE)
+        val mutedColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.GRAY)
+        settingsDecoyStatus.setTextColor(if (hasDecoy) primaryColor else mutedColor)
+        settingsDecoyBtn.setText(if (hasDecoy) R.string.vault_setting_decoy_change else R.string.vault_setting_decoy_password)
         suppressSettingsListeners = false
 
         animateSectionSlideInFromRight(settingsContainer)
@@ -1762,10 +1785,17 @@ class VaultActivity : AppCompatActivity() {
                 layout.error = getString(R.string.vault_password_too_short)
                 return@setOnClickListener
             }
+            d.dismiss()
+            showBusy(getString(R.string.vault_creating_decoy))
             lifecycleScope.launch {
                 VaultRepository.setDecoyPassword(this@VaultActivity, chars)
+                hideBusy()
                 settingsClearDecoyBtn.visibility = View.VISIBLE
-                d.dismiss()
+                settingsDecoyStatus.setText(R.string.vault_setting_decoy_active)
+                val primaryColor = MaterialColors.getColor(this@VaultActivity, com.google.android.material.R.attr.colorPrimary, Color.WHITE)
+                settingsDecoyStatus.setTextColor(primaryColor)
+                settingsDecoyBtn.setText(R.string.vault_setting_decoy_change)
+                Toast.makeText(this@VaultActivity, R.string.vault_setting_decoy_active, Toast.LENGTH_SHORT).show()
             }
         }
     }

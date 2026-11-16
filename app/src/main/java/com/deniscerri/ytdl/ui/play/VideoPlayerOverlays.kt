@@ -9,6 +9,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -26,6 +27,7 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.MaterialColors
+import com.google.android.material.materialswitch.MaterialSwitch
 import java.util.Locale
 
 object VideoPlayerOverlays {
@@ -33,12 +35,15 @@ object VideoPlayerOverlays {
     const val PREF_SUB_LANG = "video_subtitles_preferred_lang"
     const val PREF_SUB_SIZE = "video_subtitle_text_size"
     const val PREF_SUB_BG = "video_subtitle_bg_mode"
+    const val PREF_SUB_CUSTOM_URI = "video_subtitle_custom_uri"
+    const val PREF_SUB_EMBEDDED_STYLES = "video_subtitle_apply_embedded_styles"
 
     fun applySubtitleStyle(playerView: PlayerView, context: Context) {
         val subtitleView = playerView.subtitleView ?: return
         val prefs = PreferenceManager.getDefaultSharedPreferences(context)
         val sizePreset = prefs.getInt(PREF_SUB_SIZE, 1).coerceIn(0, 2)
         val bgPreset = prefs.getInt(PREF_SUB_BG, 1).coerceIn(0, 2)
+        val applyEmbedded = prefs.getBoolean(PREF_SUB_EMBEDDED_STYLES, true)
 
         val fraction = when (sizePreset) {
             0 -> 0.042f
@@ -52,8 +57,8 @@ object VideoPlayerOverlays {
         }
 
         subtitleView.setFractionalTextSize(fraction)
-        subtitleView.setApplyEmbeddedStyles(false)
-        subtitleView.setApplyEmbeddedFontSizes(false)
+        subtitleView.setApplyEmbeddedStyles(applyEmbedded)
+        subtitleView.setApplyEmbeddedFontSizes(applyEmbedded)
         subtitleView.setStyle(
             CaptionStyleCompat(
                 Color.WHITE,
@@ -73,14 +78,49 @@ object VideoPlayerOverlays {
         val hasEnabledPref = prefs.contains(PREF_SUB_ENABLED)
         val enabled = prefs.getBoolean(PREF_SUB_ENABLED, false)
         val lang = prefs.getString(PREF_SUB_LANG, null)?.takeIf { it.isNotBlank() }
+        val customUri = prefs.getString(PREF_SUB_CUSTOM_URI, null)?.takeIf { it.isNotBlank() }
+
+        val textGroups = controller.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT && it.length > 0 }
+
+        if (!customUri.isNullOrBlank()) {
+            val target = textGroups.firstNotNullOfOrNull { group ->
+                (0 until group.length).firstOrNull { idx ->
+                    val f = group.getTrackFormat(idx)
+                    f.id == customUri || f.label == customUri
+                }?.let { trackIdx -> group to trackIdx }
+            }
+            if (target != null) {
+                val (group, trackIdx) = target
+                controller.trackSelectionParameters = controller.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIdx))
+                    .build()
+                prefs.edit().remove(PREF_SUB_CUSTOM_URI).apply()
+                return
+            }
+        }
 
         val builder = controller.trackSelectionParameters.buildUpon()
         if (hasEnabledPref && !enabled) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            builder.clearOverridesOfType(C.TRACK_TYPE_TEXT)
             controller.trackSelectionParameters = builder.build()
         } else if (enabled) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             if (lang != null) builder.setPreferredTextLanguage(lang)
+            val anySelected = textGroups.any { group ->
+                (0 until group.length).any { group.isTrackSelected(it) }
+            }
+            if (!anySelected && textGroups.isNotEmpty()) {
+                val targetGroup = textGroups.firstOrNull { group ->
+                    (0 until group.length).any { lang != null && group.getTrackFormat(it).language == lang }
+                } ?: textGroups.first()
+                val targetIdx = (0 until targetGroup.length).firstOrNull {
+                    lang != null && targetGroup.getTrackFormat(it).language == lang
+                } ?: 0
+                builder.setOverrideForType(TrackSelectionOverride(targetGroup.mediaTrackGroup, targetIdx))
+            }
             controller.trackSelectionParameters = builder.build()
         }
     }
@@ -162,6 +202,7 @@ object VideoPlayerOverlays {
         context: Context,
         player: Player?,
         playerView: PlayerView,
+        onImportSubtitle: (() -> Unit)? = null,
         onSelectionChanged: () -> Unit
     ) {
         val controller = player ?: return
@@ -169,10 +210,19 @@ object VideoPlayerOverlays {
         val dialog = BottomSheetDialog(context)
         dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
 
+        val rootScroll = androidx.core.widget.NestedScrollView(context).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            isFillViewport = true
+        }
+
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 16), dp(context, 16), dp(context, 16), dp(context, 24))
         }
+        rootScroll.addView(container)
 
         val header = TextView(context).apply {
             text = context.getString(R.string.subtitles)
@@ -182,17 +232,10 @@ object VideoPlayerOverlays {
         }
         container.addView(header)
 
-        val tracksScroll = ScrollView(context).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        }
         val tracksList = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        tracksScroll.addView(tracksList)
+        container.addView(tracksList)
 
         val accentColor = MaterialColors.getColor(context, androidx.appcompat.R.attr.colorPrimary, Color.WHITE)
         val textColor = MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, Color.WHITE)
@@ -232,6 +275,38 @@ object VideoPlayerOverlays {
             row.addView(label)
             row.addView(check)
             tracksList.addView(row)
+        }
+
+        if (onImportSubtitle != null) {
+            val importRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val outValue = TypedValue()
+                context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+                setBackgroundResource(outValue.resourceId)
+                setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10))
+                setOnClickListener {
+                    dialog.dismiss()
+                    onImportSubtitle()
+                }
+            }
+            val plusIcon = ImageView(context).apply {
+                setImageResource(R.drawable.ic_plus)
+                setColorFilter(accentColor)
+                layoutParams = LinearLayout.LayoutParams(dp(context, 20), dp(context, 20)).apply {
+                    marginEnd = dp(context, 12)
+                }
+            }
+            val importLabel = TextView(context).apply {
+                text = context.getString(R.string.subtitles_import_external)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(accentColor)
+                setTypeface(typeface, Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            importRow.addView(plusIcon)
+            importRow.addView(importLabel)
+            tracksList.addView(importRow)
         }
 
         addTrackRow(context.getString(R.string.subtitles_off), !anySelected) {
@@ -286,7 +361,6 @@ object VideoPlayerOverlays {
                 }
             }
         }
-        container.addView(tracksScroll)
 
         // Subtitle Style section
         val styleTitle = TextView(context).apply {
@@ -354,7 +428,29 @@ object VideoPlayerOverlays {
             1
         )
 
-        dialog.setContentView(container)
+        val embeddedStylesRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(context, 6), 0, dp(context, 4))
+        }
+        val embeddedStylesLabel = TextView(context).apply {
+            text = context.getString(R.string.subtitles_apply_embedded_styles)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(mutedColor)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val embeddedStylesSwitch = MaterialSwitch(context).apply {
+            isChecked = prefs.getBoolean(PREF_SUB_EMBEDDED_STYLES, true)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean(PREF_SUB_EMBEDDED_STYLES, isChecked).apply()
+                applySubtitleStyle(playerView, context)
+            }
+        }
+        embeddedStylesRow.addView(embeddedStylesLabel)
+        embeddedStylesRow.addView(embeddedStylesSwitch)
+        container.addView(embeddedStylesRow)
+
+        dialog.setContentView(rootScroll)
         dialog.show()
     }
 

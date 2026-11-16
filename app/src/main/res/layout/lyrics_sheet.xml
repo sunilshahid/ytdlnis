@@ -241,6 +241,13 @@
             android:text="@string/embed_lyrics" />
 
         <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/embed_ttml"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:text="@string/embed_ttml" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/save_lrc"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

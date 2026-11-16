@@ -148,7 +148,7 @@
                 android:id="@+id/progress"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
-                android:translationZ="250dp"
+                android:elevation="4dp"
                 android:visibility="gone"
                 app:layout_constraintBottom_toBottomOf="@+id/search_bar"
                 app:layout_constraintEnd_toEndOf="@+id/search_bar"
@@ -159,6 +159,7 @@
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
                     app:cardCornerRadius="30dp">
 
                 </com.google.android.material.card.MaterialCardView>

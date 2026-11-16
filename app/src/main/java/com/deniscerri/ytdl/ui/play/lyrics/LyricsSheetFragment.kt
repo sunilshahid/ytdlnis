@@ -40,7 +40,6 @@ class LyricsSheetFragment : DialogFragment() {
 
     private lateinit var viewModel: LyricsViewModel
 
-    private lateinit var root: View
     private lateinit var lyricsView: KaraokeLyricsView
     private lateinit var titleView: TextView
     private lateinit var artistView: TextView
@@ -101,7 +100,6 @@ class LyricsSheetFragment : DialogFragment() {
         PlaybackController.init(requireContext())
         viewModel = ViewModelProvider(requireActivity())[LyricsViewModel::class.java]
 
-        root = view.findViewById(R.id.lyrics_sheet_root)
         lyricsView = view.findViewById(R.id.lyrics_sheet_view)
         titleView = view.findViewById(R.id.lyrics_sheet_title)
         artistView = view.findViewById(R.id.lyrics_sheet_artist)
@@ -182,7 +180,9 @@ class LyricsSheetFragment : DialogFragment() {
                 PlaybackController.seekTo((start + offset).coerceAtLeast(0L))
             }
         }
+        // Tapping or clicking lyrics does NOT open the mode selector or header chrome.
         lyricsView.onLyricsClickListener = null
+        // The header (and its mode selector) only appears while scrolling down from top to bottom.
         lyricsView.onScrollDirectionListener = { isScrollingUpToHeader ->
             if (isScrollingUpToHeader) {
                 showHeaderImmersion()
@@ -190,10 +190,6 @@ class LyricsSheetFragment : DialogFragment() {
                 hideHeaderImmersion()
             }
         }
-        view.findViewById<View>(R.id.lyrics_sheet_top_bar).setOnClickListener { showHeaderImmersion() }
-        titleView.setOnClickListener { showHeaderImmersion() }
-        artistView.setOnClickListener { showHeaderImmersion() }
-        root.setOnClickListener { showHeaderImmersion() }
 
         val playback = PlaybackController.state.value
         viewModel.onItemChanged(playback.currentItem, playback.durationMs)
@@ -248,8 +244,6 @@ class LyricsSheetFragment : DialogFragment() {
 
                         if (isPlaying && !wasPlaying) {
                             scheduleImmersionHide()
-                        } else if (!isPlaying && wasPlaying) {
-                            showHeaderImmersion()
                         }
                     }
                 }
@@ -258,7 +252,8 @@ class LyricsSheetFragment : DialogFragment() {
     }
 
     private fun showOptionsMenu(anchor: View) {
-        val popup = androidx.appcompat.widget.PopupMenu(requireContext(), anchor)
+        immersionHandler.removeCallbacks(immersionHideRunnable)
+        val popup = androidx.appcompat.widget.PopupMenu(anchor.context, anchor, android.view.Gravity.END)
         val offsetItem = popup.menu.add(0, 1, 0, R.string.lyrics_offset)
         val offsetMs = renderedDocument?.offsetMs ?: 0L
         if (offsetMs != 0L) {
@@ -269,6 +264,10 @@ class LyricsSheetFragment : DialogFragment() {
         popup.menu.add(0, 2, 1, R.string.lyrics_search_online)
         popup.menu.add(0, 3, 2, R.string.lyrics_import_file)
         popup.menu.add(0, 4, 3, R.string.lyrics_settings)
+
+        popup.setOnDismissListener {
+            if (isPlaying) scheduleImmersionHide()
+        }
 
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
@@ -287,7 +286,8 @@ class LyricsSheetFragment : DialogFragment() {
                     true
                 }
                 4 -> {
-                    showLyricsSettingsDialog()
+                    LyricsSettingsDialogFragment.newInstance(lyricsView, renderedDocument)
+                        .show(parentFragmentManager, "lyricsSettings")
                     true
                 }
                 else -> false
@@ -472,7 +472,9 @@ class LyricsSheetFragment : DialogFragment() {
 
         val canRomanize = document != null && Romanizer.canRomanizeDocument(document)
         romanizeButton.visibility = if (canRomanize) View.VISIBLE else View.GONE
-        romanizeButton.setTextColor(if (romanizeEnabled) accent else muted)
+        val romanizeColor = if (romanizeEnabled) accent else muted
+        romanizeButton.setTextColor(romanizeColor)
+        romanizeButton.iconTint = android.content.res.ColorStateList.valueOf(romanizeColor)
 
         timingBadgeButton?.let { badge ->
             if (document == null) {
@@ -695,205 +697,6 @@ class LyricsSheetFragment : DialogFragment() {
                 viewModel.applyCandidate(candidates[which])
             }
             .setNegativeButton(R.string.cancel, null)
-            .show()
-    }
-
-    private fun showLyricsSettingsDialog() {
-        val context = requireContext()
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
-        val density = resources.displayMetrics.density
-
-        val scrollView = android.widget.ScrollView(context)
-        val rootLayout = android.widget.LinearLayout(context).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            val pad = (20 * density).toInt()
-            setPadding(pad, pad / 2, pad, pad)
-        }
-        scrollView.addView(rootLayout)
-
-        fun createHeader(titleRes: Int): TextView {
-            return TextView(context).apply {
-                setText(titleRes)
-                setTextAppearance(context, com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
-                val primary = MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimary, Color.WHITE)
-                setTextColor(primary)
-                val topMargin = (16 * density).toInt()
-                val bottomMargin = (8 * density).toInt()
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(0, topMargin, 0, bottomMargin) }
-            }
-        }
-
-        // Section 1: Scroll Anchor
-        rootLayout.addView(createHeader(R.string.lyrics_scroll_anchor).apply {
-            (layoutParams as android.widget.LinearLayout.LayoutParams).topMargin = 0
-        })
-
-        val currentAnchor = prefs.getFloat(PREF_LYRICS_SCROLL_ANCHOR, 0.35f)
-        val anchorGroup = android.widget.RadioGroup(context).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-        }
-        val anchorOptions = listOf(
-            Triple(0.35f, R.string.lyrics_scroll_anchor_center, 1001),
-            Triple(0.20f, R.string.lyrics_scroll_anchor_top, 1002),
-            Triple(0.50f, R.string.lyrics_scroll_anchor_middle, 1003)
-        )
-        anchorOptions.forEach { (fraction, labelRes, id) ->
-            val rb = com.google.android.material.radiobutton.MaterialRadioButton(context).apply {
-                this.id = id
-                setText(labelRes)
-                isChecked = kotlin.math.abs(currentAnchor - fraction) < 0.05f
-            }
-            anchorGroup.addView(rb)
-        }
-        anchorGroup.setOnCheckedChangeListener { _, checkedId ->
-            val chosen = anchorOptions.firstOrNull { it.third == checkedId }?.first ?: 0.35f
-            prefs.edit().putFloat(PREF_LYRICS_SCROLL_ANCHOR, chosen).apply()
-            lyricsView.setFocusFraction(chosen)
-        }
-        rootLayout.addView(anchorGroup)
-
-        // Section 2: Text Size
-        rootLayout.addView(createHeader(R.string.lyrics_text_size))
-        val currentScale = prefs.getFloat(PREF_LYRICS_FONT_SCALE, 1.0f)
-        val sizeGroup = android.widget.RadioGroup(context).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-        }
-        val sizeOptions = listOf(
-            Triple(1.0f, R.string.lyrics_text_size_normal, 2001),
-            Triple(1.15f, R.string.lyrics_text_size_large, 2002),
-            Triple(1.30f, R.string.lyrics_text_size_xlarge, 2003)
-        )
-        sizeOptions.forEach { (scale, labelRes, id) ->
-            val rb = com.google.android.material.radiobutton.MaterialRadioButton(context).apply {
-                this.id = id
-                setText(labelRes)
-                isChecked = kotlin.math.abs(currentScale - scale) < 0.05f
-            }
-            sizeGroup.addView(rb)
-        }
-        sizeGroup.setOnCheckedChangeListener { _, checkedId ->
-            val chosen = sizeOptions.firstOrNull { it.third == checkedId }?.first ?: 1.0f
-            prefs.edit().putFloat(PREF_LYRICS_FONT_SCALE, chosen).apply()
-            lyricsView.setTextScale(chosen)
-        }
-        rootLayout.addView(sizeGroup)
-
-        // Section 3: Lyrics Providers
-        rootLayout.addView(createHeader(R.string.lyrics_providers))
-
-        val providerContainer = android.widget.LinearLayout(context).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-        }
-        rootLayout.addView(providerContainer)
-
-        val currentProviders = LyricsProviderRegistry.ordered(context).toMutableList()
-
-        fun refreshProviders() {
-            providerContainer.removeAllViews()
-            currentProviders.forEachIndexed { index, provider ->
-                val row = android.widget.LinearLayout(context).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
-                }
-
-                val toggle = com.google.android.material.materialswitch.MaterialSwitch(context).apply {
-                    isChecked = provider.isEnabled(context)
-                    setOnCheckedChangeListener { _, isChecked ->
-                        prefs.edit().putBoolean("lyrics_provider_${provider.id}", isChecked).apply()
-                    }
-                }
-
-                val info = android.widget.LinearLayout(context).apply {
-                    orientation = android.widget.LinearLayout.VERTICAL
-                    layoutParams = android.widget.LinearLayout.LayoutParams(
-                        0,
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                        1f
-                    ).apply {
-                        marginStart = (12 * density).toInt()
-                        marginEnd = (8 * density).toInt()
-                    }
-                }
-
-                val nameView = TextView(context).apply {
-                    text = provider.displayName
-                    setTextAppearance(context, com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
-                }
-                val summaryText = when (provider.id) {
-                    "betterlyrics" -> getString(R.string.lyrics_provider_betterlyrics_summary)
-                    "lyricsplus" -> getString(R.string.lyrics_provider_lyricsplus_summary)
-                    "lrclib" -> getString(R.string.lyrics_provider_lrclib_summary)
-                    "youtube_subs" -> getString(R.string.lyrics_provider_youtube_subs_summary)
-                    else -> ""
-                }
-                val summaryView = TextView(context).apply {
-                    text = summaryText
-                    setTextAppearance(context, com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
-                    val muted = MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.GRAY)
-                    setTextColor(muted)
-                }
-                info.addView(nameView)
-                if (summaryText.isNotEmpty()) info.addView(summaryView)
-
-                val upBtn = ImageButton(context).apply {
-                    setImageResource(R.drawable.ic_up)
-                    setBackgroundResource(android.R.color.transparent)
-                    contentDescription = getString(R.string.lyrics_move_up)
-                    isEnabled = index > 0
-                    alpha = if (index > 0) 1f else 0.25f
-                    val pad = (8 * density).toInt()
-                    setPadding(pad, pad, pad, pad)
-                    setOnClickListener {
-                        if (index > 0) {
-                            val item = currentProviders.removeAt(index)
-                            currentProviders.add(index - 1, item)
-                            prefs.edit().putString(
-                                "lyrics_provider_order",
-                                LyricsProviderRegistry.serializeOrder(currentProviders.map { it.id })
-                            ).apply()
-                            refreshProviders()
-                        }
-                    }
-                }
-
-                val downBtn = ImageButton(context).apply {
-                    setImageResource(R.drawable.ic_down)
-                    setBackgroundResource(android.R.color.transparent)
-                    contentDescription = getString(R.string.lyrics_move_down)
-                    isEnabled = index < currentProviders.size - 1
-                    alpha = if (index < currentProviders.size - 1) 1f else 0.25f
-                    val pad = (8 * density).toInt()
-                    setPadding(pad, pad, pad, pad)
-                    setOnClickListener {
-                        if (index < currentProviders.size - 1) {
-                            val item = currentProviders.removeAt(index)
-                            currentProviders.add(index + 1, item)
-                            prefs.edit().putString(
-                                "lyrics_provider_order",
-                                LyricsProviderRegistry.serializeOrder(currentProviders.map { it.id })
-                            ).apply()
-                            refreshProviders()
-                        }
-                    }
-                }
-
-                row.addView(toggle)
-                row.addView(info)
-                row.addView(upBtn)
-                row.addView(downBtn)
-                providerContainer.addView(row)
-            }
-        }
-        refreshProviders()
-
-        MaterialAlertDialogBuilder(context)
-            .setTitle(R.string.lyrics_settings)
-            .setView(scrollView)
-            .setPositiveButton(R.string.ok, null)
             .show()
     }
 

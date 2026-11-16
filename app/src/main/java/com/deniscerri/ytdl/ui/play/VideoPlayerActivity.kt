@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.util.Rational
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -26,11 +27,14 @@ import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import android.net.Uri
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.core.view.isVisible
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -42,12 +46,19 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.playback.PlaybackController
+import com.deniscerri.ytdl.playback.model.PlaybackExtrasCodec
+import com.deniscerri.ytdl.playback.model.PlaybackSubtitle
 import com.deniscerri.ytdl.playback.model.PlaybackType
 import com.deniscerri.ytdl.ui.BaseActivity
 import com.deniscerri.ytdl.util.Extensions.toStringTimeStamp
 import com.google.android.material.button.MaterialButton
 import com.squareup.picasso.Picasso
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.nio.charset.Charset
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -88,6 +99,7 @@ class VideoPlayerActivity : BaseActivity() {
     private var backgroundPlayEnabled = false
     private var scaleAccumulator = 1.0f
     private var isScaling = false
+    private var showRemainingTime = false
 
     private fun handleExit() {
         if (!backgroundPlayEnabled && !isInPictureInPictureMode) {
@@ -199,6 +211,95 @@ class VideoPlayerActivity : BaseActivity() {
     private var lastChapterMarkerSignature: LongArray? = null
     private var appliedSubPrefsForMediaId: String? = null
 
+    private val importSubtitleLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            handleImportSubtitle(uri)
+        }
+    }
+
+    private fun handleImportSubtitle(uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val fileName = DocumentFile.fromSingleUri(this@VideoPlayerActivity, uri)?.name
+                    ?: uri.lastPathSegment
+                    ?: "custom.srt"
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes == null || bytes.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@VideoPlayerActivity, R.string.subtitles_import_failed, Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                // Auto-detect charset
+                val text = when {
+                    bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte() -> {
+                        String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+                    }
+                    bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() -> {
+                        String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+                    }
+                    bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte() -> {
+                        String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+                    }
+                    else -> {
+                        try {
+                            val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                            decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+                        } catch (e: Exception) {
+                            try {
+                                String(bytes, Charset.forName("windows-1252"))
+                            } catch (e2: Exception) {
+                                String(bytes, Charsets.ISO_8859_1)
+                            }
+                        }
+                    }
+                }
+
+                val lower = fileName.lowercase(Locale.ROOT)
+                val normalizedText = if (lower.endsWith(".vtt") && !text.trimStart().startsWith("WEBVTT", ignoreCase = true)) {
+                    "WEBVTT\n\n$text"
+                } else {
+                    text
+                }
+
+                val subDir = File(cacheDir, "subtitles").apply { mkdirs() }
+                val currentMediaId = PlaybackController.state.value.currentItem?.mediaId ?: "media"
+                val safeMediaId = currentMediaId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                val safeFileName = fileName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val cachedFile = File(subDir, "${safeMediaId}_${safeFileName}")
+                cachedFile.writeText(normalizedText, Charsets.UTF_8)
+
+                val mimeType = PlaybackExtrasCodec.inferSubtitleMimeType(fileName)
+                val playbackSub = PlaybackSubtitle(
+                    uri = Uri.fromFile(cachedFile).toString(),
+                    mimeType = mimeType,
+                    language = null,
+                    label = fileName,
+                    isAutoGenerated = false,
+                    isLocal = true
+                )
+
+                withContext(Dispatchers.Main) {
+                    PlaybackController.addCustomSubtitle(playbackSub, autoSelect = true)
+                    updateSubtitleButtonTint()
+                    Toast.makeText(
+                        this@VideoPlayerActivity,
+                        getString(R.string.subtitles_imported_success, fileName),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } catch (e: Exception) {
+                Log.e("VideoPlayerActivity", "Failed to import subtitle", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@VideoPlayerActivity, R.string.subtitles_import_failed, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private fun currentPlaybackPositionMs(): Long {
         return attachedPlayer?.currentPosition?.takeIf { it >= 0L }
             ?: PlaybackController.state.value.positionMs
@@ -222,6 +323,8 @@ class VideoPlayerActivity : BaseActivity() {
             val currentId = attachedPlayer?.currentMediaItem?.mediaId
             if (currentId != null && currentId != appliedSubPrefsForMediaId) {
                 appliedSubPrefsForMediaId = currentId
+                VideoPlayerOverlays.applyPreferredSubtitleSelection(attachedPlayer, this@VideoPlayerActivity)
+            } else if (attachedPlayer != null) {
                 VideoPlayerOverlays.applyPreferredSubtitleSelection(attachedPlayer, this@VideoPlayerActivity)
             }
             updateSubtitleButtonTint()
@@ -308,6 +411,9 @@ class VideoPlayerActivity : BaseActivity() {
             val isVisible = visibility == View.VISIBLE
             playerView.findViewById<View>(R.id.video_top_bar)?.visibility = if (isVisible) View.VISIBLE else View.GONE
             playerView.findViewById<View>(androidx.media3.ui.R.id.exo_bottom_bar)?.visibility = if (isVisible) View.VISIBLE else View.GONE
+            if (isVisible) {
+                updateDurationDisplay()
+            }
         })
 
         playerView.setOnTouchListener { _, event -> handleTouch(event) }
@@ -381,7 +487,17 @@ class VideoPlayerActivity : BaseActivity() {
             VideoPlayerOverlays.showSubtitlesSheet(
                 context = this,
                 player = attachedPlayer ?: PlaybackController.player(),
-                playerView = playerView
+                playerView = playerView,
+                onImportSubtitle = {
+                    importSubtitleLauncher.launch(
+                        arrayOf(
+                            "text/*",
+                            "application/x-subrip",
+                            "application/octet-stream",
+                            "*/*"
+                        )
+                    )
+                }
             ) {
                 updateSubtitleButtonTint()
             }
@@ -426,6 +542,36 @@ class VideoPlayerActivity : BaseActivity() {
         }
         val isCurrentPlaying = attachedPlayer?.isPlaying == true
         playPauseBtn?.setImageResource(if (isCurrentPlaying) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play)
+
+        // Duration view (right time): click to toggle showing remaining time
+        val durationView = playerView.findViewById<TextView>(androidx.media3.ui.R.id.exo_duration)
+        durationView?.isClickable = true
+        durationView?.isFocusable = true
+        durationView?.setOnClickListener {
+            showRemainingTime = !showRemainingTime
+            updateDurationDisplay()
+        }
+
+        val controllerView = playerView.findViewById<androidx.media3.ui.PlayerControlView>(androidx.media3.ui.R.id.exo_controller)
+        controllerView?.setProgressUpdateListener { position, _ ->
+            if (showRemainingTime) {
+                val duration = currentDuration()
+                val remaining = (duration - position).coerceAtLeast(0L)
+                durationView?.text = "-${remaining.toStringTimeStamp()}"
+            }
+        }
+    }
+
+    private fun updateDurationDisplay() {
+        val durationView = playerView.findViewById<TextView>(androidx.media3.ui.R.id.exo_duration) ?: return
+        val duration = currentDuration()
+        if (showRemainingTime) {
+            val position = currentPlaybackPositionMs()
+            val remaining = (duration - position).coerceAtLeast(0L)
+            durationView.text = "-${remaining.toStringTimeStamp()}"
+        } else {
+            durationView.text = duration.toStringTimeStamp()
+        }
     }
 
     private fun observePlayback() {
@@ -455,6 +601,7 @@ class VideoPlayerActivity : BaseActivity() {
             lastMarkerSignature = lastChapterMarkerSignature
         ) { lastChapterMarkerSignature = it }
         updateSubtitleButtonTint()
+        updateDurationDisplay()
         val item = state.currentItem ?: return
         val player = attachedPlayer
         val isReadyOrPlaying = player != null && (
@@ -915,6 +1062,7 @@ class VideoPlayerActivity : BaseActivity() {
                     doubleTapPending = false
                 } else if (gestureMode == GestureMode.SEEK) {
                     attachedPlayer?.seekTo(pendingSeekMs)
+                    updateDurationDisplay()
                     scheduleHideHints()
                 } else if (gestureMode != GestureMode.NONE) {
                     scheduleHideHints()

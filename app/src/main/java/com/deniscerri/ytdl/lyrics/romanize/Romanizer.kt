@@ -2,7 +2,6 @@ package com.deniscerri.ytdl.lyrics.romanize
 
 import com.deniscerri.ytdl.lyrics.LyricsDocument
 import com.deniscerri.ytdl.lyrics.LyricsLine
-import com.deniscerri.ytdl.lyrics.LyricsWord
 
 /**
  * High-performance, 100% offline transliteration engine.
@@ -80,23 +79,15 @@ object Romanizer {
 
     fun romanizeDocument(doc: LyricsDocument): LyricsDocument {
         val updatedLines = doc.lines.map { line ->
-            val rom = if (line.romanization != null) {
-                line.romanization
-            } else if (canRomanize(line.text)) {
-                romanize(line.text)
-            } else {
-                null
+            val rom = when {
+                line.romanization != null -> line.romanization
+                canRomanize(line.text) -> romanize(line.text).takeIf { it != line.text }
+                else -> null
             }
-
-            val updatedWords = if (line.hasWordTimings && canRomanize(line.text)) {
-                line.words.map { w ->
-                    w.copy(text = romanize(w.text))
-                }
-            } else {
-                line.words
-            }
-
-            line.copy(romanization = rom, words = updatedWords)
+            // Never rewrite line.words: those are the karaoke glyphs in the original script.
+            // Replacing them turned the main lyric Latin, drew the romanization a second time
+            // underneath, and could not be undone when the toggle was switched back off.
+            line.copy(romanization = rom)
         }
         return doc.copy(lines = updatedLines)
     }
@@ -127,9 +118,58 @@ object Romanizer {
         '\u092A' to "p",   '\u092B' to "ph",  '\u092C' to "b",   '\u092D' to "bh",  '\u092E' to "m",
         '\u092F' to "y",   '\u0930' to "r",   '\u0932' to "l",   '\u0933' to "l",   '\u0935' to "v",
         '\u0936' to "sh",  '\u0937' to "sh",  '\u0938' to "s",   '\u0939' to "h",
+        // Precomposed nukta letters (U+0958..U+095F). ड़/ढ़ keep the idiomatic "d"/"dh"
+        // romanization used by lyric sites ("lad", "bada") — see the nukta map below.
         '\u0958' to "q",   '\u0959' to "kh",  '\u095A' to "gh",  '\u095B' to "z",
-        '\u095C' to "r",   '\u095D' to "rh",  '\u095E' to "f",   '\u095F' to "y"
+        '\u095C' to "d",   '\u095D' to "dh",  '\u095E' to "f",   '\u095F' to "y"
     )
+
+    /**
+     * Nukta pairs written as base consonant + U+093C instead of a precomposed code point.
+     * Unicode normalisation decomposes these constantly, and the old code emitted the base
+     * consonant before looking at the nukta, so ज़ became "j", फ़ became "ph", क़ became "k".
+     */
+    private val DEVANAGARI_NUKTA_CONSONANTS = mapOf(
+        '\u0915' to "q",   // क़
+        '\u0916' to "kh",  // ख़
+        '\u0917' to "gh",  // ग़
+        '\u091C' to "z",   // ज़
+        '\u0921' to "d",   // ड़
+        '\u0922' to "dh",  // ढ़
+        '\u092B' to "f",   // फ़
+        '\u092F' to "y"    // य़
+    )
+
+    /** True for matras, virama, nukta, anusvara and the other marks that extend a syllable. */
+    private fun isCombiningMark(c: Char): Boolean = when (c.category) {
+        CharCategory.NON_SPACING_MARK,
+        CharCategory.COMBINING_SPACING_MARK,
+        CharCategory.ENCLOSING_MARK -> true
+        else -> false
+    }
+
+    /**
+     * A word boundary for schwa purposes is whitespace/punctuation/end of text — NOT "any
+     * non-letter". Anusvara and candrabindu are marks, so treating them as a boundary dropped
+     * the inherent vowel inside the word (संग became "sng" instead of "sang").
+     */
+    private fun isWordBoundary(c: Char): Boolean {
+        if (c == '\u200C' || c == '\u200D') return false // ZWNJ / ZWJ continue the word
+        return !c.isLetterOrDigit() && !isCombiningMark(c)
+    }
+
+    /**
+     * True when [index] is the first consonant of its word. Walks back over the combining marks
+     * of the previous syllable, so "याद" is recognised as one word and "न" alone is not.
+     */
+    private fun isWordStart(text: String, index: Int): Boolean {
+        var i = index - 1
+        while (i >= 0 && (isCombiningMark(text[i]) || text[i] == '\u200C' || text[i] == '\u200D')) {
+            i--
+        }
+        if (i < 0) return true
+        return !text[i].isLetterOrDigit()
+    }
 
     private fun romanizeDevanagariChar(text: String, index: Int, sb: StringBuilder): Int {
         val c = text[index]
@@ -141,7 +181,7 @@ object Romanizer {
             return index + 1
         }
 
-        // Anusvara, Candrabindu, Visarga
+        // Anusvara, Candrabindu, Visarga, Om, Avagraha, danda, digits
         when (c) {
             '\u0901', '\u0902' -> { // Candrabindu / Anusvara
                 sb.append("n")
@@ -151,64 +191,61 @@ object Romanizer {
                 sb.append("h")
                 return index + 1
             }
-            '\u093C' -> return index + 1 // Nukta handled or ignored
-            '\u093D' -> return index + 1 // Avagraha
+            '\u0950' -> { // ॐ — previously dropped entirely, which blanked "ॐ देवा-देवा" lines
+                sb.append("om")
+                return index + 1
+            }
+            '\u093D' -> { // Avagraha — elided 'a', rendered as an apostrophe
+                sb.append('\'')
+                return index + 1
+            }
+            '\u0964', '\u0965' -> { // Danda / double danda are punctuation, not sounds
+                sb.append(c)
+                return index + 1
+            }
+        }
+        if (c in '\u0966'..'\u096F') {
+            // Devanagari digits ०-९ were silently deleted (e.g. "२" vanished from the line).
+            sb.append(c.code - '\u0966'.code)
+            return index + 1
         }
 
         // Consonant
         val cons = DEVANAGARI_CONSONANTS[c]
         if (cons != null) {
-            sb.append(cons)
-            val nextIndex = index + 1
-            if (nextIndex < text.length) {
-                val nextChar = text[nextIndex]
-                // Virama / Halant suppresses inherent 'a'
-                if (nextChar == '\u094D') {
-                    return nextIndex + 1
-                }
-                // Matra replaces inherent 'a'
-                val matra = DEVANAGARI_MATRAS[nextChar]
-                if (matra != null) {
-                    sb.append(matra)
-                    return nextIndex + 1
-                }
-                // Nukta following consonant (e.g. ज + ़ = z, ड + ़ = r, फ + ़ = f)
-                if (nextChar == '\u093C') {
-                    // Check if further char has matra or virama
-                    val postNukta = nextIndex + 1
-                    if (postNukta < text.length) {
-                        if (text[postNukta] == '\u094D') return postNukta + 1
-                        val postMatra = DEVANAGARI_MATRAS[text[postNukta]]
-                        if (postMatra != null) {
-                            sb.append(postMatra)
-                            return postNukta + 1
-                        }
-                    }
-                    if (postNukta < text.length && !text[postNukta].isWhitespace()) {
-                        sb.append("a")
-                    }
-                    return postNukta
-                }
-                // Hindi schwa deletion: drop final 'a' at word boundary or punctuation
-                if (nextChar.isWhitespace() || !nextChar.isLetter()) {
-                    // Single consonant words like 'न' keep 'a'
-                    val prevChar = if (index > 0) text[index - 1] else ' '
-                    if (prevChar.isWhitespace()) {
-                        sb.append("a")
-                    }
-                    return nextIndex
-                }
-            } else {
-                // End of text: drop schwa unless single letter
-                val prevChar = if (index > 0) text[index - 1] else ' '
-                if (prevChar.isWhitespace()) {
-                    sb.append("a")
-                }
-                return nextIndex
+            var cursor = index + 1
+            var roman = cons
+            // Fold a following nukta into the consonant before emitting anything.
+            if (cursor < text.length && text[cursor] == '\u093C') {
+                roman = DEVANAGARI_NUKTA_CONSONANTS[c] ?: cons
+                cursor++
             }
-            // Consonant in middle of word with no matra or halant has inherent 'a'
+            sb.append(roman)
+
+            if (cursor >= text.length) {
+                // End of text: drop the inherent 'a' at word end unless the word is a single
+                // consonant ("न" keeps its "a").
+                if (isWordStart(text, index)) sb.append("a")
+                return cursor
+            }
+            val nextChar = text[cursor]
+            // Virama / Halant suppresses the inherent 'a'
+            if (nextChar == '\u094D') return cursor + 1
+            // Matra replaces the inherent 'a'
+            val matra = DEVANAGARI_MATRAS[nextChar]
+            if (matra != null) {
+                sb.append(matra)
+                return cursor + 1
+            }
+            if (isWordBoundary(nextChar)) {
+                // Hindi schwa deletion: the final 'a' of a word is not pronounced, except in
+                // single-consonant words.
+                if (isWordStart(text, index)) sb.append("a")
+                return cursor
+            }
+            // Consonant in the middle of a word with no matra or halant has inherent 'a'
             sb.append("a")
-            return nextIndex
+            return cursor
         }
 
         // Standalone Matra (rare malformed)
@@ -248,6 +285,21 @@ object Romanizer {
         '\u0A13' to "o",  '\u0A14' to "au"
     )
 
+    /**
+     * Nukta pairs written as base consonant + U+0A3C (the canonical decomposition of the
+     * precomposed letters). Without this, ਜ਼ came out as "j" and ਸ਼ as "s".
+     */
+    private val GURMUKHI_NUKTA_CONSONANTS = mapOf(
+        '\u0A15' to "q",   // ਕ਼
+        '\u0A16' to "kh",  // ਖ਼
+        '\u0A17' to "gh",  // ਗ਼
+        '\u0A1C' to "z",   // ਜ਼
+        '\u0A21' to "r",   // ਡ਼ — matches the precomposed ੜ (U+0A5C), Punjabi flap
+        '\u0A2B' to "f",   // ਫ਼
+        '\u0A32' to "l",   // ਲ਼
+        '\u0A38' to "sh"   // ਸ਼
+    )
+
     private fun romanizeGurmukhiChar(text: String, index: Int, sb: StringBuilder): Int {
         val c = text[index]
 
@@ -269,28 +321,42 @@ object Romanizer {
                 if (cons != null) sb.append(cons.first())
                 return index + 1
             }
+            '\u0A3C' -> return index + 1 // stray nukta
+        }
+        if (c in '\u0A66'..'\u0A6F') {
+            // Gurmukhi digits ੦-੯ were silently deleted.
+            sb.append(c.code - '\u0A66'.code)
+            return index + 1
         }
 
         val cons = GURMUKHI_CONSONANTS[c]
         if (cons != null) {
-            sb.append(cons)
-            val nextIndex = index + 1
-            if (nextIndex < text.length) {
-                val nextChar = text[nextIndex]
-                if (nextChar == '\u0A4D') return nextIndex + 1 // Virama
-                val matra = GURMUKHI_MATRAS[nextChar]
-                if (matra != null) {
-                    sb.append(matra)
-                    return nextIndex + 1
-                }
-                if (nextChar.isWhitespace() || !nextChar.isLetter()) {
-                    return nextIndex
-                }
-            } else {
-                return nextIndex
+            var cursor = index + 1
+            var roman = cons
+            // Fold a following nukta into the consonant before emitting anything.
+            if (cursor < text.length && text[cursor] == '\u0A3C') {
+                roman = GURMUKHI_NUKTA_CONSONANTS[c] ?: cons
+                cursor++
+            }
+            sb.append(roman)
+
+            if (cursor >= text.length) {
+                if (isWordStart(text, index)) sb.append("a")
+                return cursor
+            }
+            val nextChar = text[cursor]
+            if (nextChar == '\u0A4D') return cursor + 1 // Virama
+            val matra = GURMUKHI_MATRAS[nextChar]
+            if (matra != null) {
+                sb.append(matra)
+                return cursor + 1
+            }
+            if (isWordBoundary(nextChar)) {
+                if (isWordStart(text, index)) sb.append("a")
+                return cursor
             }
             sb.append("a")
-            return nextIndex
+            return cursor
         }
 
         val matra = GURMUKHI_MATRAS[c]

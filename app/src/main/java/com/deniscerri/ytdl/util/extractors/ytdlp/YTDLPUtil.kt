@@ -1746,10 +1746,15 @@ class YTDLPUtil(private val context: Context, private val commandTemplateDao: Co
                                 //after_move so it runs once audio extraction, metadata and thumbnail are done
                                 "when=after_move",
                                 "embed=${if (audioPrefs.embedLyrics) 1 else 0}",
+                                "ttml=${if (audioPrefs.embedTtml) 1 else 0}",
                                 "lrc=${if (audioPrefs.saveLrc) 1 else 0}",
                                 "offset=${audioPrefs.lyricsOffset}"
                             )
-                            if (audioPrefs.lyricsId > 0) args.add("id=${audioPrefs.lyricsId}")
+                            if (audioPrefs.customLyricsFile.isNotBlank()) {
+                                args.add("file=${audioPrefs.customLyricsFile}")
+                            } else if (audioPrefs.lyricsId > 0) {
+                                args.add("id=${audioPrefs.lyricsId}")
+                            }
                             request.addOption("--use-postprocessor", "Lyrics:${args.joinToString(";")}")
                         }
                     }

@@ -38,6 +38,10 @@ import com.deniscerri.ytdl.database.repository.DownloadRepository
 import com.deniscerri.ytdl.database.repository.HistoryRepository
 import com.deniscerri.ytdl.database.repository.ResultRepository
 import com.deniscerri.ytdl.ui.downloadcard.MultipleItemFormatTuple
+import com.deniscerri.ytdl.lyrics.LyricsFormat
+import com.deniscerri.ytdl.lyrics.LyricsRepository
+import com.deniscerri.ytdl.lyrics.model.LyricsQuery
+import com.deniscerri.ytdl.util.Extensions.convertToTimestamp
 import com.deniscerri.ytdl.util.LocaleUtil
 import com.deniscerri.ytdl.util.Extensions.needsDataUpdating
 import com.deniscerri.ytdl.util.Extensions.toListString
@@ -294,7 +298,9 @@ class DownloadViewModel(private val application: Application) : AndroidViewModel
 
         val audioPreferences = AudioPreferences(
             embedThumb, cropThumb,false, ArrayList(sponsorblock!!), bitrate!!,
-            embedLyrics = sharedPreferences.getBoolean("embed_lyrics", false),
+            embedLyrics = sharedPreferences.getBoolean("auto_embed_lyrics", true) ||
+                sharedPreferences.getBoolean("embed_lyrics", true),
+            embedTtml = sharedPreferences.getBoolean("embed_ttml", true),
             saveLrc = sharedPreferences.getBoolean("save_lrc", false)
         )
 
@@ -503,7 +509,9 @@ class DownloadViewModel(private val application: Application) : AndroidViewModel
             splitByChapters = false,
             sponsorBlockFilters = ArrayList(sponsorblock!!),
             bitrate = audioBitrate!!,
-            embedLyrics = sharedPreferences.getBoolean("embed_lyrics", false),
+            embedLyrics = sharedPreferences.getBoolean("auto_embed_lyrics", true) ||
+                sharedPreferences.getBoolean("embed_lyrics", true),
+            embedTtml = sharedPreferences.getBoolean("embed_ttml", true),
             saveLrc = sharedPreferences.getBoolean("save_lrc", false)
         )
         val videoPreferences = VideoPreferences(
@@ -914,6 +922,36 @@ class DownloadViewModel(private val application: Application) : AndroidViewModel
     )
 
     suspend fun queueDownloads(items: List<DownloadItem>, ignoreDuplicates : Boolean = false) : QueueDownloadsResult {
+        // Automatically check and attach word-synced TTML / synced lyrics for audio items
+        items.forEach { item ->
+            if (item.type == DownloadType.audio &&
+                (item.audioPreferences.embedLyrics || item.audioPreferences.embedTtml) &&
+                item.audioPreferences.customLyricsFile.isBlank()
+            ) {
+                runCatching {
+                    val query = LyricsQuery(
+                        mediaId = "dl:${item.id}",
+                        title = item.title,
+                        artist = item.author.ifBlank { null },
+                        durationMs = item.duration.convertToTimestamp()
+                    )
+                    val candidates = withContext(Dispatchers.IO) {
+                        LyricsRepository(application).searchCandidates(query)
+                    }
+                    val best = candidates.firstOrNull { it.hasWordTimings || it.format == LyricsFormat.TTML }
+                        ?: candidates.firstOrNull { it.isSynced }
+                    if (best != null) {
+                        val isTtml = best.format == LyricsFormat.TTML
+                        val ext = if (isTtml) "ttml" else "lrc"
+                        val cacheFile = File(application.cacheDir, "lyrics_${item.id}.$ext")
+                        cacheFile.writeText(best.raw, Charsets.UTF_8)
+                        item.audioPreferences.customLyricsFile = cacheFile.absolutePath
+                        item.audioPreferences.embedTtml = isTtml
+                    }
+                }
+            }
+        }
+
         val res = DownloadQueueUtil(application).enqueue(items, ignoreDuplicates)
 
         val idsToUpdateDataInBackground = res.queued

@@ -112,9 +112,27 @@ object LrcLibUtil {
 
     fun byId(id: Long): Lyrics? = get("get/$id")?.let { toLyrics(JSONObject(it)) }
 
-    /** Free text search used by the manual "search again" option, no duration filter. */
-    fun search(query: String): List<Lyrics> {
-        val arr = JSONArray(get("search", mapOf("q" to query)) ?: return emptyList())
-        return (0 until arr.length()).mapNotNull { toLyrics(arr.getJSONObject(it)) }
+    /** Search used by the manual search option, supporting track name and optional artist. */
+    fun search(trackName: String, artistName: String? = null): List<Lyrics> {
+        val cleanTrack = junkBrackets.replace(trackName, "").trim()
+        val cleanArtist = artistName?.trim().orEmpty()
+        val params = if (cleanArtist.isNotBlank()) {
+            mapOf("track_name" to cleanTrack, "artist_name" to cleanArtist)
+        } else {
+            mapOf("q" to cleanTrack)
+        }
+        val res = get("search", params)?.let { JSONArray(it) }
+        val parsed = if (res != null) (0 until res.length()).mapNotNull { toLyrics(res.getJSONObject(it)) } else emptyList()
+        if (parsed.isNotEmpty()) return parsed
+
+        // Fallback to free text query if structured search gave 0 results
+        if (cleanArtist.isNotBlank()) {
+            val fallbackQ = "$cleanArtist $cleanTrack".trim()
+            val fallbackRes = get("search", mapOf("q" to fallbackQ))?.let { JSONArray(it) }
+            if (fallbackRes != null) {
+                return (0 until fallbackRes.length()).mapNotNull { toLyrics(fallbackRes.getJSONObject(it)) }
+            }
+        }
+        return emptyList()
     }
 }

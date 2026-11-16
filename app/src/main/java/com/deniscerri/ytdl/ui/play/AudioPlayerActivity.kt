@@ -13,8 +13,8 @@ import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.ImageButton
 import android.widget.ImageView
-import android.widget.SeekBar
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
@@ -38,7 +38,7 @@ import kotlin.math.abs
 
 class AudioPlayerActivity : BaseActivity() {
 
-    private lateinit var seekBar: SeekBar
+    private lateinit var seekBar: WavySeekBar
     private lateinit var likeButton: MaterialButton
 
     private var currentItem: PlaybackItem? = null
@@ -46,26 +46,89 @@ class AudioPlayerActivity : BaseActivity() {
     private var speedIndex = 0
     private var contentBottomPadding = 0
     private var coloredForMediaId: String? = null
+    private var showRemainingTime = false
+    private var currentDominantColor: Int? = null
 
     private val speeds = listOf(1.0f, 1.25f, 1.5f, 0.75f)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val enterShared = android.transition.TransitionSet().apply {
+            addTransition(android.transition.ChangeBounds())
+            addTransition(android.transition.ChangeTransform())
+            addTransition(android.transition.ChangeImageTransform())
+            duration = 340L
+            interpolator = DecelerateInterpolator(1.8f)
+        }
+        val returnShared = android.transition.TransitionSet().apply {
+            addTransition(android.transition.ChangeBounds())
+            addTransition(android.transition.ChangeTransform())
+            addTransition(android.transition.ChangeImageTransform())
+            duration = 320L
+            interpolator = DecelerateInterpolator(1.8f)
+        }
+        window.sharedElementEnterTransition = enterShared
+        window.sharedElementReturnTransition = returnShared
+
+        val fadeTransition = android.transition.Fade().apply {
+            duration = 240L
+            excludeTarget(R.id.audio_art, true)
+            excludeTarget(android.R.id.statusBarBackground, true)
+            excludeTarget(android.R.id.navigationBarBackground, true)
+        }
+        window.enterTransition = fadeTransition
+        window.returnTransition = fadeTransition
+
         setContentView(R.layout.activity_audio_player)
         PlaybackController.init(this)
         LikedStore.init(this)
 
-        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.audio_toolbar)
-            .setNavigationOnClickListener { finish() }
+        postponeEnterTransition()
+        val artView = findViewById<ImageView>(R.id.audio_art)
+        val initialItem = PlaybackController.state.value.currentItem
+        if (initialItem != null) {
+            PlaybackArtworkLoader.load(artView, initialItem)
+        }
+        artView.post {
+            startPostponedEnterTransition()
+        }
+
+        findViewById<View>(R.id.audio_back).setOnClickListener {
+            supportFinishAfterTransition()
+        }
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val sheet = supportFragmentManager.findFragmentByTag(LYRICS_SHEET_TAG) as? LyricsSheetFragment
+                if (sheet != null && sheet.isVisible) {
+                    sheet.dismiss()
+                } else {
+                    supportFinishAfterTransition()
+                }
+            }
+        })
 
         seekBar = findViewById(R.id.audio_seek)
         likeButton = findViewById(R.id.audio_like)
 
-        val content = findViewById<android.view.View>(R.id.audio_content)
+        val durationView = findViewById<TextView>(R.id.audio_duration)
+        durationView.setOnClickListener {
+            showRemainingTime = !showRemainingTime
+            updateDurationDisplay()
+        }
+
+        val content = findViewById<View>(R.id.audio_content)
+        val header = findViewById<View>(R.id.audio_header)
         contentBottomPadding = content.paddingBottom
-        ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.audio_root)) { _, insets ->
+            val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             val navigationBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.updatePadding(bottom = contentBottomPadding + navigationBars)
+            val density = resources.displayMetrics.density
+            header.updatePadding(top = statusBars + (6 * density).toInt())
+            content.updatePadding(
+                top = statusBars + (60 * density).toInt(),
+                bottom = contentBottomPadding + navigationBars
+            )
             insets
         }
 
@@ -106,7 +169,6 @@ class AudioPlayerActivity : BaseActivity() {
 
                     if (isDragging) {
                         val cardWidth = view.width.toFloat().coerceAtLeast(100f)
-                        // Natural drag damping, subtle rotation tilt, scale dip and slight alpha fade
                         view.translationX = dx * 0.8f
                         view.rotation = (dx / cardWidth) * 7.5f
                         view.alpha = (1f - (abs(dx) / (cardWidth * 2.2f))).coerceIn(0.55f, 1f)
@@ -146,7 +208,6 @@ class AudioPlayerActivity : BaseActivity() {
                                 } else {
                                     PlaybackController.skipToPreviousAudio()
                                 }
-                                // Setup entrance from opposite side with springy overshoot settle
                                 view.translationX = if (isNext) cardWidth * 1.15f else -cardWidth * 1.15f
                                 view.rotation = if (isNext) 10f else -10f
                                 view.scaleX = 0.92f
@@ -164,7 +225,6 @@ class AudioPlayerActivity : BaseActivity() {
                             }
                             .start()
                     } else if (isDragging) {
-                        // Settle springily back to center if threshold was not reached
                         view.animate()
                             .translationX(0f)
                             .rotation(0f)
@@ -223,30 +283,32 @@ class AudioPlayerActivity : BaseActivity() {
             updateLikeState(item)
         }
 
-        findViewById<com.google.android.material.button.MaterialButton>(R.id.audio_lyrics_button)
-            .setOnClickListener { openLyricsSheet() }
+        findViewById<MaterialButton>(R.id.audio_lyrics_button).setOnClickListener {
+            openLyricsSheet()
+        }
 
-        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+        seekBar.onSeekBarChangeListener = object : WavySeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: WavySeekBar, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
                     val duration = currentDuration()
-                    findViewById<TextView>(R.id.audio_position).text =
-                        ((progress / 1000f) * duration).toLong().toStringTimeStamp()
+                    val pos = ((progress / 1000f) * duration).toLong()
+                    findViewById<TextView>(R.id.audio_position).text = pos.toStringTimeStamp()
+                    updateDurationDisplay(duration, pos)
                 }
             }
 
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+            override fun onStartTrackingTouch(seekBar: WavySeekBar) {
                 isUserSeeking = true
             }
 
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+            override fun onStopTrackingTouch(seekBar: WavySeekBar) {
                 isUserSeeking = false
                 val duration = currentDuration()
                 if (duration > 0) {
-                    PlaybackController.seekTo(((seekBar?.progress ?: 0) / 1000f * duration).toLong())
+                    PlaybackController.seekTo(((seekBar.progress / 1000f) * duration).toLong())
                 }
             }
-        })
+        }
     }
 
     private fun observePlayback() {
@@ -260,9 +322,21 @@ class AudioPlayerActivity : BaseActivity() {
         }
     }
 
+    private fun updateDurationDisplay(
+        duration: Long = currentDuration(),
+        position: Long = PlaybackController.state.value.positionMs.coerceAtLeast(0L)
+    ) {
+        val durationView = findViewById<TextView>(R.id.audio_duration) ?: return
+        if (showRemainingTime) {
+            val remaining = (duration - position).coerceAtLeast(0L)
+            durationView.text = "-${remaining.toStringTimeStamp()}"
+        } else {
+            durationView.text = duration.toStringTimeStamp()
+        }
+    }
+
     private fun bindState(state: PlaybackController.UiState) {
         val item = state.currentItem ?: run {
-            // Nothing playing (e.g. playback was stopped from the notification): clear the glow.
             findViewById<GlowView>(R.id.audio_art_glow).apply {
                 setPulsing(false)
                 setColor(null)
@@ -292,8 +366,9 @@ class AudioPlayerActivity : BaseActivity() {
         if (!isUserSeeking && duration > 0) {
             seekBar.progress = ((position.toFloat() / duration) * 1000f).toInt().coerceIn(0, 1000)
         }
+        seekBar.setPlaying(state.playing)
         findViewById<TextView>(R.id.audio_position).text = position.toStringTimeStamp()
-        findViewById<TextView>(R.id.audio_duration).text = duration.toStringTimeStamp()
+        updateDurationDisplay(duration, position)
 
         findViewById<ImageButton>(R.id.audio_play_pause).setImageResource(
             if (state.playing) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play
@@ -301,34 +376,12 @@ class AudioPlayerActivity : BaseActivity() {
         findViewById<ImageButton>(R.id.audio_play_pause).contentDescription = getString(
             if (state.playing) R.string.pause else R.string.play
         )
-        // The artwork halo breathes dynamically while audio is actually playing.
+
         val glow = findViewById<GlowView>(R.id.audio_art_glow)
         glow.setPulsing(state.playing)
-        // Beat kicks are timed inside GlowView's animation loop (see setBeatRate) — driving
-        // them from this 500ms state tick skipped beats whose window was narrower than the tick.
         glow.setBeatRate(if (state.playing) 1.8f else 0f)
 
-        val accent = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.WHITE)
-        val muted = MaterialColors.getColor(
-            this,
-            com.google.android.material.R.attr.colorOnSurfaceVariant,
-            Color.LTGRAY
-        )
-        findViewById<ImageButton>(R.id.audio_shuffle).apply {
-            imageTintList = ColorStateList.valueOf(if (state.shuffle) accent else muted)
-        }
-        findViewById<ImageButton>(R.id.audio_repeat).apply {
-            setImageResource(
-                when (state.repeatMode) {
-                    androidx.media3.common.Player.REPEAT_MODE_ONE -> R.drawable.ic_repeat_one
-                    androidx.media3.common.Player.REPEAT_MODE_ALL -> R.drawable.ic_repeat
-                    else -> R.drawable.ic_repeat
-                }
-            )
-            imageTintList = ColorStateList.valueOf(
-                if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) muted else accent
-            )
-        }
+        applyDynamicControlsTint(currentDominantColor)
 
         val art = findViewById<ImageView>(R.id.audio_art)
         PlaybackArtworkLoader.load(art, item)
@@ -341,6 +394,94 @@ class AudioPlayerActivity : BaseActivity() {
         updateLikeState(item)
     }
 
+    private fun applyDynamicControlsTint(dominantColor: Int?) {
+        val onSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.WHITE)
+        val surfaceColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface, Color.BLACK)
+        val state = PlaybackController.state.value
+
+        if (dominantColor == null) {
+            val unplayedColor = Color.argb(80, Color.red(onSurface), Color.green(onSurface), Color.blue(onSurface))
+            seekBar.setColors(playedColor = onSurface, unplayedColor = unplayedColor, thumbColor = onSurface)
+            val defaultPillBg = androidx.core.content.ContextCompat.getColor(this, R.color.capsule_time_bg)
+            val defaultPillText = androidx.core.content.ContextCompat.getColor(this, R.color.capsule_time_text)
+            findViewById<TextView>(R.id.audio_position).apply {
+                backgroundTintList = ColorStateList.valueOf(defaultPillBg)
+                setTextColor(defaultPillText)
+            }
+            findViewById<TextView>(R.id.audio_duration).apply {
+                backgroundTintList = ColorStateList.valueOf(defaultPillBg)
+                setTextColor(defaultPillText)
+            }
+            return
+        }
+
+        // Luminous tint for active seekbar wave and thumb
+        val seekbarColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, Color.WHITE, 0.35f)
+        val unplayedColor = Color.argb(55, Color.red(dominantColor), Color.green(dominantColor), Color.blue(dominantColor))
+        seekBar.setColors(
+            playedColor = seekbarColor,
+            unplayedColor = unplayedColor,
+            thumbColor = seekbarColor
+        )
+
+        // Glowing timing capsules
+        val timeBgColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, surfaceColor, 0.76f)
+        val timeTextColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, Color.WHITE, 0.20f)
+        findViewById<TextView>(R.id.audio_position).apply {
+            backgroundTintList = ColorStateList.valueOf(timeBgColor)
+            setTextColor(timeTextColor)
+        }
+        findViewById<TextView>(R.id.audio_duration).apply {
+            backgroundTintList = ColorStateList.valueOf(timeBgColor)
+            setTextColor(timeTextColor)
+        }
+
+        // Vibrant pastel container for center play/pause button
+        val playBtn = findViewById<ImageButton>(R.id.audio_play_pause)
+        val playBgColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, Color.WHITE, 0.40f)
+        playBtn.backgroundTintList = ColorStateList.valueOf(playBgColor)
+        val onPlayColor = if (androidx.core.graphics.ColorUtils.calculateLuminance(playBgColor) > 0.45) {
+            androidx.core.graphics.ColorUtils.blendARGB(dominantColor, Color.BLACK, 0.85f)
+        } else {
+            Color.WHITE
+        }
+        playBtn.imageTintList = ColorStateList.valueOf(onPlayColor)
+
+        // Subtle ambient tint for the 4 satellite squircle buttons
+        val buttonBgColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, surfaceColor, 0.80f)
+        val iconColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, Color.WHITE, 0.70f)
+
+        val shuffleBtn = findViewById<ImageButton>(R.id.audio_shuffle)
+        shuffleBtn.backgroundTintList = ColorStateList.valueOf(buttonBgColor)
+        shuffleBtn.imageTintList = ColorStateList.valueOf(if (state.shuffle) seekbarColor else iconColor)
+
+        val prevBtn = findViewById<ImageButton>(R.id.audio_previous)
+        prevBtn.backgroundTintList = ColorStateList.valueOf(buttonBgColor)
+        prevBtn.imageTintList = ColorStateList.valueOf(iconColor)
+
+        val nextBtn = findViewById<ImageButton>(R.id.audio_next)
+        nextBtn.backgroundTintList = ColorStateList.valueOf(buttonBgColor)
+        nextBtn.imageTintList = ColorStateList.valueOf(iconColor)
+
+        val repeatBtn = findViewById<ImageButton>(R.id.audio_repeat)
+        repeatBtn.backgroundTintList = ColorStateList.valueOf(buttonBgColor)
+        repeatBtn.setImageResource(
+            when (state.repeatMode) {
+                androidx.media3.common.Player.REPEAT_MODE_ONE -> R.drawable.ic_repeat_one
+                androidx.media3.common.Player.REPEAT_MODE_ALL -> R.drawable.ic_repeat
+                else -> R.drawable.ic_repeat
+            }
+        )
+        repeatBtn.imageTintList = ColorStateList.valueOf(
+            if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) iconColor else seekbarColor
+        )
+
+        // Action pills: Like, Audio, Lyrics
+        findViewById<View>(R.id.audio_like).backgroundTintList = ColorStateList.valueOf(buttonBgColor)
+        findViewById<View>(R.id.audio_source).backgroundTintList = ColorStateList.valueOf(buttonBgColor)
+        findViewById<View>(R.id.audio_lyrics_button).backgroundTintList = ColorStateList.valueOf(buttonBgColor)
+    }
+
     /** Colors the radial glow behind the artwork card from the artwork's dominant color. */
     private fun applyGlow(item: PlaybackItem) {
         val glow = findViewById<GlowView>(R.id.audio_art_glow)
@@ -348,8 +489,10 @@ class AudioPlayerActivity : BaseActivity() {
         lifecycleScope.launch {
             val color = PlaybackColors.artworkGlowColor(this@AudioPlayerActivity, item)
             if (currentItem?.mediaId == item.mediaId) {
+                currentDominantColor = color
                 glow.setColor(color)
                 applyAmbientBackground(color)
+                applyDynamicControlsTint(color)
             }
         }
     }
@@ -369,7 +512,6 @@ class AudioPlayerActivity : BaseActivity() {
             return
         }
 
-        // Palette-derived 3-stop vertical gradient (darkened, ambient, surface)
         val topColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, surfaceColor, 0.72f)
         val midColor = androidx.core.graphics.ColorUtils.blendARGB(dominantColor, surfaceColor, 0.88f)
         val newBg = android.graphics.drawable.GradientDrawable(

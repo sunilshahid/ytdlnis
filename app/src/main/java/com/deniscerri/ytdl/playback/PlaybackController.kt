@@ -2,19 +2,24 @@ package com.deniscerri.ytdl.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.database.DBManager
 import com.deniscerri.ytdl.database.models.PlaybackQueueState
 import com.deniscerri.ytdl.playback.model.PlaybackItem
 import com.deniscerri.ytdl.playback.model.PlaybackSource
+import com.deniscerri.ytdl.playback.model.PlaybackSubtitle
 import com.deniscerri.ytdl.ui.play.PlaybackArtworkLoader
+import com.deniscerri.ytdl.ui.play.VideoPlayerOverlays
 import com.deniscerri.ytdl.playback.resolve.PlaybackStreamResolver
 import com.deniscerri.ytdl.playback.resolve.ResolvedStream
 import com.deniscerri.ytdl.playback.resolve.ResolveOptions
@@ -337,6 +342,55 @@ object PlaybackController {
             _state.update { it.copy(queue = mutable) }
             persistQueueItems()
         }
+    }
+
+    /**
+     * Injects an external or imported subtitle into the currently playing media item dynamically.
+     */
+    fun addCustomSubtitle(subtitle: PlaybackSubtitle, autoSelect: Boolean = true) {
+        val player = controller ?: return
+        val currentItem = _state.value.currentItem ?: return
+
+        val updatedSubtitles = _state.value.subtitles.filter { it.uri != subtitle.uri } + subtitle
+        _state.update { it.copy(subtitles = updatedSubtitles) }
+
+        val currentMediaItem = player.currentMediaItem ?: return
+        val existingConfigs = currentMediaItem.localConfiguration?.subtitleConfigurations.orEmpty()
+            .filter { it.id != subtitle.uri && it.uri.toString() != subtitle.uri }
+
+        val newConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.uri))
+            .setId(subtitle.uri)
+            .setMimeType(subtitle.mimeType)
+            .setLanguage(subtitle.language)
+            .setLabel(subtitle.label)
+            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .build()
+
+        val updatedConfigs = existingConfigs + newConfig
+        val currentPos = player.currentPosition
+        val isPlaying = player.isPlaying
+
+        val updatedMediaItem = currentMediaItem.buildUpon()
+            .setSubtitleConfigurations(updatedConfigs)
+            .build()
+
+        resolvedItems[currentItem.mediaId]?.let { cached ->
+            resolvedItems[currentItem.mediaId] = CachedMediaItem(updatedMediaItem, cached.expiresAtMs)
+        }
+
+        if (autoSelect) {
+            val ctx = appContext
+            if (ctx != null) {
+                PreferenceManager.getDefaultSharedPreferences(ctx).edit()
+                    .putBoolean(VideoPlayerOverlays.PREF_SUB_ENABLED, true)
+                    .putString(VideoPlayerOverlays.PREF_SUB_CUSTOM_URI, subtitle.uri)
+                    .apply()
+            }
+        }
+
+        player.setMediaItem(updatedMediaItem, currentPos)
+        player.prepare()
+        player.playWhenReady = isPlaying
     }
 
     fun removeFromQueue(index: Int) {

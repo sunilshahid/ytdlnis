@@ -183,12 +183,12 @@ object DeviceFilesPrefs {
     )
 
     fun isEnabled(context: Context): Boolean =
-        preferences(context).getBoolean(KEY_ENABLED, false)
+        preferences(context).getBoolean(KEY_ENABLED, true)
 
     fun showMode(context: Context): DeviceShowMode {
         val value = preferences(context).getString(KEY_VIEW_MODE, null)
         return runCatching { DeviceShowMode.valueOf(value.orEmpty()) }
-            .getOrDefault(DeviceShowMode.ALL_FOLDERS)
+            .getOrDefault(DeviceShowMode.FOLDERS)
     }
 
     fun setShowMode(context: Context, mode: DeviceShowMode) {

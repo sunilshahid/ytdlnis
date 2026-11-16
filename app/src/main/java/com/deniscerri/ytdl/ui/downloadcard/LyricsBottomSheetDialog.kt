@@ -12,6 +12,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -31,10 +32,16 @@ import androidx.recyclerview.widget.RecyclerView
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.models.DownloadItem
 import com.deniscerri.ytdl.database.viewmodel.ResultViewModel
+import com.deniscerri.ytdl.lyrics.LyricsFormat
+import com.deniscerri.ytdl.lyrics.LyricsRepository
+import com.deniscerri.ytdl.lyrics.model.LyricsCandidate
+import com.deniscerri.ytdl.lyrics.model.LyricsQuery
+import com.deniscerri.ytdl.lyrics.parse.LyricsParserRegistry
 import com.deniscerri.ytdl.util.Extensions.convertToTimestamp
 import com.deniscerri.ytdl.util.Extensions.toStringTimeStamp
 import com.deniscerri.ytdl.util.extractors.LrcLibUtil
 import com.deniscerri.ytdl.util.VideoPlayerUtil
+import java.io.File
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
@@ -76,11 +83,13 @@ class LyricsBottomSheetDialog(
     private lateinit var offsetValue: TextView
     private lateinit var embedSwitch: MaterialSwitch
     private lateinit var saveLrcSwitch: MaterialSwitch
+    private lateinit var embedTtmlSwitch: MaterialSwitch
 
     private val adapter = LyricsAdapter { line -> seekToLine(line) }
     private var lyrics: LrcLibUtil.Lyrics? = null
     private var offset = 0L
-    private var lastQuery: String? = null
+    private var lastSearchTitle: String? = null
+    private var lastSearchArtist: String? = null
     private var seeking = false
     private var lastUserScroll = 0L
 
@@ -130,6 +139,7 @@ class LyricsBottomSheetDialog(
         offsetValue = view.findViewById(R.id.offset_value)
         embedSwitch = view.findViewById(R.id.embed_lyrics)
         saveLrcSwitch = view.findViewById(R.id.save_lrc)
+        embedTtmlSwitch = view.findViewById(R.id.embed_ttml)
 
         setupList()
         setupPlayer(view)
@@ -285,12 +295,24 @@ class LyricsBottomSheetDialog(
         val prefs = item.audioPreferences
         embedSwitch.isChecked = prefs.embedLyrics
         saveLrcSwitch.isChecked = prefs.saveLrc
+        embedTtmlSwitch.isChecked = prefs.embedTtml
+        // TTML is only the format of the embedded tag, so it follows the embed switch.
+        embedTtmlSwitch.isEnabled = prefs.embedLyrics
         embedSwitch.setOnCheckedChangeListener { _, checked ->
             prefs.embedLyrics = checked
+            if (!checked) {
+                embedTtmlSwitch.isChecked = false
+            }
+            embedTtmlSwitch.isEnabled = checked
             onChanged?.invoke()
         }
         saveLrcSwitch.setOnCheckedChangeListener { _, checked ->
             prefs.saveLrc = checked
+            onChanged?.invoke()
+        }
+        embedTtmlSwitch.setOnCheckedChangeListener { _, checked ->
+            prefs.embedTtml = checked
+            if (checked && !embedSwitch.isChecked) embedSwitch.isChecked = true
             onChanged?.invoke()
         }
     }
@@ -398,29 +420,63 @@ class LyricsBottomSheetDialog(
     }
 
     private fun showSearchDialog() {
-        val input = EditText(requireContext()).apply {
-            setText(lastQuery ?: "${item.author} ${item.title}".trim())
-            setSelectAllOnFocus(true)
-            maxLines = 1
-        }
-        val container = FrameLayout(requireContext()).apply {
-            val m = (20 * resources.displayMetrics.density).toInt()
-            setPadding(m, m / 2, m, 0)
-            addView(input, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val context = requireContext()
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0)
         }
 
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle(R.string.search)
+        val initialTitle = lastSearchTitle ?: item.title
+        val initialArtist = lastSearchArtist ?: item.author
+
+        val titleInput = com.google.android.material.textfield.TextInputEditText(context).apply {
+            hint = getString(R.string.lyrics_search_title_hint)
+            setText(initialTitle)
+            isSingleLine = true
+        }
+        val titleLayout = com.google.android.material.textfield.TextInputLayout(context).apply {
+            addView(titleInput)
+        }
+        container.addView(titleLayout)
+
+        val artistInput = com.google.android.material.textfield.TextInputEditText(context).apply {
+            hint = getString(R.string.lyrics_search_artist_hint)
+            setText(initialArtist)
+            isSingleLine = true
+        }
+        val artistLayout = com.google.android.material.textfield.TextInputLayout(context).apply {
+            val topMargin = (8 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, topMargin, 0, 0) }
+            addView(artistInput)
+        }
+        container.addView(artistLayout)
+
+        MaterialAlertDialogBuilder(context)
+            .setTitle(R.string.lyrics_search)
             .setView(container)
-            .setNegativeButton(R.string.cancel) { _, _ -> }
+            .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.search) { _, _ ->
-                val query = input.text.toString().trim()
-                if (query.isBlank()) return@setPositiveButton
-                lastQuery = query
+                val searchTitle = titleInput.text?.toString()?.trim().orEmpty()
+                val searchArtist = artistInput.text?.toString()?.trim().orEmpty()
+                if (searchTitle.isBlank()) return@setPositiveButton
+                lastSearchTitle = searchTitle
+                lastSearchArtist = searchArtist
                 lyricsProgress.isVisible = true
                 lifecycleScope.launch {
+                    val query = LyricsQuery(
+                        mediaId = "dl:${item.id}",
+                        title = searchTitle,
+                        artist = searchArtist.ifBlank { null },
+                        durationMs = item.duration.convertToTimestamp()
+                    )
                     val results = try {
-                        withContext(Dispatchers.IO) { LrcLibUtil.search(query) }
+                        withContext(Dispatchers.IO) {
+                            LyricsRepository(requireContext()).searchCandidates(query)
+                        }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -438,17 +494,76 @@ class LyricsBottomSheetDialog(
             .show()
     }
 
-    private fun showResultsDialog(results: List<LrcLibUtil.Lyrics>) {
+    private fun showCandidateLyrics(candidate: LyricsCandidate) {
+        val prefs = item.audioPreferences
+        val parsed = LyricsParserRegistry.parse(
+            raw = candidate.raw,
+            formatHint = candidate.format,
+            mediaId = "dl:${item.id}",
+            title = candidate.trackName,
+            artist = candidate.artistName ?: item.author,
+            album = candidate.albumName
+        )
+
+        lyricsMessage.isVisible = false
+        prefs.lyricsId = 0
+
+        // Save raw lyrics to cache so yt-dlp postprocessor can embed it directly
+        val isTtml = candidate.format == LyricsFormat.TTML
+        val ext = if (isTtml) "ttml" else "lrc"
+        runCatching {
+            val cacheFile = File(requireContext().cacheDir, "lyrics_${item.id}.$ext")
+            cacheFile.writeText(candidate.raw, Charsets.UTF_8)
+            prefs.customLyricsFile = cacheFile.absolutePath
+        }
+
+        embedTtmlSwitch.isChecked = isTtml
+        prefs.embedTtml = isTtml
+
+        if (!prefs.embedLyrics && !prefs.saveLrc) {
+            embedSwitch.isChecked = true
+        }
+        onChanged?.invoke()
+
+        val artist = candidate.artistName ?: item.author
+        matchText.text = "[${candidate.providerName}] $artist - ${candidate.trackName}"
+        offsetSection.isVisible = candidate.isSynced
+        saveLrcSwitch.isEnabled = candidate.isSynced
+
+        val displayLines = parsed.lines.map { it.text.ifBlank { "♪" } }
+        adapter.submit(displayLines, candidate.isSynced)
+
+        val syncedItems = parsed.lines.mapNotNull { line ->
+            line.startMs?.let { LrcLibUtil.LrcLine(it, line.text) }
+        }
+        lyrics = LrcLibUtil.Lyrics(
+            id = 0,
+            trackName = candidate.trackName,
+            artistName = artist,
+            albumName = candidate.albumName ?: "",
+            durationSec = candidate.durationSec,
+            synced = syncedItems,
+            plain = parsed.lines.joinToString("\n") { it.text }
+        )
+        updateCurrentLine(player.currentPosition)
+    }
+
+    private fun showResultsDialog(results: List<LyricsCandidate>) {
         val itemSeconds = (item.duration.convertToTimestamp() / 1000).toInt()
-        val adapter = object : ArrayAdapter<LrcLibUtil.Lyrics>(requireContext(), 0, results) {
+        val adapter = object : ArrayAdapter<LyricsCandidate>(requireContext(), 0, results) {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val row = convertView ?: LayoutInflater.from(context).inflate(R.layout.lyrics_search_result_item, parent, false)
                 val r = getItem(position)!!
                 row.findViewById<TextView>(R.id.result_title).text = r.trackName
                 row.findViewById<TextView>(R.id.result_subtitle).text =
-                    listOf(r.artistName, r.albumName).filter { it.isNotBlank() }.joinToString(" • ")
+                    listOfNotNull(r.artistName, r.albumName).filter { it.isNotBlank() }.joinToString(" • ")
 
-                val info = mutableListOf(getString(if (r.isSynced) R.string.lyrics_synced else R.string.lyrics_plain))
+                val syncType = when {
+                    r.hasWordTimings -> "Word-Synced (TTML)"
+                    r.isSynced -> getString(R.string.lyrics_synced)
+                    else -> getString(R.string.lyrics_plain)
+                }
+                val info = mutableListOf("[${r.providerName}]", syncType)
                 if (r.durationSec > 0) {
                     var runtime = (r.durationSec * 1000L).toStringTimeStamp()
                     if (itemSeconds > 0) {
@@ -460,8 +575,9 @@ class LyricsBottomSheetDialog(
                 row.findViewById<TextView>(R.id.result_info).text = info.joinToString(" • ")
 
                 row.findViewById<TextView>(R.id.result_preview).apply {
-                    val preview = (if (r.isSynced) r.synced.map { it.text } else r.plain.lines())
-                        .filter { it.isNotBlank() }.take(2).joinToString("\n")
+                    val preview = r.raw.lines()
+                        .filter { it.isNotBlank() && !it.startsWith("[offset:") }
+                        .take(2).joinToString("\n")
                     text = preview
                     isVisible = preview.isNotBlank()
                 }
@@ -471,7 +587,7 @@ class LyricsBottomSheetDialog(
 
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.lyrics)
-            .setAdapter(adapter) { _, which -> showLyrics(results[which]) }
+            .setAdapter(adapter) { _, which -> showCandidateLyrics(results[which]) }
             .setNegativeButton(R.string.cancel) { _, _ -> }
             .show()
     }

@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.Charset
@@ -23,19 +24,124 @@ object LyricsTagReader {
 
     data class EmbeddedLyrics(val raw: String, val format: LyricsFormat)
 
-    private const val MAX_TAG_BYTES = 4 * 1024 * 1024
+    /** Enough for every container whose comment block sits near the start of the file. */
+    private const val DEFAULT_TAG_BYTES = 4 * 1024 * 1024
+
+    /** Upper bound for an ID3v2 tag whose declared size pushes it past the default window. */
+    private const val MAX_TAG_BYTES = 32 * 1024 * 1024
+
+    private val ORIGINAL_LYRICS_KEYS = setOf(
+        "LYRICS", "LYRIC", "UNSYNCEDLYRICS", "SYNCEDLYRICS", "UNSYNCED LYRICS"
+    )
 
     fun read(context: Context, uriString: String?): EmbeddedLyrics? {
         if (uriString.isNullOrBlank()) return null
-        val bytes = runCatching { readBytes(context, uriString) }.getOrNull() ?: return null
+        var bytes = runCatching { readBytes(context, uriString, DEFAULT_TAG_BYTES) }.getOrNull()
+            ?: return null
         if (bytes.size < 16) return null
-        return runCatching { readId3(bytes) }.getOrNull()
+        // An ID3v2 header declares the exact tag size. Only when artwork pushes the tag past
+        // the default window do we re-read; everything else keeps the single-open fast path.
+        if (hasId3Header(bytes)) {
+            val limit = id3ByteLimit(bytes)
+            if (limit > bytes.size) {
+                runCatching { readBytes(context, uriString, limit) }.getOrNull()?.let { bytes = it }
+            }
+        }
+        val direct = runCatching { readId3(bytes) }.getOrNull()
             ?: runCatching { readMp4(bytes) }.getOrNull()
             ?: runCatching { readFlac(bytes) }.getOrNull()
             ?: runCatching { readOgg(bytes) }.getOrNull()
+        if (direct != null) return direct
+
+        // Dynamic buffer expansion for Ogg / Opus / FLAC if tags were pushed past 4MB
+        if (hasOggHeader(bytes) || hasFlacHeader(bytes)) {
+            val expanded = runCatching { readBytes(context, uriString, 16 * 1024 * 1024) }.getOrNull()
+            if (expanded != null && expanded.size > bytes.size) {
+                val expandedDirect = if (hasOggHeader(expanded)) {
+                    runCatching { readOgg(expanded) }.getOrNull()
+                } else {
+                    runCatching { readFlac(expanded) }.getOrNull()
+                }
+                if (expandedDirect != null) return expandedDirect
+            }
+        }
+
+        // For MP4 / M4A containers without faststart, the moov atom sits at the end of the file.
+        if (hasMp4Header(bytes)) {
+            val tailBytes = runCatching { readBytesFromEnd(context, uriString, DEFAULT_TAG_BYTES) }.getOrNull()
+            if (tailBytes != null && tailBytes.isNotEmpty()) {
+                runCatching { readMp4(tailBytes) }.getOrNull()?.let { return it }
+            }
+        }
+        return null
     }
 
-    private fun readBytes(context: Context, uriString: String): ByteArray? {
+    private fun hasMp4Header(bytes: ByteArray): Boolean {
+        return bytes.size >= 8 && String(bytes, 4, 4, Charsets.ISO_8859_1) == "ftyp"
+    }
+
+    private fun readBytesFromEnd(context: Context, uriString: String, limit: Int): ByteArray? {
+        return runCatching {
+            if (uriString.startsWith("content://")) {
+                context.contentResolver.openFileDescriptor(Uri.parse(uriString), "r")?.use { pfd ->
+                    val fileLength = pfd.statSize
+                    if (fileLength <= 0) return@use null
+                    val offset = kotlin.math.max(0L, fileLength - limit)
+                    val toRead = (fileLength - offset).toInt()
+                    val buffer = ByteArray(toRead)
+                    FileInputStream(pfd.fileDescriptor).channel.use { channel ->
+                        channel.position(offset)
+                        var readTotal = 0
+                        while (readTotal < toRead) {
+                            val r = channel.read(ByteBuffer.wrap(buffer, readTotal, toRead - readTotal))
+                            if (r <= 0) break
+                            readTotal += r
+                        }
+                    }
+                    buffer
+                }
+            } else {
+                val file = if (uriString.startsWith("file://")) {
+                    File(Uri.parse(uriString).path ?: return@runCatching null)
+                } else {
+                    File(uriString)
+                }
+                if (!file.exists()) return@runCatching null
+                val fileLength = file.length()
+                val offset = kotlin.math.max(0L, fileLength - limit)
+                val toRead = (fileLength - offset).toInt()
+                val buffer = ByteArray(toRead)
+                RandomAccessFile(file, "r").use { raf ->
+                    raf.seek(offset)
+                    raf.readFully(buffer)
+                }
+                buffer
+            }
+        }.getOrNull()
+    }
+
+    private fun hasId3Header(bytes: ByteArray): Boolean {
+        return bytes.size >= 10 && bytes[0] == 'I'.code.toByte() &&
+            bytes[1] == 'D'.code.toByte() && bytes[2] == '3'.code.toByte()
+    }
+
+    private fun hasOggHeader(bytes: ByteArray): Boolean {
+        return bytes.size >= 4 && bytes[0] == 'O'.code.toByte() &&
+            bytes[1] == 'g'.code.toByte() && bytes[2] == 'g'.code.toByte() && bytes[3] == 'S'.code.toByte()
+    }
+
+    private fun hasFlacHeader(bytes: ByteArray): Boolean {
+        return bytes.size >= 4 && String(bytes, 0, 4, Charsets.ISO_8859_1) == "fLaC"
+    }
+
+    /** Reads the ID3v2 header's syncsafe size so the whole tag window can be requested. */
+    private fun id3ByteLimit(head: ByteArray): Int {
+        val declared = syncSafe(head, 6)
+        val needed = 10L + declared + 4096L
+        return needed.coerceIn(64L * 1024, MAX_TAG_BYTES.toLong()).toInt()
+    }
+
+    private fun readBytes(context: Context, uriString: String, limit: Int): ByteArray? {
         val input: InputStream = if (uriString.startsWith("content://")) {
             context.contentResolver.openInputStream(Uri.parse(uriString)) ?: return null
         } else {
@@ -51,8 +157,8 @@ object LyricsTagReader {
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(64 * 1024)
             var total = 0
-            while (total < MAX_TAG_BYTES) {
-                val read = stream.read(buffer, 0, min(buffer.size, MAX_TAG_BYTES - total))
+            while (total < limit) {
+                val read = stream.read(buffer, 0, min(buffer.size, limit - total))
                 if (read <= 0) break
                 output.write(buffer, 0, read)
                 total += read
@@ -83,6 +189,8 @@ object LyricsTagReader {
                 when (frameId) {
                     "ULT" -> readUslt(bytes, payloadStart, payloadEnd)?.let { return it }
                     "SLT" -> readSylt(bytes, payloadStart, payloadEnd)?.let { return it }
+                    "TXX" -> readTxxx(bytes, payloadStart, payloadEnd)?.let { return it }
+                    "COM" -> readComm(bytes, payloadStart, payloadEnd)?.let { return it }
                 }
                 pos = payloadEnd
             }
@@ -105,8 +213,38 @@ object LyricsTagReader {
             when (frameId) {
                 "USLT" -> readUslt(bytes, payloadStart, payloadEnd)?.let { return it }
                 "SYLT" -> readSylt(bytes, payloadStart, payloadEnd)?.let { return it }
+                "TXXX" -> readTxxx(bytes, payloadStart, payloadEnd)?.let { return it }
+                "COMM" -> readComm(bytes, payloadStart, payloadEnd)?.let { return it }
             }
             pos = payloadEnd
+        }
+        return null
+    }
+
+    private fun readTxxx(bytes: ByteArray, start: Int, end: Int): EmbeddedLyrics? {
+        if (start + 2 >= end) return null
+        val encoding = bytes[start].toInt() and 0xFF
+        val textStart = skipDescriptor(bytes, start + 1, end, encoding)
+        val desc = decodeText(bytes, start + 1, textStart, encoding).trimEnd('\u0000').trim().uppercase()
+        if (desc in ORIGINAL_LYRICS_KEYS || desc.contains("LYRIC")) {
+            val text = decodeText(bytes, textStart, end, encoding).trimEnd('\u0000', '\n', '\r').trim()
+            if (text.isNotBlank()) {
+                return EmbeddedLyrics(text, LyricsParserRegistry.detect(text))
+            }
+        }
+        return null
+    }
+
+    private fun readComm(bytes: ByteArray, start: Int, end: Int): EmbeddedLyrics? {
+        if (start + 4 >= end) return null
+        val encoding = bytes[start].toInt() and 0xFF
+        val textStart = skipDescriptor(bytes, start + 4, end, encoding)
+        val desc = decodeText(bytes, start + 4, textStart, encoding).trimEnd('\u0000').trim().uppercase()
+        if (desc in ORIGINAL_LYRICS_KEYS || desc.contains("LYRIC")) {
+            val text = decodeText(bytes, textStart, end, encoding).trimEnd('\u0000', '\n', '\r').trim()
+            if (text.isNotBlank()) {
+                return EmbeddedLyrics(text, LyricsParserRegistry.detect(text))
+            }
         }
         return null
     }
@@ -208,21 +346,39 @@ object LyricsTagReader {
         // so parsing the raw file bytes desyncs at the page header that splits the comment
         // stream and never reaches the LYRICS entry. Reassemble page bodies per stream serial.
         val streams = LinkedHashMap<Int, ByteArrayOutputStream>()
+        val streamsWithTags = mutableSetOf<Int>()
         var pos = 0
         while (pos + 27 <= bytes.size) {
             if (String(bytes, pos, 4, Charsets.ISO_8859_1) != "OggS") break
             val segmentCount = bytes[pos + 26].toInt() and 0xFF
-            val tableEnd = pos + 27 + segmentCount
-            if (tableEnd > bytes.size) break
+            val tableStart = pos + 27
+            val bodyStart = tableStart + segmentCount
+            if (bodyStart > bytes.size) break
             var bodyLength = 0
+            var packetEnds = false
             for (i in 0 until segmentCount) {
-                bodyLength += bytes[tableEnd + i].toInt() and 0xFF
+                val seg = bytes[tableStart + i].toInt() and 0xFF
+                bodyLength += seg
+                if (seg < 255) packetEnds = true
             }
-            if (tableEnd + bodyLength > bytes.size) break
+            if (bodyStart + bodyLength > bytes.size) break
             val serial = int32Le(bytes, pos + 14)
-            streams.getOrPut(serial) { ByteArrayOutputStream() }
-                .write(bytes, tableEnd + segmentCount, bodyLength)
-            pos = tableEnd + bodyLength
+            val stream = streams.getOrPut(serial) { ByteArrayOutputStream() }
+            stream.write(bytes, bodyStart, bodyLength)
+
+            // Early exit: once the OpusTags / Vorbis comment packet finishes, stop buffering audio pages!
+            if (!streamsWithTags.contains(serial)) {
+                val currentData = stream.toByteArray()
+                if (indexOf(currentData, "OpusTags".toByteArray(Charsets.ISO_8859_1)) >= 0 ||
+                    indexOf(currentData, "\u0003vorbis".toByteArray(Charsets.ISO_8859_1)) >= 0
+                ) {
+                    streamsWithTags.add(serial)
+                }
+            } else if (packetEnds) {
+                // The comment packet ended; remaining pages are audio packets, so exit early!
+                break
+            }
+            pos = bodyStart + bodyLength
         }
         for (stream in streams.values) {
             val data = stream.toByteArray()
@@ -240,25 +396,113 @@ object LyricsTagReader {
         var pos = start
         if (pos + 4 > end) return null
         val vendorLength = int32Le(bytes, pos)
-        if (vendorLength < 0) return null
+        if (vendorLength < 0 || pos.toLong() + 4 + vendorLength > end) return null
         pos += 4 + vendorLength
         if (pos + 4 > end) return null
         val count = int32Le(bytes, pos)
         pos += 4
-        repeat(count) {
-            if (pos + 4 > end) return@repeat
+
+        var syncedResult: EmbeddedLyrics? = null
+        var unsyncedResult: EmbeddedLyrics? = null
+        var romanizedResult: EmbeddedLyrics? = null
+
+        var i = 0
+        while (i < count && pos + 4 <= end) {
             val length = int32Le(bytes, pos)
             pos += 4
-            if (length < 0 || pos + length > end) return@repeat
-            val comment = String(bytes, pos, length, Charsets.UTF_8)
+            if (length < 0) break
+            if (pos.toLong() + length > end) {
+                // Break on truncation instead of continuing with corrupted pos
+                break
+            }
+
+            // Lightweight Tag Header Peeking (Zero-Allocation Skip):
+            // Scan only the first up to 64 bytes for '=' to avoid decoding huge pictures
+            val peekLen = min(length, 64)
+            var sep = -1
+            for (p in 0 until peekLen) {
+                if (bytes[pos + p] == '='.code.toByte()) {
+                    sep = p
+                    break
+                }
+            }
+
+            if (sep <= 0) {
+                pos += length
+                i++
+                continue
+            }
+
+            val key = String(bytes, pos, sep, Charsets.US_ASCII).uppercase(Locale.US)
+            if (key == "METADATA_BLOCK_PICTURE") {
+                // Zero-allocation skip for giant base64 album art!
+                pos += length
+                i++
+                continue
+            }
+
+            val isRomanized = key.contains("LYRIC") && key.contains("ROMANIZ")
+            val isLyricsKey = key in ORIGINAL_LYRICS_KEYS || key.contains("LYRIC") || key == "USLT" || key == "SYLT"
+
+            if (isLyricsKey || isRomanized) {
+                val valueStart = pos + sep + 1
+                val valueLen = length - (sep + 1)
+                if (valueLen > 0) {
+                    val text = String(bytes, valueStart, valueLen, Charsets.UTF_8).trim()
+                    if (text.isNotBlank()) {
+                        val format = LyricsParserRegistry.detect(text)
+                        val embedded = EmbeddedLyrics(text, format)
+                        if (format.isSynchronized) {
+                            if (!isRomanized) {
+                                // High priority: synchronized lyrics return immediately!
+                                return embedded
+                            } else if (romanizedResult == null) {
+                                romanizedResult = embedded
+                            }
+                        } else {
+                            if (isRomanized) {
+                                if (romanizedResult == null) romanizedResult = embedded
+                            } else if (unsyncedResult == null) {
+                                unsyncedResult = embedded
+                            }
+                        }
+                    }
+                }
+            }
+
             pos += length
-            val key = comment.substringBefore('=', "").uppercase()
-            if (key == "LYRICS" || key == "LYRIC" || key == "UNSYNCEDLYRICS" ||
-                key == "SYNCEDLYRICS" || key == "UNSYNCED LYRICS"
-            ) {
-                val text = comment.substringAfter('=', "").trim()
-                if (text.isNotBlank()) {
-                    return EmbeddedLyrics(text, LyricsParserRegistry.detect(text))
+            i++
+        }
+
+        if (syncedResult != null) return syncedResult
+        if (unsyncedResult != null) return unsyncedResult
+        if (romanizedResult != null) return romanizedResult
+
+        // Fallback Direct Byte Scanner if loop desynced or ended without lyrics
+        return scanFallbackLyrics(bytes, start, end)
+    }
+
+    private fun scanFallbackLyrics(bytes: ByteArray, start: Int, end: Int): EmbeddedLyrics? {
+        val markers = listOf(
+            "SYNCEDLYRICS=".toByteArray(Charsets.ISO_8859_1),
+            "LYRICS=".toByteArray(Charsets.ISO_8859_1),
+            "UNSYNCEDLYRICS=".toByteArray(Charsets.ISO_8859_1),
+            "lyrics=".toByteArray(Charsets.ISO_8859_1),
+            "syncedlyrics=".toByteArray(Charsets.ISO_8859_1)
+        )
+        for (marker in markers) {
+            val idx = indexOf(bytes, marker, start)
+            if (idx in start until end) {
+                val valStart = idx + marker.size
+                val valEnd = min(end, valStart + 64 * 1024)
+                if (valStart < valEnd) {
+                    val text = String(bytes, valStart, valEnd - valStart, Charsets.UTF_8)
+                        .substringBefore("\u0000")
+                        .trim()
+                    if (text.isNotBlank()) {
+                        val format = LyricsParserRegistry.detect(text)
+                        return EmbeddedLyrics(text, format)
+                    }
                 }
             }
         }
@@ -266,20 +510,32 @@ object LyricsTagReader {
     }
 
     private fun skipDescriptor(bytes: ByteArray, start: Int, end: Int, encoding: Int): Int {
+        if (start >= end) return start
+        // If the payload immediately starts with a UTF-16 BOM, there is no descriptor preceding the text.
+        if ((encoding == 1 || encoding == 2) && end - start >= 2) {
+            val b0 = bytes[start].toInt() and 0xFF
+            val b1 = bytes[start + 1].toInt() and 0xFF
+            if ((b0 == 0xFF && b1 == 0xFE) || (b0 == 0xFE && b1 == 0xFF)) {
+                if (end - start >= 4 && bytes[start + 2].toInt() == 0 && bytes[start + 3].toInt() == 0) {
+                    return start + 4
+                }
+                return start
+            }
+        }
         if (encoding == 1 || encoding == 2) {
             var i = start
             while (i + 1 < end) {
                 if (bytes[i].toInt() == 0 && bytes[i + 1].toInt() == 0) return i + 2
                 i += 2
             }
-            return end
+            return start
         }
         var i = start
         while (i < end) {
             if (bytes[i].toInt() == 0) return i + 1
             i++
         }
-        return end
+        return start
     }
 
     private fun findTerminator(bytes: ByteArray, start: Int, end: Int, encoding: Int): Int {

@@ -17,9 +17,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Provider chain for lyrics: embedded tags -> sidecar -> cache -> LRCLIB.
+ * Provider chain for lyrics: embedded tags -> sidecar -> cache -> providers.
  *
- * Network access is explicit and can be disabled, so plain local playback never blocks on it.
+ * Synced sources win over plain text: an unsynchronized embedded tag is only used when no
+ * timed lyrics are available. Network access is explicit and can be disabled, so plain local
+ * playback never blocks on it.
  */
 class LyricsRepository(private val context: Context) {
 
@@ -34,8 +36,32 @@ class LyricsRepository(private val context: Context) {
         val title = item.title.ifBlank { return@withContext null }
         val artist = item.artist
         val album = item.album
+        // An unsynchronized tag is a last resort, not a replacement for timed lyrics: keep it
+        // aside so it cannot hide a synced sidecar/cache/provider result, and fall back to it
+        // only when nothing timed exists (e.g. offline playback).
+        var unsyncedEmbedded: LyricsDocument? = null
 
         if (!forceRefresh) {
+            // Stored online searches and user imports take priority over embedded tags
+            dao.getByMediaId(item.mediaId)?.let { cached ->
+                val cachedSource = runCatching { LyricsSource.valueOf(cached.source) }.getOrNull()
+                if (cachedSource != null && cachedSource != LyricsSource.EMBEDDED) {
+                    val document = LyricsParserRegistry.parse(
+                        raw = cached.rawLyrics,
+                        formatHint = runCatching { LyricsFormat.valueOf(cached.format) }.getOrNull(),
+                        mediaId = item.mediaId,
+                        title = title,
+                        artist = artist,
+                        album = album,
+                        source = cachedSource,
+                        providerId = cached.providerId,
+                        providerName = LyricsProviderRegistry.getProvider(cached.providerId)?.displayName,
+                        offsetMs = cached.offsetMs
+                    )
+                    if (document.lines.isNotEmpty()) return@withContext document
+                }
+            }
+
             LyricsTagReader.read(context, item.localUri)?.let { embedded ->
                 val document = LyricsParserRegistry.parse(
                     raw = embedded.raw,
@@ -47,8 +73,13 @@ class LyricsRepository(private val context: Context) {
                     source = LyricsSource.EMBEDDED
                 )
                 if (document.lines.isNotEmpty()) {
-                    cache(item, document, durationMs)
-                    return@withContext document
+                    if (document.isSynced) {
+                        cache(item, document, durationMs)
+                        return@withContext document
+                    }
+                    // Not cached yet: caching here would make the cache tier below return the
+                    // plain text before a provider ever gets a chance to supply timed lyrics.
+                    unsyncedEmbedded = document
                 }
             }
 
@@ -86,7 +117,8 @@ class LyricsRepository(private val context: Context) {
         }
 
         if (!allowNetwork || (title.isBlank() && artist.isNullOrBlank())) {
-            return@withContext loadCacheIgnoreOffset(item, title, artist, album)
+            return@withContext unsyncedEmbedded
+                ?: loadCacheIgnoreOffset(item, title, artist, album)
         }
 
         val enabled = LyricsProviderRegistry.ordered(context).filter { it.isEnabled(context) }
@@ -139,7 +171,11 @@ class LyricsRepository(private val context: Context) {
             }
         }
 
-        loadCacheIgnoreOffset(item, title, artist, album)
+        val fallback = unsyncedEmbedded ?: loadCacheIgnoreOffset(item, title, artist, album)
+        if (fallback != null && fallback === unsyncedEmbedded) {
+            cache(item, fallback, durationMs)
+        }
+        return@withContext fallback
     }
 
     private suspend fun loadCacheIgnoreOffset(
@@ -275,32 +311,38 @@ class LyricsRepository(private val context: Context) {
         if (!document.isSynced) return document.lines.joinToString("\n") { it.text }
         val hasWords = document.hasWordTimings
         return document.lines.joinToString("\n") { line ->
-            buildString {
-                val start = line.startMs ?: 0L
-                val minutes = start / 60_000
-                val seconds = (start % 60_000) / 1000
-                val centis = (start % 1000) / 10
-                append(String.format(java.util.Locale.US, "[%02d:%02d.%02d]", minutes, seconds, centis))
+            val start = line.startMs ?: 0L
+            val stamp = formatLrcStamp(start)
+            val body = buildString {
                 if (hasWords && line.words.isNotEmpty()) {
                     line.words.forEach { word ->
-                        val wordStart = word.startMs ?: start
-                        append(
-                            String.format(
-                                java.util.Locale.US,
-                                "<%02d:%02d.%02d>",
-                                wordStart / 60_000,
-                                (wordStart % 60_000) / 1000,
-                                (wordStart % 1000) / 10
-                            )
-                        )
+                        append(formatLrcWordStamp(word.startMs ?: start))
                         append(word.text)
+                        // Word stamps only delimit tokens when the tokens are separated.
+                        // Without this space the round-trip glues the line into one word.
+                        append(' ')
                     }
                 } else {
                     append(line.text)
                 }
+            }.trimEnd()
+            // A translation round-trips as a second line sharing the timestamp; parseLrc
+            // recognises the duplicated stamp and pairs it back into LyricsLine.translation.
+            if (line.translation.isNullOrBlank()) {
+                "$stamp$body"
+            } else {
+                "$stamp$body\n$stamp${line.translation}"
             }
         }
     }
+
+    private fun formatLrcStamp(ms: Long): String = String.format(
+        java.util.Locale.US, "[%02d:%02d.%02d]", ms / 60_000, (ms % 60_000) / 1000, (ms % 1000) / 10
+    )
+
+    private fun formatLrcWordStamp(ms: Long): String = String.format(
+        java.util.Locale.US, "<%02d:%02d.%02d>", ms / 60_000, (ms % 60_000) / 1000, (ms % 1000) / 10
+    )
 
     companion object {
         private const val TAG = "LyricsRepository"

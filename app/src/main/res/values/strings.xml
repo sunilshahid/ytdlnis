@@ -705,6 +705,10 @@
     <string name="lyrics_romanize_toggle_desc">Toggle romanization</string>
     <string name="embed_lyrics_summary">Fetch lyrics from lrclib.net and embed them in audio downloads</string>
     <string name="save_lrc_file_summary">Save synced lyrics as a .lrc file next to audio downloads</string>
+    <string name="embed_ttml">Embed TTML</string>
+    <string name="embed_ttml_summary">Write Apple Music-style TTML lyrics into the tag instead of LRC when embedding (falls back to LRC/plain when the lyrics are not synced)</string>
+    <string name="auto_embed_lyrics">Auto embed lyrics</string>
+    <string name="auto_embed_lyrics_summary">Fetch lyrics and embed them in every new audio download without opening the lyrics sheet first</string>
     <string name="crop_unsupported">Cropping is not available for this item</string>
     <!-- Persistent YouTube account session -->
     <string name="youtube_account_cookies">YouTube account cookies</string>
@@ -1064,8 +1068,15 @@
     <string name="vault_setting_section_player">Player &amp; Lock Behavior</string>
     <string name="vault_setting_section_danger">Danger Zone</string>
     <string name="vault_setting_decoy_password">Set Decoy (Duress) Password</string>
+    <string name="vault_setting_decoy_change">Change Decoy (Duress) Password</string>
+    <string name="vault_setting_decoy_active">Decoy Vault: Active (opens separate empty vault)</string>
+    <string name="vault_setting_decoy_not_set">Decoy Vault: Not Configured</string>
     <string name="vault_setting_decoy_summary">Unlocking with Decoy Password opens an empty/separate decoy vault</string>
     <string name="vault_setting_clear_decoy">Remove Decoy Password</string>
+    <string name="vault_creating_vault">Creating private vault…</string>
+    <string name="vault_creating_decoy">Configuring decoy vault…</string>
+    <string name="vault_saving_stealth">Saving stealth PIN…</string>
+    <string name="vault_removing_decoy">Removing decoy vault…</string>
     <string name="vault_setting_auto_wipe">Auto-Wipe Failed Attempts</string>
     <string name="vault_auto_wipe_off">Disabled</string>
     <string name="vault_auto_wipe_attempts">%1$d wrong attempts</string>
@@ -1104,4 +1115,10 @@
     <string name="vault_player_speed">Speed</string>
     <string name="vault_player_muted">Muted</string>
     <string name="vault_player_error">Unable to decrypt or play vault video</string>
+    <string name="clear_history">Clear history</string>
+    <string name="clear_history_confirmation">Are you sure you want to clear your playback history?</string>
+    <string name="subtitles_import_external">Select external subtitle (.srt, .vtt, .ass, .ssa, .ttml)</string>
+    <string name="subtitles_apply_embedded_styles">Apply embedded styles</string>
+    <string name="subtitles_import_failed">Failed to load subtitle file</string>
+    <string name="subtitles_imported_success">Loaded subtitle: %1$s</string>
 </resources>

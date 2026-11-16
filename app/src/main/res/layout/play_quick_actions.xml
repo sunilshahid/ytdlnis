@@ -33,7 +33,7 @@
         android:layout_weight="1"
         android:maxLines="1"
         android:minHeight="48dp"
-        android:text="@string/play_downloads"
+        android:text="@string/downloads"
         android:textSize="13sp"
         android:textStyle="bold"
         app:cornerRadius="20dp"

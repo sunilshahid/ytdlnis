@@ -124,7 +124,9 @@ class HistoryFragment : Fragment(), HistoryPaginatedAdapter.OnItemClickListener{
         uiHandler = Handler(Looper.getMainLooper())
         sortChip = view.findViewById(R.id.sortChip)
 
-        val isInNavBar = NavbarUtil.getNavBarItems(requireActivity()).any { n -> n.itemId == R.id.historyFragment && n.isVisible }
+        val bottomNav = mainActivity?.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNavigationView)
+        val hasNavTab = bottomNav?.menu?.findItem(R.id.historyFragment)?.isVisible == true
+        val isInNavBar = hasNavTab || NavbarUtil.getNavBarItems(requireActivity()).any { n -> n.itemId == R.id.historyFragment && n.isVisible }
         if (isInNavBar) {
             topAppBar.navigationIcon = null
         }else{

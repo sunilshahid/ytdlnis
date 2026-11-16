@@ -30,7 +30,7 @@ object PlaybackLauncher {
         openPlayer(context, items[startIndex.coerceIn(items.indices)])
     }
 
-    fun openPlayer(context: Context, item: PlaybackItem) {
+    fun openPlayer(context: Context, item: PlaybackItem, sharedView: android.view.View? = null) {
         val intent = if (item.type == PlaybackType.VIDEO) {
             Intent(context, VideoPlayerActivity::class.java)
         } else {
@@ -38,14 +38,23 @@ object PlaybackLauncher {
         }
         if (context !is Activity) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } else {
+            val options = if (sharedView != null && item.type != PlaybackType.VIDEO) {
+                androidx.core.app.ActivityOptionsCompat.makeSceneTransitionAnimation(
+                    context,
+                    sharedView,
+                    "artwork_transition"
+                ).toBundle()
+            } else null
+            context.startActivity(intent, options)
         }
-        context.startActivity(intent)
     }
 
-    fun openPlayer(context: Context) {
+    fun openPlayer(context: Context, sharedView: android.view.View? = null) {
         val item = PlaybackController.state.value.currentItem
         if (item != null) {
-            openPlayer(context, item)
+            openPlayer(context, item, sharedView)
         } else {
             val intent = Intent(context, AudioPlayerActivity::class.java)
             if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

@@ -47,6 +47,7 @@ import com.deniscerri.ytdl.database.viewmodel.DownloadViewModel
 import com.deniscerri.ytdl.database.viewmodel.ResultViewModel
 import com.deniscerri.ytdl.database.viewmodel.SettingsViewModel
 import com.deniscerri.ytdl.playback.PlaybackController
+import com.deniscerri.ytdl.ui.play.WavySeekBar
 import com.deniscerri.ytdl.playback.PlaybackLauncher
 import com.deniscerri.ytdl.playback.model.PlaybackSource
 import com.deniscerri.ytdl.playback.model.PlaybackType
@@ -585,11 +586,14 @@ class MainActivity : BaseActivity() {
         val close = mini.findViewById<ImageButton>(R.id.mini_player_close)
         val content = mini.findViewById<View>(R.id.mini_player_content)
 
+        val art = mini.findViewById<View>(R.id.mini_player_art)
         val openPlayerAction = View.OnClickListener {
-            PlaybackLauncher.openPlayer(this)
+            val sharedArt = mini.findViewById<View>(R.id.mini_player_art) ?: art
+            PlaybackLauncher.openPlayer(this, sharedArt)
         }
         mini.setOnClickListener(openPlayerAction)
         content?.setOnClickListener(openPlayerAction)
+        art?.setOnClickListener(openPlayerAction)
         playPause.setOnClickListener {
             val player = PlaybackController.player()
             if (player == null || player.mediaItemCount == 0) {
@@ -599,7 +603,10 @@ class MainActivity : BaseActivity() {
             }
         }
         next.setOnClickListener { PlaybackController.next() }
-        close.setOnClickListener { PlaybackController.stop() }
+        close.setOnClickListener {
+            PlaybackController.stop(dismissed = true)
+            mini.isVisible = false
+        }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -615,7 +622,9 @@ class MainActivity : BaseActivity() {
         val mini = miniPlayerView ?: return
         val state = miniPlayerState
         val item = state.currentItem
-        val visible = item != null && miniPlayerAllowed
+        val isDismissed = PreferenceManager.getDefaultSharedPreferences(this)
+            .getBoolean("playback_dismissed", false)
+        val visible = item != null && miniPlayerAllowed && (!isDismissed || state.playing)
         mini.isVisible = visible
         if (!visible || item == null) return
 
@@ -639,6 +648,35 @@ class MainActivity : BaseActivity() {
         mini.findViewById<ImageButton>(R.id.mini_player_play_pause).setImageResource(
             if (state.playing) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play
         )
+
+        val miniCard = mini as? com.google.android.material.card.MaterialCardView
+        lifecycleScope.launch {
+            val glowColor = com.deniscerri.ytdl.util.PlaybackColors.artworkGlowColor(this@MainActivity, item)
+            if (glowColor != null && miniPlayerState.currentItem?.mediaId == item.mediaId) {
+                val surfaceColor = com.google.android.material.color.MaterialColors.getColor(
+                    this@MainActivity,
+                    com.google.android.material.R.attr.colorSurface,
+                    android.graphics.Color.BLACK
+                )
+                // Rich ambient glow-derived tint for the mini player pill background
+                val bgTint = androidx.core.graphics.ColorUtils.blendARGB(glowColor, surfaceColor, 0.72f)
+                miniCard?.setCardBackgroundColor(bgTint)
+
+                val playBtn = mini.findViewById<ImageButton>(R.id.mini_player_play_pause)
+                val playBg = androidx.core.graphics.ColorUtils.blendARGB(glowColor, android.graphics.Color.WHITE, 0.45f)
+                playBtn?.backgroundTintList = android.content.res.ColorStateList.valueOf(playBg)
+                val onPlay = if (androidx.core.graphics.ColorUtils.calculateLuminance(playBg) > 0.45) {
+                    android.graphics.Color.BLACK
+                } else {
+                    android.graphics.Color.WHITE
+                }
+                playBtn?.imageTintList = android.content.res.ColorStateList.valueOf(onPlay)
+
+                val iconTint = androidx.core.graphics.ColorUtils.blendARGB(glowColor, android.graphics.Color.WHITE, 0.75f)
+                mini.findViewById<ImageButton>(R.id.mini_player_next)?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
+                mini.findViewById<ImageButton>(R.id.mini_player_close)?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
+            }
+        }
 
         val art = mini.findViewById<ImageView>(R.id.mini_player_art)
         // Delegates to the shared artwork loader: remote art uses Picasso, local files go

@@ -23,7 +23,24 @@ object ThemeUtil {
 
     private val activities = mutableListOf<Activity>()
 
+    fun applyNightMode(context: Context) {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        val theme = sharedPreferences.getString("ytdlnis_theme", "System")!!
+        when (theme) {
+            "Light" -> {
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
+            }
+            "Dark" -> {
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+            }
+            else -> {
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+            }
+        }
+    }
+
     fun init(app: Application) {
+        applyNightMode(app)
         app.registerActivityLifecycleCallbacks(object: Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(p0: Activity, p1: Bundle?) {
                 activities.add(p0)
@@ -94,6 +111,7 @@ object ThemeUtil {
     }
 
     fun updateTheme(activity: Activity) {
+        applyNightMode(activity)
         val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(activity)
 
         //update accent
@@ -117,20 +135,6 @@ object ThemeUtil {
         }
 
         val theme = sharedPreferences.getString("ytdlnis_theme", "System")!!
-        when (theme) {
-            "Light" -> {
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
-            }
-            "Dark" -> {
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
-            }
-            // or "System"
-            else -> {
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-            }
-        }
-
-
         val iconMode = sharedPreferences.getString("ytdlnis_icon", "Default")!!
         updateAppIcon(activity,theme, iconMode)
     }

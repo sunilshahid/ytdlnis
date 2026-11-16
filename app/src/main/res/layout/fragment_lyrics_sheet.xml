@@ -59,12 +59,14 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/lyrics_sheet_romanize_toggle"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:minWidth="0dp"
-            android:paddingHorizontal="6dp"
-            android:text="@string/lyrics_romanize_glyph"
+            android:padding="0dp"
+            app:icon="@drawable/ic_translate"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
             android:contentDescription="@string/lyrics_romanize_toggle_desc"
             android:visibility="gone" />
 
@@ -198,6 +200,15 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:visibility="invisible" />
+
+        <!-- Smooth gradient scrim at top so lyrics blend seamlessly into top bar where title & artist are -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_gravity="top"
+            android:clickable="false"
+            android:focusable="false"
+            android:background="@drawable/bg_lyrics_header_scrim" />
 
         <LinearLayout
             android:id="@+id/lyrics_sheet_prompt"

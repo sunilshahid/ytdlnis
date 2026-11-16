@@ -282,7 +282,7 @@ class VaultImportActivity : AppCompatActivity() {
             unlockingInFlight = true
             hideKeyboard(setupConfirmInput)
             setupContainer.visibility = View.GONE
-            showBusy(getString(R.string.vault_create_button))
+            showBusy(getString(R.string.vault_creating_vault))
             lifecycleScope.launch {
                 runCatching {
                     VaultRepository.createVault(this@VaultImportActivity, pwChars)

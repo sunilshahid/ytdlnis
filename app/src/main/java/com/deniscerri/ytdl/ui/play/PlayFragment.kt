@@ -115,7 +115,7 @@ class PlayFragment : Fragment() {
     private var searchQuery = ""
 
     private var deviceItems: List<DeviceMedia> = emptyList()
-    private var deviceShowMode = DeviceShowMode.ALL_FOLDERS
+    private var deviceShowMode = DeviceShowMode.FOLDERS
     private var deviceLayoutMode = DeviceLayoutMode.LIST
     private var deviceSort = DeviceSort.DATE
     private var deviceNewestFirst = true
@@ -288,6 +288,19 @@ class PlayFragment : Fragment() {
                 }
                 R.id.action_clear_queue -> {
                     PlaybackController.clearQueue()
+                    true
+                }
+                R.id.action_clear_history -> {
+                    MaterialAlertDialogBuilder(requireContext())
+                        .setTitle(R.string.clear_history)
+                        .setMessage(R.string.clear_history_confirmation)
+                        .setPositiveButton(R.string.delete) { _, _ ->
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                DBManager.getInstance(requireContext()).playbackHistoryDao.deleteAll()
+                            }
+                        }
+                        .setNegativeButton(R.string.cancel, null)
+                        .show()
                     true
                 }
                 R.id.action_device_view -> {
@@ -536,6 +549,8 @@ class PlayFragment : Fragment() {
         toolbar?.menu?.findItem(R.id.action_now_playing)?.isVisible = current != null
         toolbar?.menu?.findItem(R.id.action_clear_queue)?.isVisible =
             playbackState.queue.isNotEmpty()
+        toolbar?.menu?.findItem(R.id.action_clear_history)?.isVisible =
+            destination == Destination.RECENT && recentItems.isNotEmpty()
 
         val device = destination == Destination.DEVICE
         toolbar?.subtitle = if (device) deviceScopeSubtitle() else null

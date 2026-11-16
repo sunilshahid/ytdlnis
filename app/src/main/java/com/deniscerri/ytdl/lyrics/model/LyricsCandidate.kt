@@ -5,9 +5,9 @@ import com.deniscerri.ytdl.lyrics.LyricsFormat
 data class LyricsQuery(
     val mediaId: String,
     val title: String,
-    val artist: String?,
-    val album: String?,
-    val durationMs: Long,
+    val artist: String? = null,
+    val album: String? = null,
+    val durationMs: Long = 0L,
     val localUri: String? = null
 )
 

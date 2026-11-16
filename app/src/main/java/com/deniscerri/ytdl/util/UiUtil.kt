@@ -1966,7 +1966,10 @@ object UiUtil {
         fun updateLyricsBadge() {
             if (items.size == 1) {
                 val prefs = items.first().audioPreferences
-                lyrics.createBadge(context, if (prefs.embedLyrics || prefs.saveLrc) 1 else 0)
+                lyrics.createBadge(
+                    context,
+                    if (prefs.embedLyrics || prefs.embedTtml || prefs.saveLrc) 1 else 0
+                )
             }
         }
         updateLyricsBadge()
@@ -1980,15 +1983,33 @@ object UiUtil {
             val lyricsView = context.layoutInflater.inflate(R.layout.audio_lyrics_download_preferences_dialog, null)
             val embedLyrics = lyricsView.findViewById<MaterialSwitch>(R.id.embed_lyrics)
             val saveLrc = lyricsView.findViewById<MaterialSwitch>(R.id.save_lrc)
+            val embedTtml = lyricsView.findViewById<MaterialSwitch>(R.id.embed_ttml)
             embedLyrics.isChecked = items.all { it.audioPreferences.embedLyrics }
             saveLrc.isChecked = items.all { it.audioPreferences.saveLrc }
+            embedTtml.isChecked = items.all { it.audioPreferences.embedTtml }
+            // TTML is a format for the embedded tag, so it only makes sense with embedding on.
+            embedTtml.isEnabled = embedLyrics.isChecked
             embedLyrics.setOnClickListener {
                 items.forEach { it.audioPreferences.embedLyrics = embedLyrics.isChecked }
+                embedTtml.isEnabled = embedLyrics.isChecked
+                if (!embedLyrics.isChecked) {
+                    embedTtml.isChecked = false
+                    items.forEach { it.audioPreferences.embedTtml = false }
+                }
                 updateLyricsBadge()
                 lyricsChanged?.invoke()
             }
             saveLrc.setOnClickListener {
                 items.forEach { it.audioPreferences.saveLrc = saveLrc.isChecked }
+                updateLyricsBadge()
+                lyricsChanged?.invoke()
+            }
+            embedTtml.setOnClickListener {
+                items.forEach { it.audioPreferences.embedTtml = embedTtml.isChecked }
+                if (embedTtml.isChecked && !embedLyrics.isChecked) {
+                    embedLyrics.isChecked = true
+                    items.forEach { it.audioPreferences.embedLyrics = true }
+                }
                 updateLyricsBadge()
                 lyricsChanged?.invoke()
             }

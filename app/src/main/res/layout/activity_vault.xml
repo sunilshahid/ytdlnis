@@ -618,6 +618,15 @@
                             android:layout_height="wrap_content"
                             android:layout_marginVertical="14dp" />
 
+                        <TextView
+                            android:id="@+id/vault_setting_decoy_status"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="8dp"
+                            android:text="@string/vault_setting_decoy_not_set"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="13sp" />
+
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/vault_setting_decoy_btn"
                             style="@style/Widget.Material3.Button.OutlinedButton"

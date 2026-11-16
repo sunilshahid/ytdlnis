@@ -57,6 +57,16 @@
         <item name="cornerSizeBottomRight">12dp</item>
     </style>
 
+    <style name="ShapeAppearanceOverlay.MiniPlayerArt" parent="ShapeAppearance.MaterialComponents.SmallComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">14dp</item>
+    </style>
+
+    <style name="ShapeAppearanceOverlay.AudioPlayerArt" parent="ShapeAppearance.MaterialComponents.SmallComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">32dp</item>
+    </style>
+
     <style name="Preference.SwitchPreferenceCompat.Material3" parent="@style/Preference.SwitchPreferenceCompat.Material">
         <item name="widgetLayout">@layout/preferece_material_switch</item>
     </style>

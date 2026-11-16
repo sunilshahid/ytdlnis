@@ -311,6 +311,36 @@ class KaraokeLyricsView @JvmOverloads constructor(
         animateScrollTo(target, durationMs)
     }
 
+    /**
+     * Drops the browse hold and animates straight back to the line that is playing now.
+     * Tapping the lyrics is an explicit request to stop browsing, so it must not wait out
+     * [SNAP_DELAY_MS] the way a scroll release does.
+     */
+    fun returnToActiveLine() {
+        if (document?.isSynced != true || mode == LyricsDisplayMode.SIMPLE) {
+            invalidate()
+            return
+        }
+        userScrollUntil = 0L
+        isDragging = false
+        cancelSnap()
+        cancelFling()
+        animateToActive(SNAP_ANIMATION_MS)
+    }
+
+    /** Puts [layout] at the focus position right away (used when a tap seeks to that line). */
+    private fun anchorTo(layout: LineLayout) {
+        if (document?.isSynced != true || mode == LyricsDisplayMode.SIMPLE) return
+        userScrollUntil = 0L
+        isDragging = false
+        cancelSnap()
+        cancelFling()
+        animateScrollTo(
+            layout.top + layout.height / 2f - height * focusFraction,
+            SNAP_ANIMATION_MS
+        )
+    }
+
     private fun animateScrollTo(target: Float, durationMs: Long) {
         val clamped = target.coerceIn(0f, maxScroll)
         if (abs(clamped - scrollY) < 0.5f) {
@@ -790,8 +820,16 @@ class KaraokeLyricsView @JvmOverloads constructor(
             // Anchored to the space reserved for it in rebuildLayout (romTop) so the
             // romanized rows can never overlap the next lyrics line.
             var romY = top + layout.romTop + translationPaint.textSize
+            // Mirror the primary line's alignment: RTL lines are right-aligned, so their
+            // romanization must share the same right edge instead of hanging on the left.
+            val romRight = width - horizontalPadding
             layout.romLines.forEach { romLine ->
-                canvas.drawText(romLine, horizontalPadding, romY, translationPaint)
+                val romX = if (layout.isRtl) {
+                    romRight - translationPaint.measureText(romLine)
+                } else {
+                    horizontalPadding
+                }
+                canvas.drawText(romLine, romX, romY, translationPaint)
                 romY += romLineHeight
             }
         }
@@ -872,11 +910,12 @@ class KaraokeLyricsView @JvmOverloads constructor(
                 if (isDragging) {
                     scrollY = (scrollY - dy).coerceIn(0f, maxScroll)
                     markUserScrolling()
-                    if (dy > touchSlop * 0.35f) {
-                        // User dragging down (scrolling up toward header)
+                    val cumulativeDownDrag = event.y - downY
+                    if (scrollY <= 0f && cumulativeDownDrag > touchSlop * 2.5f && dy > 0) {
+                        // Only user intentionally pulling down from the very top reveals header
                         onScrollDirectionListener?.invoke(true)
-                    } else if (dy < -touchSlop * 0.35f) {
-                        // User dragging up (scrolling down into lyrics)
+                    } else if (dy < -touchSlop * 0.5f) {
+                        // Scrolling down into lyrics hides the header
                         onScrollDirectionListener?.invoke(false)
                     }
                     invalidate()
@@ -895,7 +934,10 @@ class KaraokeLyricsView @JvmOverloads constructor(
                         tapY >= it.top && tapY <= (it.top + it.height)
                     }
                     if (tappedLayout != null) {
+                        // Tapping a line seeks to it and immediately re-anchors the list, so
+                        // the tapped line lands where the playing line normally sits.
                         onLineClickListener?.invoke(tappedLayout.line)
+                        anchorTo(tappedLayout)
                     } else {
                         onLyricsClickListener?.invoke()
                     }

@@ -313,6 +313,8 @@ class HomeFragment : Fragment(), HomeAdapter.OnItemClickListener, SearchSuggesti
             launch{
                 resultViewModel.uiState.collectLatest { res ->
                     if (res.errorMessage != null){
+                        progressBar.isVisible = false
+                        (progressBar as? com.facebook.shimmer.ShimmerFrameLayout)?.stopShimmer()
                         val isSingleQueryAndURL = queryList.size == 1 && Patterns.WEB_URL.matcher(queryList.first()).matches()
 
                         runCatching {
@@ -335,7 +337,13 @@ class HomeFragment : Fragment(), HomeAdapter.OnItemClickListener, SearchSuggesti
                     }
 
                     loadingItems = res.processing
-                    progressBar.isVisible = loadingItems && totalCount > 0
+                    val showProgress = loadingItems && totalCount > 0
+                    progressBar.isVisible = showProgress
+                    if (showProgress) {
+                        (progressBar as? com.facebook.shimmer.ShimmerFrameLayout)?.startShimmer()
+                    } else {
+                        (progressBar as? com.facebook.shimmer.ShimmerFrameLayout)?.stopShimmer()
+                    }
                     if (res.processing){
                         recyclerView?.setPadding(0,0,0,0)
                         shimmerCards!!.startShimmer()
@@ -840,8 +848,8 @@ class HomeFragment : Fragment(), HomeAdapter.OnItemClickListener, SearchSuggesti
                     resultViewModel.failedQueries.collect { list ->
                         failedItem.isVisible = list.isNotEmpty()
                         badge.number = list.size
-                        badge.badgeTextColor = requireContext().getColor(R.color.black)
-                        badge.backgroundColor = requireContext().getColor(R.color.white)
+                        badge.backgroundColor = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorError, Color.RED)
+                        badge.badgeTextColor = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorOnError, Color.WHITE)
 
                         if (list.isNotEmpty() && !badgeAttached) {
                             // the action view only exists after the toolbar lays out the now visible item
