@@ -31,6 +31,15 @@ class VaultPickerAdapter(
     private val onToggleItem: (DeviceMedia) -> Unit
 ) : ListAdapter<DeviceMedia, VaultPickerAdapter.PickerHolder>(DIFF) {
 
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long {
+        if (position !in 0 until itemCount) return RecyclerView.NO_ID
+        return getItem(position).mediaId.hashCode().toLong()
+    }
+
     var isGridMode: Boolean = true
     var visibleFields: Set<VaultPickerField> = VaultSettings.DEFAULT_PICKER_VISIBLE_FIELDS
     private var selectedIds: Set<String> = emptySet()

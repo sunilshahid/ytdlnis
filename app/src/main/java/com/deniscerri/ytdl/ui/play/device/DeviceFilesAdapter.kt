@@ -33,6 +33,15 @@ class DeviceFilesAdapter(
     private val onFileLongClick: ((DeviceMedia) -> Unit)? = null
 ) : ListAdapter<DeviceRow, RecyclerView.ViewHolder>(DeviceRowDiff) {
 
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long {
+        if (position !in 0 until itemCount) return RecyclerView.NO_ID
+        return getItem(position).stableId.hashCode().toLong()
+    }
+
     var grid: Boolean = false
         private set
 

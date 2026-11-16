@@ -24,7 +24,10 @@ import com.deniscerri.ytdl.playback.model.PlaybackType
 import com.deniscerri.ytdl.util.FrameExtractor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import java.util.Collections
+import java.util.WeakHashMap
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
@@ -596,8 +599,8 @@ class DeviceMediaRepository(context: Context) {
 }
 
 /**
- * Loads embedded audio artwork or a video thumbnail off the main thread and keeps a small memory
- * cache keyed by the item's stable media id.
+ * Loads embedded audio artwork or a video thumbnail off the main thread with persistent disk caching
+ * (cacheDir/art_thumbs/), 200x200 downsampling, and automatic cancellation for recycled views.
  */
 class DeviceThumbnailLoader(context: Context) {
 
@@ -608,23 +611,74 @@ class DeviceThumbnailLoader(context: Context) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
     }
     private val loading = mutableSetOf<String>()
+    private val viewJobs = Collections.synchronizedMap(WeakHashMap<ImageView, Job>())
+
+    private val diskCacheDir by lazy {
+        File(appContext.cacheDir, "art_thumbs").apply { mkdirs() }
+    }
+
+    private fun diskCacheFile(mediaId: String): File {
+        val safe = mediaId.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        return File(diskCacheDir, "$safe.webp")
+    }
+
+    private fun loadFromDiskCache(mediaId: String): Bitmap? {
+        val file = diskCacheFile(mediaId)
+        if (!file.exists() || file.length() == 0L) return null
+        return runCatching {
+            BitmapFactory.decodeFile(file.absolutePath)
+        }.getOrNull()
+    }
+
+    private fun saveToDiskCache(mediaId: String, bitmap: Bitmap) {
+        runCatching {
+            val file = diskCacheFile(mediaId)
+            val tmp = File(diskCacheDir, "${file.name}.tmp")
+            tmp.outputStream().use { out ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 85, out)
+                } else {
+                    @Suppress("DEPRECATION")
+                    bitmap.compress(Bitmap.CompressFormat.WEBP, 85, out)
+                }
+            }
+            tmp.renameTo(file)
+        }
+    }
 
     fun load(target: ImageView, item: DeviceMedia) {
         val key = item.mediaId
+        val prevKey = target.tag as? String
         target.tag = key
+
+        // 1. Fast path: memory cache hit (0ms)
         cache.get(key)?.let {
+            viewJobs.remove(target)?.cancel()
             target.setImageBitmap(it)
             return
         }
-        target.setImageResource(
-            if (item.type == PlaybackType.VIDEO) R.drawable.ic_video else R.drawable.ic_music
-        )
-        synchronized(loading) {
-            if (!loading.add(key)) return
+
+        // 2. Cancel in-flight loading for this recycled view immediately
+        viewJobs.remove(target)?.cancel()
+
+        // 3. Flicker prevention: keep existing bitmap while loading rather than flashing placeholder
+        if (target.drawable == null || prevKey == null) {
+            target.setImageResource(
+                if (item.type == PlaybackType.VIDEO) R.drawable.ic_video else R.drawable.ic_music
+            )
         }
-        scope.launch {
-            val bitmap = withContext(Dispatchers.IO) { loadBitmap(item) }
-            synchronized(loading) { loading.remove(key) }
+
+        // 4. Launch cancellation-aware background load
+        val job = scope.launch {
+            val bitmap = withContext(Dispatchers.IO) {
+                loadFromDiskCache(key) ?: run {
+                    val extracted = loadBitmap(item)
+                    if (extracted != null) {
+                        saveToDiskCache(key, extracted)
+                    }
+                    extracted
+                }
+            }
             if (bitmap != null) cache.put(key, bitmap)
             if (target.tag == key) {
                 if (bitmap != null) {
@@ -635,10 +689,14 @@ class DeviceThumbnailLoader(context: Context) {
                     )
                 }
             }
+            viewJobs.remove(target)
         }
+        viewJobs[target] = job
     }
 
     fun close() {
+        viewJobs.values.forEach { it.cancel() }
+        viewJobs.clear()
         scope.cancel()
     }
 
@@ -648,15 +706,19 @@ class DeviceThumbnailLoader(context: Context) {
      * from the second tab open onward all artwork pops in instantly.
      */
     suspend fun warmUp(items: List<DeviceMedia>) {
-        val pending = items.filter { cache.get(it.mediaId) == null }
+        val pending = items.filter { cache.get(it.mediaId) == null && !diskCacheFile(it.mediaId).exists() }
         if (pending.isEmpty()) return
-        val semaphore = Semaphore(3)
+        val semaphore = Semaphore(2)
         coroutineScope {
-            pending.map { item ->
+            pending.take(80).map { item ->
                 async {
                     semaphore.withPermit {
                         runCatching {
-                            loadBitmap(item)?.let { bitmap -> cache.put(item.mediaId, bitmap) }
+                            val bitmap = withContext(Dispatchers.IO) { loadBitmap(item) }
+                            if (bitmap != null) {
+                                cache.put(item.mediaId, bitmap)
+                                saveToDiskCache(item.mediaId, bitmap)
+                            }
                         }
                     }
                 }
@@ -764,42 +826,76 @@ class DeviceThumbnailLoader(context: Context) {
         }
     }
 
-    private fun decodeSampled(bytes: ByteArray): Bitmap? = runCatching {
+    private fun decodeSampled(bytes: ByteArray, targetSize: Int = THUMBNAIL_SIZE): Bitmap? = runCatching {
         if (bytes.isEmpty()) return@runCatching null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         var sample = 1
-        while (bounds.outWidth / sample > THUMBNAIL_SIZE * 2 ||
-            bounds.outHeight / sample > THUMBNAIL_SIZE * 2
-        ) {
-            sample *= 2
+        if (bounds.outHeight > targetSize || bounds.outWidth > targetSize) {
+            val halfHeight = bounds.outHeight / 2
+            val halfWidth = bounds.outWidth / 2
+            while ((halfHeight / sample) >= targetSize && (halfWidth / sample) >= targetSize) {
+                sample *= 2
+            }
         }
-        BitmapFactory.decodeByteArray(
-            bytes,
-            0,
-            bytes.size,
-            BitmapFactory.Options().apply { inSampleSize = sample }
-        )
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return@runCatching null
+        if (decoded.width > targetSize * 1.5f || decoded.height > targetSize * 1.5f) {
+            val maxDim = maxOf(decoded.width, decoded.height)
+            val scale = targetSize.toFloat() / maxDim
+            val scaled = Bitmap.createScaledBitmap(
+                decoded,
+                (decoded.width * scale).toInt().coerceAtLeast(1),
+                (decoded.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+            if (scaled != decoded) decoded.recycle()
+            scaled
+        } else {
+            decoded
+        }
     }.getOrNull()
 
-    private fun decodeSampled(uri: Uri): Bitmap? = runCatching {
+    private fun decodeSampled(uri: Uri, targetSize: Int = THUMBNAIL_SIZE): Bitmap? = runCatching {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         appContext.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, bounds)
         }
         var sample = 1
-        while (bounds.outWidth / sample > THUMBNAIL_SIZE * 2 ||
-            bounds.outHeight / sample > THUMBNAIL_SIZE * 2
-        ) {
-            sample *= 2
+        if (bounds.outHeight > targetSize || bounds.outWidth > targetSize) {
+            val halfHeight = bounds.outHeight / 2
+            val halfWidth = bounds.outWidth / 2
+            while ((halfHeight / sample) >= targetSize && (halfWidth / sample) >= targetSize) {
+                sample *= 2
+            }
         }
-        val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        appContext.contentResolver.openInputStream(uri)?.use {
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val decoded = appContext.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, options)
+        } ?: return@runCatching null
+        if (decoded.width > targetSize * 1.5f || decoded.height > targetSize * 1.5f) {
+            val maxDim = maxOf(decoded.width, decoded.height)
+            val scale = targetSize.toFloat() / maxDim
+            val scaled = Bitmap.createScaledBitmap(
+                decoded,
+                (decoded.width * scale).toInt().coerceAtLeast(1),
+                (decoded.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+            if (scaled != decoded) decoded.recycle()
+            scaled
+        } else {
+            decoded
         }
     }.getOrNull()
 
     private companion object {
-        const val THUMBNAIL_SIZE = 384
+        const val THUMBNAIL_SIZE = 256
     }
 }

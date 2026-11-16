@@ -147,6 +147,13 @@ object PlaybackArtworkLoader {
         val local = item.localUri?.takeIf { it.isNotBlank() } ?: return null
         val uri = runCatching { Uri.parse(local) }.getOrNull() ?: return null
 
+        // Check persistent disk thumbnail cache first
+        val safeKey = item.mediaId.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val diskThumb = java.io.File(java.io.File(context.cacheDir, "art_thumbs"), "$safeKey.webp")
+        if (diskThumb.exists() && diskThumb.length() > 0L) {
+            runCatching { BitmapFactory.decodeFile(diskThumb.absolutePath) }.getOrNull()?.let { return it }
+        }
+
         // Fast path: ffmpeg disk cache already holds artwork for this file (one stat call).
         val cachedPath = localPathOf(context, uri)
         if (cachedPath.isNotBlank()) {
@@ -195,22 +202,31 @@ object PlaybackArtworkLoader {
         } finally {
             runCatching { retriever.release() }
         }
-        if (bitmap != null) return bitmap
-
-        // Last resort for undecodable encoders (e.g. AV1 webm) and audio formats the
-        // retriever cannot parse (e.g. ogg/opus covers): use the bundled ffmpeg.
-        val path = cachedPath.ifBlank { localPathOf(context, uri) }
-        if (path.isBlank()) return null
-        val extracted = when (item.type) {
-            PlaybackType.VIDEO -> FrameExtractor.frameFor(context, path, THUMBNAIL_SIZE)
-            PlaybackType.AUDIO -> FrameExtractor.coverFor(context, path, THUMBNAIL_SIZE)
+        val resultBitmap = bitmap ?: run {
+            val path = cachedPath.ifBlank { localPathOf(context, uri) }
+            if (path.isBlank()) null
+            else when (item.type) {
+                PlaybackType.VIDEO -> FrameExtractor.frameFor(context, path, THUMBNAIL_SIZE)
+                PlaybackType.AUDIO -> FrameExtractor.coverFor(context, path, THUMBNAIL_SIZE)
+            }
         }
-        if (extracted != null) {
-            Log.d(TAG, "artwork extracted: ${item.title} -> $path")
-        } else {
-            Log.d(TAG, "artwork MISSING for ${item.title} (path=$path)")
+        if (resultBitmap != null) {
+            runCatching {
+                diskThumb.parentFile?.mkdirs()
+                val tmp = java.io.File(diskThumb.parentFile, "${diskThumb.name}.tmp")
+                tmp.outputStream().use { out ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        resultBitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 85, out)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        resultBitmap.compress(Bitmap.CompressFormat.WEBP, 85, out)
+                    }
+                }
+                tmp.renameTo(diskThumb)
+            }
+            Log.d(TAG, "artwork ready: ${item.title}")
         }
-        return extracted
+        return resultBitmap
     }
 
     /**
@@ -272,27 +288,42 @@ object PlaybackArtworkLoader {
         )
     }
 
-    private fun decodeSampled(bytes: ByteArray): Bitmap? = runCatching {
+    private fun decodeSampled(bytes: ByteArray, targetSize: Int = THUMBNAIL_SIZE): Bitmap? = runCatching {
         if (bytes.isEmpty()) return@runCatching null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         var sample = 1
-        while (bounds.outWidth / sample > THUMBNAIL_SIZE * 2 ||
-            bounds.outHeight / sample > THUMBNAIL_SIZE * 2
-        ) {
-            sample *= 2
+        if (bounds.outHeight > targetSize || bounds.outWidth > targetSize) {
+            val halfHeight = bounds.outHeight / 2
+            val halfWidth = bounds.outWidth / 2
+            while ((halfHeight / sample) >= targetSize && (halfWidth / sample) >= targetSize) {
+                sample *= 2
+            }
         }
-        BitmapFactory.decodeByteArray(
-            bytes,
-            0,
-            bytes.size,
-            BitmapFactory.Options().apply { inSampleSize = sample }
-        )
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return@runCatching null
+        if (decoded.width > targetSize * 1.5f || decoded.height > targetSize * 1.5f) {
+            val maxDim = maxOf(decoded.width, decoded.height)
+            val scale = targetSize.toFloat() / maxDim
+            val scaled = Bitmap.createScaledBitmap(
+                decoded,
+                (decoded.width * scale).toInt().coerceAtLeast(1),
+                (decoded.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+            if (scaled != decoded) decoded.recycle()
+            scaled
+        } else {
+            decoded
+        }
     }.getOrNull()
 
     private fun isFileScheme(uri: Uri): Boolean =
         "file".equals(uri.scheme, ignoreCase = true)
 
     private const val TAG = "PlaybackArt"
-    private const val THUMBNAIL_SIZE = 512
+    private const val THUMBNAIL_SIZE = 256
 }
