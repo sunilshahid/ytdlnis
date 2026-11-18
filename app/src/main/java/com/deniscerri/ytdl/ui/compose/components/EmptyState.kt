@@ -1,6 +1,7 @@
 package com.deniscerri.ytdl.ui.compose.components
 
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -8,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,11 +34,12 @@ fun EmptyState(
         verticalArrangement = Arrangement.Center,
     ) {
         if (iconRes != null) {
-            Icon(
+            // `Image`, not `Icon`: `no_results.xml` uses a 254x129 dp illustration. `Icon` would
+            // flatten it to a single tint; the drawable resolves its own theme colours instead.
+            Image(
                 painter = painterResource(iconRes),
                 contentDescription = null,
-                modifier = Modifier.size(56.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(width = 150.dp, height = 100.dp),
             )
             Spacer(Modifier.height(12.dp))
         }
