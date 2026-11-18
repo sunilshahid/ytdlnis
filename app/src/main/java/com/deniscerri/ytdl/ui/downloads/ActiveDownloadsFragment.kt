@@ -1,98 +1,48 @@
 package com.deniscerri.ytdl.ui.downloads
 
-import android.annotation.SuppressLint
-import android.app.Activity
-import android.content.SharedPreferences
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.RelativeLayout
-import android.widget.TextView
-import androidx.annotation.OptIn
-import androidx.core.view.isVisible
-import androidx.fragment.app.Fragment
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
-import androidx.preference.PreferenceManager
-import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import androidx.work.WorkManager
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.models.DownloadItem
 import com.deniscerri.ytdl.database.viewmodel.DownloadViewModel
-import com.deniscerri.ytdl.ui.adapter.ActiveDownloadAdapter
-import com.deniscerri.ytdl.util.Extensions.forceFastScrollMode
-import com.deniscerri.ytdl.util.NotificationUtil
+import com.deniscerri.ytdl.ui.compose.downloads.ActiveDownloadsContent
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
 import com.deniscerri.ytdl.util.WorkerEventBus
-import com.google.android.material.badge.ExperimentalBadgeUtils
-import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.deniscerri.ytdl.work.DownloadWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * Active downloads list hosted in Jetpack Compose (Phase 5).
+ *
+ * Replaces `fragment_active.xml` and `ActiveDownloadAdapter`.
+ */
+class ActiveDownloadsFragment : ComposeFragment() {
 
-class ActiveDownloadsFragment : Fragment(), ActiveDownloadAdapter.OnItemClickListener {
-    private var fragmentView: View? = null
-    private var activity: Activity? = null
-    private lateinit var downloadViewModel : DownloadViewModel
+    private lateinit var downloadViewModel: DownloadViewModel
+    private var activeDownloads by mutableStateOf<List<DownloadItem>>(emptyList())
+    private val progressEvents = mutableStateMapOf<Long, DownloadWorker.WorkerProgress>()
 
-    //private lateinit var activeDownloadsLinear: LinearLayout
-    private lateinit var activeRecyclerView : RecyclerView
-    private lateinit var activeDownloads : ActiveDownloadAdapter
-
-    private lateinit var notificationUtil: NotificationUtil
-    private lateinit var noResults: RelativeLayout
-    private lateinit var workManager: WorkManager
-    private lateinit var preferences: SharedPreferences
-
-
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        fragmentView = inflater.inflate(R.layout.fragment_active, container, false)
-        return fragmentView
-    }
-
-    @OptIn(ExperimentalBadgeUtils::class)
-    @SuppressLint("NotifyDataSetChanged", "RestrictedApi")
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        activity = getActivity()
-        notificationUtil = NotificationUtil(requireContext())
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         downloadViewModel = ViewModelProvider(this)[DownloadViewModel::class.java]
-        workManager = WorkManager.getInstance(requireContext())
-        preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-
-        activeDownloads = ActiveDownloadAdapter(this,requireActivity())
-        activeRecyclerView = view.findViewById(R.id.download_recyclerview)
-        activeRecyclerView.forceFastScrollMode()
-        activeRecyclerView.adapter = activeDownloads
-        activeRecyclerView.layoutManager = GridLayoutManager(context, resources.getInteger(R.integer.grid_size))
-
-        noResults = view.findViewById(R.id.no_results)
-
-        downloadViewModel.pausedAllDownloads.observe(viewLifecycleOwner) { value ->
-            if (value == DownloadViewModel.PausedAllDownloadsState.PAUSE || value == DownloadViewModel.PausedAllDownloadsState.RESUME) {
-                activeDownloads.notifyDataSetChanged()
-            }
-        }
 
         lifecycleScope.launch {
-            downloadViewModel.activePausedDownloads.collectLatest {
-                noResults.isVisible = it.isEmpty()
-                activeDownloads.submitList(it)
-                activeRecyclerView.scrollTo(0,0)
-
-                if (it.isEmpty()) {
+            downloadViewModel.activePausedDownloads.collectLatest { list ->
+                activeDownloads = list
+                if (list.isEmpty()) {
                     requireActivity().window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 } else {
                     requireActivity().window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -100,56 +50,45 @@ class ActiveDownloadsFragment : Fragment(), ActiveDownloadAdapter.OnItemClickLis
             }
         }
 
-
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 WorkerEventBus.events.collectLatest { event ->
-                    val progressBar = requireView().findViewWithTag<LinearProgressIndicator>("${event.downloadItemID}##progress")
-                    val outputText = requireView().findViewWithTag<TextView>("${event.downloadItemID}##output")
-
-                    requireActivity().runOnUiThread {
-                        try {
-                            progressBar?.setProgressCompat(event.progress, true)
-                            outputText?.text = event.output
-                        }catch (ignored: Exception) {}
-                    }
+                    progressEvents[event.downloadItemID] = event
                 }
             }
         }
-
     }
 
-
-    override fun onCancelClick(itemID: Long) {
-        lifecycleScope.launch {
-            withContext(Dispatchers.IO){
-                downloadViewModel.cancelDownload(itemID)
-            }
-        }
+    @Composable
+    override fun Content() {
+        ActiveDownloadsContent(
+            items = activeDownloads,
+            progressEvents = progressEvents,
+            onPauseClick = { itemId ->
+                lifecycleScope.launch {
+                    withContext(Dispatchers.IO) {
+                        downloadViewModel.pauseDownload(itemId)
+                    }
+                }
+            },
+            onResumeClick = { itemId ->
+                downloadViewModel.resumeDownload(itemId)
+            },
+            onCancelClick = { itemId ->
+                lifecycleScope.launch {
+                    withContext(Dispatchers.IO) {
+                        downloadViewModel.cancelDownload(itemId)
+                    }
+                }
+            },
+            onOutputClick = { item ->
+                if (item.logID != null && item.logID != 0L) {
+                    val bundle = Bundle().apply {
+                        putLong("logID", item.logID!!)
+                    }
+                    findNavController().navigate(R.id.downloadLogFragment, bundle)
+                }
+            },
+        )
     }
-
-    override fun onOutputClick(item: DownloadItem) {
-        if (item.logID != null && item.logID != 0L) {
-            val bundle = Bundle()
-            bundle.putLong("logID", item.logID!!)
-            findNavController().navigate(
-                R.id.downloadLogFragment,
-                bundle
-            )
-        }
-    }
-
-    override fun onPauseClick(itemID: Long) {
-        lifecycleScope.launch {
-            withContext(Dispatchers.IO){
-                downloadViewModel.pauseDownload(itemID)
-            }
-        }
-    }
-
-    override fun onResumeClick(itemID: Long) {
-        downloadViewModel.resumeDownload(itemID)
-        //activeRecyclerView.smoothScrollToPosition(0)
-    }
-
 }
