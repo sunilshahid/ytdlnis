@@ -8,7 +8,6 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -17,7 +16,6 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.ui.CaptionStyleCompat
-import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.R
@@ -138,64 +136,40 @@ object VideoPlayerOverlays {
         }
     }
 
-    fun updateChapterMarkersAndBar(
+    /**
+     * Syncs the chapter pill, the segmented seekbar and their visibility with the HUD.
+     *
+     * The pill is part of the bottom bar, so it must follow the controller exactly: it is only
+     * shown while the controls are visible, and never when the screen is locked (the controller
+     * is detached in that case, which hides the whole overlay).
+     */
+    fun updateChapterUi(
         playerView: PlayerView,
         chapters: List<PlaybackChapter>,
         positionMs: Long,
-        lastMarkerSignature: LongArray?,
-        onSignatureUpdated: (LongArray?) -> Unit
+        durationMs: Long,
+        controlsVisible: Boolean
     ) {
-        val chaptersBtn = playerView.findViewById<ImageButton>(R.id.video_chapters)
         val chapterBar = playerView.findViewById<View>(R.id.video_chapter_bar)
-        val chapterPill = playerView.findViewById<TextView>(R.id.video_chapter_pill)
-        val prevBtn = playerView.findViewById<ImageButton>(R.id.video_chapter_prev)
-        val nextBtn = playerView.findViewById<ImageButton>(R.id.video_chapter_next)
-        val timeBar = playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)
+        val chapterPill: TextView? = playerView.findViewById(R.id.video_chapter_pill)
+        val timeBar: ChapterTimeBar? = playerView.findViewById(R.id.exo_progress)
+
+        timeBar?.setChapterStarts(chapters.map { it.startMs }, durationMs)
 
         if (chapters.isEmpty()) {
-            chaptersBtn?.visibility = View.GONE
             chapterBar?.visibility = View.GONE
-            if (lastMarkerSignature != null && lastMarkerSignature.isNotEmpty()) {
-                timeBar?.setAdGroupTimesMs(null, null, 0)
-                onSignatureUpdated(null)
-            }
             return
         }
 
-        chaptersBtn?.visibility = View.VISIBLE
-        chapterBar?.visibility = View.VISIBLE
+        chapterBar?.visibility = if (controlsVisible) View.VISIBLE else View.GONE
+        if (!controlsVisible) return
 
-        val markers = chapters.map { it.startMs }.filter { it > 0L }.toLongArray()
-        if (lastMarkerSignature == null || !lastMarkerSignature.contentEquals(markers)) {
-            timeBar?.setAdGroupTimesMs(markers, BooleanArray(markers.size) { false }, markers.size)
-            onSignatureUpdated(markers)
+        val activeIndex = PlaybackExtrasCodec.findActiveChapterIndex(chapters, positionMs)
+            .coerceIn(0, chapters.lastIndex)
+        val title = chapters[activeIndex].title
+        if (chapterPill?.text?.toString() != title) {
+            chapterPill?.text = title
         }
-
-        val activeIdx = PlaybackExtrasCodec.findActiveChapterIndex(chapters, positionMs).coerceIn(0, chapters.lastIndex)
-        val activeChapter = chapters[activeIdx]
-        chapterPill?.text = "${activeIdx + 1}/${chapters.size} · ${activeChapter.title}"
-
-        val canPrev = activeIdx > 0 || positionMs - activeChapter.startMs > 3_000L
-        val canNext = activeIdx < chapters.lastIndex
-        prevBtn?.isEnabled = canPrev
-        prevBtn?.alpha = if (canPrev) 1f else 0.35f
-        nextBtn?.isEnabled = canNext
-        nextBtn?.alpha = if (canNext) 1f else 0.35f
-    }
-
-    fun computeChapterJumpMs(chapters: List<PlaybackChapter>, positionMs: Long, delta: Int): Long? {
-        if (chapters.isEmpty()) return null
-        val activeIdx = PlaybackExtrasCodec.findActiveChapterIndex(chapters, positionMs).coerceIn(0, chapters.lastIndex)
-        val targetIdx = if (delta < 0) {
-            if (positionMs - chapters[activeIdx].startMs > 3_000L || activeIdx == 0) {
-                activeIdx
-            } else {
-                activeIdx - 1
-            }
-        } else {
-            (activeIdx + delta).coerceIn(0, chapters.lastIndex)
-        }
-        return chapters[targetIdx].startMs
     }
 
     fun showSubtitlesSheet(

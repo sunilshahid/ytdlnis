@@ -19,11 +19,13 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.findNavController
 import androidx.preference.PreferenceManager
+import com.deniscerri.ytdl.BuildConfig
 import com.deniscerri.ytdl.MainActivity
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.viewmodel.DownloadViewModel
 import com.deniscerri.ytdl.ui.more.settings.SettingsActivity
 import com.deniscerri.ytdl.ui.more.terminal.TerminalActivity
+import com.deniscerri.ytdl.util.Extensions.applyTactilePressAnimation
 import com.deniscerri.ytdl.util.NavbarUtil
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -33,16 +35,16 @@ import kotlin.system.exitProcess
 class MoreFragment : Fragment() {
     private lateinit var mainSharedPreferences: SharedPreferences
     private lateinit var mainSharedPreferencesEditor: SharedPreferences.Editor
-    private lateinit var terminal: TextView
-    private lateinit var logs: TextView
-    private lateinit var commandTemplates: TextView
-    private lateinit var downloadQueue: TextView
-    private lateinit var downloads: TextView
-    private lateinit var cookies: TextView
-    private lateinit var observeSources: TextView
-    private lateinit var privateVault: TextView
-    private lateinit var terminateApp: TextView
-    private lateinit var settings: TextView
+    private lateinit var terminal: View
+    private lateinit var logs: View
+    private lateinit var commandTemplates: View
+    private lateinit var downloadQueue: View
+    private lateinit var downloads: View
+    private lateinit var cookies: View
+    private lateinit var observeSources: View
+    private lateinit var privateVault: View
+    private lateinit var terminateApp: View
+    private lateinit var settings: View
     private lateinit var mainActivity: MainActivity
     private lateinit var downloadViewModel: DownloadViewModel
     override fun onCreateView(
@@ -69,6 +71,19 @@ class MoreFragment : Fragment() {
         privateVault = view.findViewById(R.id.private_vault)
         terminateApp = view.findViewById(R.id.terminate)
         settings = view.findViewById(R.id.settings)
+
+        listOf(
+            terminal,
+            logs,
+            commandTemplates,
+            downloads,
+            downloadQueue,
+            cookies,
+            observeSources,
+            privateVault,
+            settings,
+            terminateApp
+        ).forEach { it.applyTactilePressAnimation() }
 
         privateVault.isVisible = !com.deniscerri.ytdl.vault.VaultRepository.isStealthEnabled(requireContext())
 

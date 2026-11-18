@@ -3,6 +3,7 @@ package com.deniscerri.ytdl.playback
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -11,6 +12,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.database.DBManager
@@ -497,6 +499,18 @@ object PlaybackController {
         controller?.seekTo(positionMs.coerceAtLeast(0L))
         _state.update { it.copy(positionMs = positionMs) }
         persistProgress()
+    }
+
+    /** Switches ExoPlayer between keyframe-sync seeking (scrubbing) and exact seeking. */
+    fun setScrubSeekMode(closestSync: Boolean) {
+        val mediaController = controller ?: return
+        val args = Bundle().apply {
+            putBoolean(PlaybackService.EXTRA_CLOSEST_SYNC, closestSync)
+        }
+        mediaController.sendCustomCommand(
+            SessionCommand(PlaybackService.ACTION_SET_SEEK_PARAMETERS, Bundle.EMPTY),
+            args
+        )
     }
 
     fun skipBy(deltaMs: Long) {

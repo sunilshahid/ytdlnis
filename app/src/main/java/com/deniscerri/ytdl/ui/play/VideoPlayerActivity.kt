@@ -44,8 +44,12 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.TimeBar
+import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.playback.PlaybackController
+import com.deniscerri.ytdl.playback.chapters.ChapterRepository
+import com.deniscerri.ytdl.playback.chapters.SponsorSegment
 import com.deniscerri.ytdl.playback.model.PlaybackExtrasCodec
 import com.deniscerri.ytdl.playback.model.PlaybackSubtitle
 import com.deniscerri.ytdl.playback.model.PlaybackType
@@ -77,6 +81,7 @@ class VideoPlayerActivity : BaseActivity() {
     private lateinit var playerView: PlayerView
     private lateinit var poster: ImageView
     private lateinit var loadingOverlay: View
+    private var loadingText: TextView? = null
     private lateinit var errorOverlay: View
     private lateinit var errorMessage: TextView
     private lateinit var seekPreview: TextView
@@ -140,6 +145,24 @@ class VideoPlayerActivity : BaseActivity() {
 
     private val hideHints = Runnable {
         seekPreview.visibility = View.GONE
+    }
+
+    private val hideScrubPreviewRunnable = Runnable {
+        if (!isScrubbingSeekBar) hideScrubPreview()
+    }
+
+    private val liveSeekRunnable = Runnable {
+        if (isScrubbingSeekBar && !miniScrubPreview) {
+            lastLiveSeekElapsedMs = SystemClock.elapsedRealtime()
+            attachedPlayer?.seekTo(pendingLiveSeekPosMs.coerceAtLeast(0L))
+        }
+    }
+
+    private val sponsorSkipRunnable = object : Runnable {
+        override fun run() {
+            maybeSkipSponsorSegment()
+            uiHandler.postDelayed(this, SPONSOR_CHECK_INTERVAL_MS)
+        }
     }
 
     private val scaleGestureDetector by lazy {
@@ -208,8 +231,34 @@ class VideoPlayerActivity : BaseActivity() {
         ViewConfiguration.get(this).scaledTouchSlop
     }
 
-    private var lastChapterMarkerSignature: LongArray? = null
     private var appliedSubPrefsForMediaId: String? = null
+
+    // Seek-preview stack (frame card + timestamp + chapter) and chapter segmentation
+    private lateinit var scrubPreview: View
+    private lateinit var scrubPreviewThumb: ImageView
+    private lateinit var scrubPreviewThumbCard: View
+    private lateinit var scrubPreviewTime: TextView
+    private lateinit var scrubPreviewChapter: TextView
+    private lateinit var scrubPreviewFull: ImageView
+    private lateinit var chapterTimeBar: ChapterTimeBar
+    private lateinit var scrubFrameLoader: ScrubFrameLoader
+    private var isScrubbingSeekBar = false
+    private var controllerVisible = false
+    private var pendingPreviewFraction = 0.5f
+    private var lastLiveSeekElapsedMs = 0L
+    private var pendingLiveSeekPosMs = 0L
+    private var lastControllerPingElapsedMs = 0L
+    private var scrubMediaId: String? = null
+    // Chapter the seekbar drag currently sits in, so crossing a boundary ticks only once.
+    private var scrubbedChapterIndex = -1
+    // False (default): MX Player-style live video scrubbing on main surface; True: Mini Preview Card.
+    private var miniScrubPreview = false
+    private var resumeAfterScrub = false
+
+    // SponsorBlock-style segments detected from embedded chapters
+    private var sponsorSegments: List<SponsorSegment> = emptyList()
+    private var sponsorSegmentsMediaId: String? = null
+    private var lastSponsorSkipAt = 0L
 
     private val importSubtitleLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -330,10 +379,15 @@ class VideoPlayerActivity : BaseActivity() {
             updateSubtitleButtonTint()
         }
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            playerView.keepScreenOn = isPlaying
-            playerView.findViewById<ImageButton>(androidx.media3.ui.R.id.exo_play_pause)?.setImageResource(
-                if (isPlaying) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play
-            )
+            // The preview pauses playback on purpose; do not flip the button or drop the
+            // screen-on flag while the user is still dragging.
+            val heldForPreview = isScrubbingSeekBar && resumeAfterScrub
+            playerView.keepScreenOn = isPlaying || heldForPreview
+            if (!heldForPreview) {
+                playerView.findViewById<ImageButton>(androidx.media3.ui.R.id.exo_play_pause)?.setImageResource(
+                    if (isPlaying) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play
+                )
+            }
             if (isPlaying) {
                 renderedFirstFrame = true
                 renderState(PlaybackController.state.value)
@@ -359,6 +413,15 @@ class VideoPlayerActivity : BaseActivity() {
                 renderedFirstFrame = true
                 renderState(PlaybackController.state.value)
                 updatePipParams()
+                if (prefs().getBoolean(PREF_SCRUB_PREVIEW_MINI, false)) {
+                    val uri = PlaybackController.state.value.currentItem?.localUri
+                    val durationMs = currentDuration()
+                    if (!uri.isNullOrBlank() && durationMs > 0L) {
+                        scrubFrameLoader.prewarm(uri, durationMs)
+                    }
+                }
+            } else if (playbackState == Player.STATE_BUFFERING) {
+                renderState(PlaybackController.state.value)
             }
         }
     }
@@ -375,8 +438,25 @@ class VideoPlayerActivity : BaseActivity() {
         seekPreview = findViewById(R.id.video_seek_preview)
         poster = findViewById(R.id.video_poster)
         loadingOverlay = findViewById(R.id.video_loading)
+        loadingText = findViewById(R.id.video_loading_text)
         errorOverlay = findViewById(R.id.video_error)
         errorMessage = findViewById(R.id.video_error_message)
+
+        // Seek-preview stack lives inside the player's control overlay so it fades with the HUD
+        scrubPreview = playerView.findViewById(R.id.video_scrub_preview)
+        scrubPreviewThumb = playerView.findViewById(R.id.video_scrub_thumb)
+        scrubPreviewThumbCard = playerView.findViewById(R.id.video_scrub_thumb_card)
+        scrubPreviewTime = playerView.findViewById(R.id.video_scrub_time)
+        scrubPreviewChapter = playerView.findViewById(R.id.video_scrub_chapter)
+        scrubPreviewFull = playerView.findViewById(R.id.video_scrub_full)
+        chapterTimeBar = playerView.findViewById(R.id.exo_progress)
+        scrubFrameLoader = ScrubFrameLoader(this)
+        // The stack changes height between mini card and pill-only modes; re-place it once the
+        // new size is known so the pills stay glued to the seekbar.
+        scrubPreview.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (isScrubbingSeekBar) positionScrubPreview(pendingPreviewFraction)
+        }
+        bindSeekPreview()
 
         // Level indicator views (Volume/Brightness near top right)
         levelIndicatorView = findViewById(R.id.video_level_indicator)
@@ -407,13 +487,16 @@ class VideoPlayerActivity : BaseActivity() {
         })
 
         // Synchronize top and bottom controls visibility together
+        controllerVisible = playerView.isControllerFullyVisible
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
             val isVisible = visibility == View.VISIBLE
+            controllerVisible = isVisible
             playerView.findViewById<View>(R.id.video_top_bar)?.visibility = if (isVisible) View.VISIBLE else View.GONE
             playerView.findViewById<View>(androidx.media3.ui.R.id.exo_bottom_bar)?.visibility = if (isVisible) View.VISIBLE else View.GONE
             if (isVisible) {
                 updateDurationDisplay()
             }
+            refreshChapterBarVisibility()
         })
 
         playerView.setOnTouchListener { _, event -> handleTouch(event) }
@@ -511,22 +594,7 @@ class VideoPlayerActivity : BaseActivity() {
                 PlaybackController.seekTo(chapter.startMs)
             }
         }
-        playerView.findViewById<ImageButton>(R.id.video_chapters)?.setOnClickListener { openChapters() }
-        playerView.findViewById<View>(R.id.video_chapter_pill)?.setOnClickListener { openChapters() }
-        playerView.findViewById<ImageButton>(R.id.video_chapter_prev)?.setOnClickListener {
-            VideoPlayerOverlays.computeChapterJumpMs(
-                PlaybackController.state.value.chapters,
-                currentPlaybackPositionMs(),
-                delta = -1
-            )?.let { PlaybackController.seekTo(it) }
-        }
-        playerView.findViewById<ImageButton>(R.id.video_chapter_next)?.setOnClickListener {
-            VideoPlayerOverlays.computeChapterJumpMs(
-                PlaybackController.state.value.chapters,
-                currentPlaybackPositionMs(),
-                delta = 1
-            )?.let { PlaybackController.seekTo(it) }
-        }
+        playerView.findViewById<View>(R.id.video_chapter_bar)?.setOnClickListener { openChapters() }
 
         playerView.findViewById<View>(androidx.media3.ui.R.id.exo_prev)?.setOnClickListener {
             PlaybackController.previous()
@@ -574,6 +642,258 @@ class VideoPlayerActivity : BaseActivity() {
         }
     }
 
+    // --- Seekbar scrubbing preview -----------------------------------------------------------
+
+    private fun prefs() = PreferenceManager.getDefaultSharedPreferences(this)
+
+    private fun bindSeekPreview() {
+        chapterTimeBar.addListener(object : TimeBar.OnScrubListener {
+            override fun onScrubStart(timeBar: TimeBar, position: Long) {
+                isScrubbingSeekBar = true
+                uiHandler.removeCallbacks(hideScrubPreviewRunnable)
+                uiHandler.removeCallbacks(liveSeekRunnable)
+                // Seed the chapter we start in so the first tick only fires on a real crossing.
+                scrubbedChapterIndex = PlaybackExtrasCodec.findActiveChapterIndex(
+                    PlaybackController.state.value.chapters,
+                    position
+                )
+                miniScrubPreview = prefs().getBoolean(PREF_SCRUB_PREVIEW_MINI, false)
+                scrubFrameLoader.setUserScrubbing(true)
+
+                val state = PlaybackController.state.value
+                val item = state.currentItem
+                if (item?.mediaId != scrubMediaId) {
+                    scrubMediaId = item?.mediaId
+                    scrubPreviewThumb.setImageDrawable(null)
+                }
+
+                if (miniScrubPreview) {
+                    val durationMs = currentDuration()
+                    if (!item?.localUri.isNullOrBlank() && durationMs > 0L) {
+                        scrubFrameLoader.prewarm(item?.localUri, durationMs)
+                    }
+                } else {
+                    // Full-screen live video scrubbing: hide bitmap overlay & seek ExoPlayer keyframes live.
+                    scrubPreviewFull.visibility = View.GONE
+                    holdPlaybackForPreview()
+                    PlaybackController.setScrubSeekMode(closestSync = true)
+                    lastLiveSeekElapsedMs = SystemClock.elapsedRealtime()
+                    pendingLiveSeekPosMs = position
+                    attachedPlayer?.seekTo(position.coerceAtLeast(0L))
+                }
+                showScrubPreview(position)
+            }
+
+            override fun onScrubMove(timeBar: TimeBar, position: Long) {
+                if (!isScrubbingSeekBar) return
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastControllerPingElapsedMs >= 300L) {
+                    lastControllerPingElapsedMs = now
+                    playerView.showController()
+                }
+                showScrubPreview(position)
+                if (!miniScrubPreview) {
+                    scheduleLiveSeek(position, now)
+                }
+            }
+
+            override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
+                isScrubbingSeekBar = false
+                scrubbedChapterIndex = -1
+                scrubFrameLoader.setUserScrubbing(false)
+                uiHandler.removeCallbacks(liveSeekRunnable)
+                if (!miniScrubPreview) {
+                    PlaybackController.setScrubSeekMode(closestSync = false)
+                    if (!canceled) {
+                        attachedPlayer?.seekTo(position.coerceAtLeast(0L))
+                    }
+                }
+                releasePlaybackAfterPreview()
+                uiHandler.removeCallbacks(hideScrubPreviewRunnable)
+                uiHandler.postDelayed(hideScrubPreviewRunnable, 140L)
+            }
+        })
+    }
+
+    private fun scheduleLiveSeek(positionMs: Long, nowMs: Long) {
+        pendingLiveSeekPosMs = positionMs
+        val elapsed = nowMs - lastLiveSeekElapsedMs
+        if (elapsed >= LIVE_SEEK_THROTTLE_MS) {
+            uiHandler.removeCallbacks(liveSeekRunnable)
+            lastLiveSeekElapsedMs = nowMs
+            attachedPlayer?.seekTo(positionMs.coerceAtLeast(0L))
+        } else {
+            uiHandler.removeCallbacks(liveSeekRunnable)
+            uiHandler.postDelayed(liveSeekRunnable, LIVE_SEEK_THROTTLE_MS - elapsed)
+        }
+    }
+
+    /**
+     * Full-player preview: pause so the frame under the overlay is the seeked still, and so the
+     * read-ahead does not compete with dragging. Playback resumes on release.
+     */
+    private fun holdPlaybackForPreview() {
+        val player = attachedPlayer ?: return
+        resumeAfterScrub = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+        if (resumeAfterScrub) player.pause()
+    }
+
+    private fun releasePlaybackAfterPreview() {
+        if (!resumeAfterScrub) return
+        resumeAfterScrub = false
+        attachedPlayer?.play()
+    }
+
+    /**
+     * One short tick each time the drag enters a different chapter, the way YouTube signals a
+     * chapter snap. Fires from the same place that updates the preview's chapter label, so the
+     * tick always lines up with the title changing.
+     */
+    private fun tickChapterBoundary() {
+        chapterTimeBar.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+    }
+
+    private fun showScrubPreview(positionMs: Long) {
+        val duration = currentDuration()
+        if (duration <= 0L) return
+        val fraction = (positionMs.toFloat() / duration).coerceIn(0f, 1f)
+
+        scrubPreview.visibility = View.VISIBLE
+        // Mini mode floats the thumbnail card above the thumb; OFF hides the card and shows live video.
+        scrubPreviewThumbCard.isVisible = miniScrubPreview
+        scrubPreviewFull.visibility = View.GONE
+        scrubPreviewTime.text = PlaybackExtrasCodec.formatTimestampMs(positionMs)
+
+        val state = PlaybackController.state.value
+        val chapters = state.chapters
+        val activeIndex = PlaybackExtrasCodec.findActiveChapterIndex(chapters, positionMs)
+        if (activeIndex != scrubbedChapterIndex) {
+            scrubbedChapterIndex = activeIndex
+            if (activeIndex >= 0) tickChapterBoundary()
+        }
+        if (activeIndex in chapters.indices) {
+            scrubPreviewChapter.text = chapters[activeIndex].title
+            scrubPreviewChapter.visibility = View.VISIBLE
+        } else {
+            scrubPreviewChapter.visibility = View.GONE
+        }
+
+        // Synchronous X/Y tracking on every touch/drag event (zero async delay).
+        pendingPreviewFraction = fraction
+        positionScrubPreview(fraction)
+
+        if (miniScrubPreview) {
+            scrubFrameLoader.request(
+                localUri = state.currentItem?.localUri,
+                positionMs = positionMs,
+                durationMs = duration
+            ) { bitmap ->
+                // Retain the last decoded Bitmap until a newer frame arrives (never flash empty/black).
+                if (isScrubbingSeekBar && miniScrubPreview && bitmap != null && !bitmap.isRecycled) {
+                    scrubPreviewThumb.setImageBitmap(bitmap)
+                }
+            }
+        }
+    }
+
+    private fun positionScrubPreview(fraction: Float) {
+        val parent = scrubPreview.parent as? View ?: return
+        if (parent.width <= 0 || scrubPreview.width <= 0) return
+
+        val bar = chapterTimeBar
+        val usableWidth = (bar.width - bar.paddingLeft - bar.paddingRight).coerceAtLeast(1)
+        val thumbX = bar.paddingLeft + fraction.coerceIn(0f, 1f) * usableWidth
+
+        var x = thumbX
+        var y = 0f
+        var view: View? = bar
+        while (view != null && view !== parent) {
+            x += view.left + view.translationX
+            y += view.top + view.translationY
+            view = view.parent as? View
+        }
+
+        val margin = 8f * resources.displayMetrics.density
+        val maxX = (parent.width - scrubPreview.width - margin).coerceAtLeast(margin)
+        scrubPreview.x = (x - scrubPreview.width / 2f).coerceIn(margin, maxX)
+
+        val gap = 12f * resources.displayMetrics.density
+        scrubPreview.y = (y - gap - scrubPreview.height).coerceAtLeast(margin)
+    }
+
+    private fun hideScrubPreview() {
+        val wasScrubbing = isScrubbingSeekBar
+        isScrubbingSeekBar = false
+        scrubFrameLoader.setUserScrubbing(false)
+        uiHandler.removeCallbacks(hideScrubPreviewRunnable)
+        uiHandler.removeCallbacks(liveSeekRunnable)
+        if (wasScrubbing && !miniScrubPreview) {
+            PlaybackController.setScrubSeekMode(closestSync = false)
+        }
+        if (::scrubPreview.isInitialized) scrubPreview.visibility = View.INVISIBLE
+        if (::scrubPreviewFull.isInitialized) {
+            scrubPreviewFull.visibility = View.GONE
+            scrubPreviewFull.setImageDrawable(null)
+        }
+    }
+
+    /** Keeps the chapter pill in lock-step with the rest of the HUD and the lock state. */
+    private fun refreshChapterBarVisibility() {
+        val bar = playerView.findViewById<View>(R.id.video_chapter_bar) ?: return
+        val hasChapters = PlaybackController.state.value.chapters.isNotEmpty()
+        bar.visibility = if (hasChapters && controllerVisible && !locked) View.VISIBLE else View.GONE
+    }
+
+    // --- SponsorBlock auto-skip --------------------------------------------------------------
+
+    private fun trackSponsorSegments(state: PlaybackController.UiState) {
+        val item = state.currentItem
+        if (item == null) {
+            sponsorSegments = emptyList()
+            sponsorSegmentsMediaId = null
+            return
+        }
+        if (item.mediaId == sponsorSegmentsMediaId) return
+        sponsorSegmentsMediaId = item.mediaId
+        sponsorSegments = ChapterRepository.cachedSegments(item.localUri)
+        scrubPreviewThumb.setImageDrawable(null)
+        val duration = currentDuration()
+        scrubFrameLoader.prewarm(item.localUri, duration)
+
+        val localUri = item.localUri
+        if (localUri.isNullOrBlank()) return
+        lifecycleScope.launch {
+            val loaded = ChapterRepository.load(this@VideoPlayerActivity, localUri).sponsorSegments
+            if (PlaybackController.state.value.currentItem?.mediaId == item.mediaId) {
+                sponsorSegments = loaded
+            }
+        }
+    }
+
+    private fun maybeSkipSponsorSegment() {
+        if (sponsorSegments.isEmpty()) return
+        val player = attachedPlayer ?: return
+        if (!player.isPlaying) return
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        if (!prefs.getBoolean(PREF_USE_SPONSORBLOCK, true)) return
+
+        val position = player.currentPosition
+        val segment = sponsorSegments.firstOrNull { pos ->
+            position >= pos.startTimeMs && position < pos.endTimeMs - SPONSOR_SKIP_TAIL_MS
+        } ?: return
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSponsorSkipAt < SPONSOR_SKIP_GUARD_MS) return
+        lastSponsorSkipAt = now
+        player.seekTo(segment.endTimeMs)
+        showUnifiedFeedback(
+            iconRes = R.drawable.ic_chapter_list,
+            text = getString(R.string.sponsorblock),
+            progress = null,
+            timeoutMs = 1400L
+        )
+    }
+
     private fun observePlayback() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -594,12 +914,15 @@ class VideoPlayerActivity : BaseActivity() {
     }
 
     private fun renderState(state: PlaybackController.UiState) {
-        VideoPlayerOverlays.updateChapterMarkersAndBar(
+        val durationMs = state.durationMs.takeIf { it > 0L } ?: currentDuration()
+        VideoPlayerOverlays.updateChapterUi(
             playerView = playerView,
             chapters = state.chapters,
             positionMs = currentPlaybackPositionMs(),
-            lastMarkerSignature = lastChapterMarkerSignature
-        ) { lastChapterMarkerSignature = it }
+            durationMs = durationMs,
+            controlsVisible = controllerVisible && !locked
+        )
+        trackSponsorSegments(state)
         updateSubtitleButtonTint()
         updateDurationDisplay()
         val item = state.currentItem ?: return
@@ -633,9 +956,11 @@ class VideoPlayerActivity : BaseActivity() {
             playerView.findViewById<View>(androidx.media3.ui.R.id.exo_shutter)?.visibility = View.GONE
         }
 
-        val loading = state.error == null && !renderedFirstFrame
+        val isBuffering = player != null && player.playbackState == Player.STATE_BUFFERING && player.playWhenReady
+        val loading = state.error == null && (!renderedFirstFrame || isBuffering)
         loadingOverlay.isVisible = loading
-        poster.isVisible = loading && !item.artworkUri.isNullOrBlank()
+        loadingText?.isVisible = !renderedFirstFrame
+        poster.isVisible = !renderedFirstFrame && !item.artworkUri.isNullOrBlank()
         errorOverlay.isVisible = state.error != null
         state.error?.let { errorMessage.text = it }
     }
@@ -663,7 +988,6 @@ class VideoPlayerActivity : BaseActivity() {
         }
         playerView.keepScreenOn = player.isPlaying
         renderedFirstFrame = player.playbackState == Player.STATE_READY ||
-            player.playbackState == Player.STATE_BUFFERING ||
             player.isPlaying ||
             player.currentPosition > 0L ||
             (player.videoSize.width > 0 && player.videoSize.height > 0)
@@ -723,9 +1047,11 @@ class VideoPlayerActivity : BaseActivity() {
         )
         if (locked) {
             playerView.hideController()
+            hideScrubPreview()
         } else {
             playerView.showController()
         }
+        refreshChapterBarVisibility()
         showUnifiedFeedback(
             iconRes = if (locked) R.drawable.ic_lock else R.drawable.ic_unlock,
             text = getString(if (locked) R.string.lock_controls else R.string.unlock_controls),
@@ -792,6 +1118,7 @@ class VideoPlayerActivity : BaseActivity() {
             levelIndicatorView?.visibility = View.GONE
             speedBoostContainer?.visibility = View.GONE
             seekPreview.visibility = View.GONE
+            hideScrubPreview()
             playerView.useController = false
         } else {
             playerView.useController = !locked
@@ -1170,10 +1497,15 @@ class VideoPlayerActivity : BaseActivity() {
         if (controller != null) {
             attachPlayer(controller)
         }
+        uiHandler.removeCallbacks(sponsorSkipRunnable)
+        uiHandler.postDelayed(sponsorSkipRunnable, SPONSOR_CHECK_INTERVAL_MS)
     }
 
     override fun onStop() {
         super.onStop()
+        uiHandler.removeCallbacks(sponsorSkipRunnable)
+        releasePlaybackAfterPreview()
+        hideScrubPreview()
         attachedPlayer?.removeListener(playerListener)
         playerView.player = null
         attachedPlayer = null
@@ -1181,6 +1513,8 @@ class VideoPlayerActivity : BaseActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        uiHandler.removeCallbacks(sponsorSkipRunnable)
+        scrubFrameLoader.release()
         if (!backgroundPlayEnabled && !isInPictureInPictureMode) {
             PlaybackController.stop()
         }
@@ -1191,6 +1525,17 @@ class VideoPlayerActivity : BaseActivity() {
         private const val SEEK_WINDOW_MS = 60_000L
         private const val SEEK_STEP_MS = 10_000L
         private const val DOUBLE_TAP_TIMEOUT_MS = 300L
+        /** Existing SponsorBlock toggle; embedded segments are only skipped while it is on. */
+        private const val PREF_USE_SPONSORBLOCK = "use_sponsorblock"
+        /** Off = MX Player-style live video scrubbing, on = floating mini preview card. */
+        private const val PREF_SCRUB_PREVIEW_MINI = "scrub_preview_mini"
+        /** Throttle interval for live ExoPlayer.seekTo() during full-screen scrubbing. */
+        private const val LIVE_SEEK_THROTTLE_MS = 45L
+        /** Leave a tail so the segment's last frame is not swallowed by the seek. */
+        private const val SPONSOR_SKIP_TAIL_MS = 350L
+        /** Debounce so a slow seek cannot retrigger inside the same segment. */
+        private const val SPONSOR_SKIP_GUARD_MS = 1_200L
+        private const val SPONSOR_CHECK_INTERVAL_MS = 750L
     }
 
     private enum class GestureMode {

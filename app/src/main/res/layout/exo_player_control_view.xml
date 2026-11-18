@@ -5,6 +5,19 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!--
+        Full-player scrub preview (default). Drawn first so it sits behind every control but
+        above the video surface: while dragging the seekbar the player area shows the frame
+        instead of the video, MX Player style. The mini card mode leaves this hidden.
+    -->
+    <ImageView
+        android:id="@+id/video_scrub_full"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitCenter"
+        android:visibility="gone" />
+
     <!-- Top Bar: Back, Title, Background Play (Headphones), Speed pill (MX Player style) -->
     <LinearLayout
         android:id="@+id/video_top_bar"
@@ -56,20 +69,6 @@
             android:src="@drawable/ic_subtitles"
             app:tint="@android:color/white" />
 
-        <!-- Chapters list (shown only when video has chapters) -->
-        <ImageButton
-            android:id="@+id/video_chapters"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
-            android:layout_marginEnd="4dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/chapters"
-            android:padding="7dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_chapters"
-            android:visibility="gone"
-            app:tint="@android:color/white" />
-
         <!-- Background / Audio Play toggle (Headphones icon from user) -->
         <ImageButton
             android:id="@+id/video_bg_audio"
@@ -113,54 +112,50 @@
         android:paddingEnd="16dp"
         android:paddingBottom="14dp">
 
-        <!-- Chapter navigation row (shown only when chapters exist) -->
+        <!-- Chapters trigger pill: active chapter title, above the elapsed timer -->
         <LinearLayout
             android:id="@+id/video_chapter_bar"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
-            android:background="@drawable/bg_speed_pill"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/bg_chapter_pill"
+            android:clickable="true"
+            android:contentDescription="@string/chapters"
+            android:focusable="true"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingHorizontal="4dp"
-            android:paddingVertical="2dp"
+            android:paddingStart="12dp"
+            android:paddingTop="7dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="7dp"
             android:visibility="gone">
 
-            <ImageButton
-                android:id="@+id/video_chapter_prev"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/chapter_previous"
-                android:padding="4dp"
-                android:rotation="180"
-                android:src="@drawable/ic_baseline_keyboard_arrow_right_24"
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chapter_list"
                 app:tint="@android:color/white" />
 
             <TextView
                 android:id="@+id/video_chapter_pill"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:clickable="true"
+                android:layout_marginStart="8dp"
                 android:ellipsize="end"
-                android:focusable="true"
                 android:maxLines="1"
-                android:maxWidth="240dp"
-                android:paddingHorizontal="6dp"
-                android:paddingVertical="3dp"
+                android:maxWidth="220dp"
                 android:textColor="@android:color/white"
-                android:textSize="12sp"
+                android:textSize="13sp"
                 android:textStyle="bold" />
 
-            <ImageButton
-                android:id="@+id/video_chapter_next"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/chapter_next"
-                android:padding="4dp"
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="4dp"
+                android:contentDescription="@null"
                 android:src="@drawable/ic_baseline_keyboard_arrow_right_24"
-                app:tint="@android:color/white" />
+                app:tint="#B3FFFFFF" />
 
         </LinearLayout>
 
@@ -180,15 +175,13 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
-            <androidx.media3.ui.DefaultTimeBar
+            <com.deniscerri.ytdl.ui.play.ChapterTimeBar
                 android:id="@id/exo_progress"
                 android:layout_width="0dp"
                 android:layout_height="32dp"
                 android:layout_marginStart="6dp"
                 android:layout_marginEnd="6dp"
                 android:layout_weight="1"
-                app:ad_marker_color="#B3FFFFFF"
-                app:ad_marker_width="2dp"
                 app:bar_height="3.5dp"
                 app:buffered_color="#66FFFFFF"
                 app:played_color="#2196F3"
@@ -306,6 +299,69 @@
             </LinearLayout>
 
         </RelativeLayout>
+
+    </LinearLayout>
+
+    <!-- Floating seek-preview stack: frame card + timestamp + scrubbed chapter -->
+    <LinearLayout
+        android:id="@+id/video_scrub_preview"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:clickable="false"
+        android:focusable="false"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:visibility="invisible">
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/video_scrub_thumb_card"
+            android:layout_width="144dp"
+            android:layout_height="81dp"
+            app:cardBackgroundColor="#000000"
+            app:cardCornerRadius="10dp"
+            app:cardElevation="0dp"
+            app:strokeColor="#80FFFFFF"
+            app:strokeWidth="1dp">
+
+            <ImageView
+                android:id="@+id/video_scrub_thumb"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop" />
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <TextView
+            android:id="@+id/video_scrub_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_scrub_pill"
+            android:paddingStart="12dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="3dp"
+            android:textColor="@android:color/white"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/video_scrub_chapter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/bg_scrub_pill"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:maxWidth="196dp"
+            android:paddingStart="12dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="3dp"
+            android:textColor="@android:color/white"
+            android:textSize="13sp" />
 
     </LinearLayout>
 

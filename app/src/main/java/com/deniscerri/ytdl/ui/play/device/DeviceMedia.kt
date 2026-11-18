@@ -153,6 +153,13 @@ sealed interface DeviceRow {
         override val stableId: String get() = "device_folder:${folder.path}"
     }
 
+    data class FolderCarousel(
+        val folders: List<DeviceFolder>,
+        val selectedPath: String?
+    ) : DeviceRow {
+        override val stableId: String get() = "device_folder_carousel"
+    }
+
     data class Message(
         val title: String,
         val subtitle: String? = null,
@@ -171,6 +178,7 @@ object DeviceFilesPrefs {
     const val KEY_SORT = "device_files_sort"
     const val KEY_NEWEST_FIRST = "device_files_newest_first"
     const val KEY_FIELDS = "device_files_fields"
+    const val KEY_SHOW_CAROUSEL = "device_files_show_carousel"
     const val KEY_FOLDER_URI = "device_files_folder_uri"
     const val KEY_FOLDER_PATH = "device_files_folder_path"
     const val KEY_FOLDER_NAME = "device_files_folder_name"
@@ -184,6 +192,13 @@ object DeviceFilesPrefs {
 
     fun isEnabled(context: Context): Boolean =
         preferences(context).getBoolean(KEY_ENABLED, true)
+
+    fun showCarousel(context: Context): Boolean =
+        preferences(context).getBoolean(KEY_SHOW_CAROUSEL, false)
+
+    fun setShowCarousel(context: Context, show: Boolean) {
+        preferences(context).edit { putBoolean(KEY_SHOW_CAROUSEL, show) }
+    }
 
     fun showMode(context: Context): DeviceShowMode {
         val value = preferences(context).getString(KEY_VIEW_MODE, null)
@@ -274,6 +289,7 @@ object DeviceFilesPrefs {
             remove(KEY_SORT)
             remove(KEY_NEWEST_FIRST)
             remove(KEY_FIELDS)
+            remove(KEY_SHOW_CAROUSEL)
         }
     }
 

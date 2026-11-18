@@ -16,6 +16,7 @@ import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ExoPlaybackException
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaNotification
@@ -164,6 +165,7 @@ class PlaybackService : MediaSessionService() {
             val connectionResult = super.onConnect(session, controller)
             val availableSessionCommands = connectionResult.availableSessionCommands.buildUpon()
                 .add(SessionCommand(ACTION_STOP_PLAYER, Bundle.EMPTY))
+                .add(SessionCommand(ACTION_SET_SEEK_PARAMETERS, Bundle.EMPTY))
                 .build()
             val allCommands = Player.Commands.Builder().addAllCommands().build()
             val availablePlayerCommands = connectionResult.availablePlayerCommands.buildUpon()
@@ -188,6 +190,13 @@ class PlaybackService : MediaSessionService() {
                 session.player.clearMediaItems()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            if (customCommand.customAction == ACTION_SET_SEEK_PARAMETERS) {
+                val closestSync = args.getBoolean(EXTRA_CLOSEST_SYNC, false)
+                player?.setSeekParameters(
+                    if (closestSync) SeekParameters.CLOSEST_SYNC else SeekParameters.EXACT
+                )
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
             return super.onCustomCommand(session, controller, customCommand, args)
@@ -321,6 +330,8 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val ACTION_STOP_PLAYER = "com.deniscerri.ytdl.playback.ACTION_STOP_PLAYER"
+        const val ACTION_SET_SEEK_PARAMETERS = "com.deniscerri.ytdl.playback.ACTION_SET_SEEK_PARAMETERS"
+        const val EXTRA_CLOSEST_SYNC = "closest_sync"
         private const val TAG = "PlaybackService"
     }
 }

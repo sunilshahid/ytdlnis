@@ -29,6 +29,7 @@ import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.deniscerri.ytdl.util.PlaybackColors
 import com.deniscerri.ytdl.MainActivity
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.DBManager
@@ -120,6 +121,7 @@ class PlayFragment : Fragment() {
     private var deviceSort = DeviceSort.DATE
     private var deviceNewestFirst = true
     private var deviceFields: Set<DeviceField> = emptySet()
+    private var deviceShowCarousel = false
     private var playLayoutMode = DeviceLayoutMode.LIST
     private var playSort = PlaySort.DATE
     private var playDescending = true
@@ -191,8 +193,12 @@ class PlayFragment : Fragment() {
         refreshDevicePreferences()
 
         adapter = PlayAdapter(
-            onContinueClick = { PlaybackLauncher.openPlayer(requireContext(), it.item) },
+            onContinueClick = {
+                dismissKeyboardAndCollapseSearch()
+                PlaybackLauncher.openPlayer(requireContext(), it.item)
+            },
             onContinueButton = { row ->
+                dismissKeyboardAndCollapseSearch()
                 val current = playbackState.currentItem
                 if (row.item.mediaId == current?.mediaId && playbackState.connected) {
                     PlaybackController.togglePlayPause()
@@ -205,6 +211,7 @@ class PlayFragment : Fragment() {
             onShuffle = { shuffleLibrary() },
             onPlayDownloads = { playDownloads() },
             onTrackClick = { row ->
+                dismissKeyboardAndCollapseSearch()
                 // Tapping the item that is already active must not restart it from zero.
                 if (row.isCurrent) {
                     PlaybackLauncher.openPlayer(requireContext(), row.item)
@@ -362,10 +369,18 @@ class PlayFragment : Fragment() {
                     } else if (drawer != null && drawer.isDrawerOpen(GravityCompat.START)) {
                         drawer.closeDrawers()
                     } else if (destination == Destination.DEVICE && deviceScopeFolder != null) {
-                        deviceScopeFolder = null
-                        rebuildRows()
+                        val allFolders = groupDeviceFolders(deviceItems)
+                        val firstPath = allFolders.firstOrNull()?.path
+                        if (deviceScopeFolder != firstPath && firstPath != null) {
+                            deviceScopeFolder = firstPath
+                            toolbar?.subtitle = deviceScopeSubtitle()
+                            rebuildRows()
+                        } else {
+                            isEnabled = false
+                            requireActivity().onBackPressedDispatcher.onBackPressed()
+                        }
                     } else if (searchMenuItem?.isActionViewExpanded == true) {
-                        searchMenuItem?.collapseActionView()
+                        dismissKeyboardAndCollapseSearch()
                     } else {
                         isEnabled = false
                         requireActivity().onBackPressedDispatcher.onBackPressed()
@@ -380,6 +395,14 @@ class PlayFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         if (!isAdded) return
+        (activity as? MainActivity)?.showBottomNavigation()
+        toolbar?.menu?.findItem(R.id.action_search)?.isVisible = true
+        toolbar?.menu?.findItem(R.id.action_settings)?.isVisible = true
+        toolbar?.menu?.findItem(R.id.action_device_view)?.isVisible = true
+        if (searchMenuItem?.isActionViewExpanded != true) {
+            val imm = context?.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+            view?.windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
+        }
         val enabled = DeviceFilesPrefs.isEnabled(requireContext())
         navigationView?.menu?.findItem(R.id.nav_device)?.isVisible = enabled
         val devicePrefsChanged = refreshDevicePreferences()
@@ -415,6 +438,12 @@ class PlayFragment : Fragment() {
 
             override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
                 searchQuery = ""
+                toolbar?.menu?.findItem(R.id.action_search)?.isVisible = true
+                toolbar?.menu?.findItem(R.id.action_settings)?.isVisible = true
+                toolbar?.menu?.findItem(R.id.action_device_view)?.isVisible = true
+                (activity as? MainActivity)?.showBottomNavigation()
+                val imm = context?.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+                view?.windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
                 rebuildRows()
                 return true
             }
@@ -463,6 +492,7 @@ class PlayFragment : Fragment() {
         val sort = DeviceFilesPrefs.sort(context)
         val newestFirst = DeviceFilesPrefs.newestFirst(context)
         val fields = DeviceFilesPrefs.fields(context)
+        val showCarousel = DeviceFilesPrefs.showCarousel(context)
         val folder = DeviceFilesPrefs.folderUri(context)?.toString().orEmpty()
         val signature = buildString {
             append(showMode).append('|')
@@ -470,6 +500,7 @@ class PlayFragment : Fragment() {
             append(sort).append('|')
             append(newestFirst).append('|')
             append(fields.map { it.name }.sorted().joinToString(",")).append('|')
+            append(showCarousel).append('|')
             append(folder)
         }
         val changed = signature != devicePrefsSignature
@@ -479,6 +510,7 @@ class PlayFragment : Fragment() {
         deviceSort = sort
         deviceNewestFirst = newestFirst
         deviceFields = fields
+        deviceShowCarousel = showCarousel
         return changed
     }
 
@@ -509,9 +541,25 @@ class PlayFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
-                    PlaybackController.state.collect {
-                        playbackState = it
+                    PlaybackController.state.collect { state ->
+                        playbackState = state
                         rebuildRows()
+                        val current = state.currentItem
+                        if (current != null && state.playing) {
+                            val ctx = context?.applicationContext
+                            if (ctx != null) {
+                                val color = withContext(Dispatchers.IO) {
+                                    PlaybackColors.artworkGlowColor(ctx, current)
+                                }
+                                if (isAdded) {
+                                    if (::deviceAdapter.isInitialized) deviceAdapter.currentDominantColor = color
+                                    if (::adapter.isInitialized) adapter.currentDominantColor = color
+                                }
+                            }
+                        } else {
+                            if (::deviceAdapter.isInitialized) deviceAdapter.currentDominantColor = null
+                            if (::adapter.isInitialized) adapter.currentDominantColor = null
+                        }
                     }
                 }
                 launch {
@@ -546,6 +594,8 @@ class PlayFragment : Fragment() {
         if (!isAdded || !::adapter.isInitialized) return
         val current = playbackState.currentItem
 
+        toolbar?.menu?.findItem(R.id.action_search)?.isVisible = true
+        toolbar?.menu?.findItem(R.id.action_settings)?.isVisible = true
         toolbar?.menu?.findItem(R.id.action_now_playing)?.isVisible = current != null
         toolbar?.menu?.findItem(R.id.action_clear_queue)?.isVisible =
             playbackState.queue.isNotEmpty()
@@ -714,21 +764,48 @@ class PlayFragment : Fragment() {
 
         val playedAt = recentItems.associate { it.mediaId to it.lastPlayedAt }
         val statusFor: (DeviceMedia) -> DevicePlayStatus = { deviceStatus(it) }
-        if (scope != null) {
-            if (filtered.isNotEmpty()) {
+
+        val allFolders = sortDeviceFolders(
+            groupDeviceFolders(deviceItems),
+            deviceSort,
+            deviceNewestFirst,
+            playedAt,
+            statusFor
+        )
+
+        val activeScope = if (deviceShowCarousel) (scope ?: allFolders.firstOrNull()?.path) else scope
+
+        if (deviceShowCarousel && allFolders.size > 1 && query.isBlank()) {
+            rows += DeviceRow.FolderCarousel(allFolders, activeScope)
+        }
+
+        if (query.isNotBlank()) {
+            val sorted = sortDeviceMedia(
+                filtered,
+                deviceSort,
+                deviceNewestFirst,
+                playedAt,
+                statusFor
+            )
+            rows += DeviceRow.Header(getString(R.string.search_results), sorted.size)
+            sorted.forEach { rows += deviceFileRow(it, playedAt, statusFor) }
+            return
+        }
+
+        if (activeScope != null) {
+            val folderItems = deviceItems.filter { it.folderPath == activeScope }
+            if (folderItems.isNotEmpty()) {
                 val sorted = sortDeviceMedia(
-                    filtered,
+                    folderItems,
                     deviceSort,
                     deviceNewestFirst,
                     playedAt,
                     statusFor
                 )
-                rows += DeviceRow.Header(deviceFolderTitle(scope), sorted.size)
+                rows += DeviceRow.Header(deviceFolderTitle(activeScope), sorted.size)
                 sorted.forEach { rows += deviceFileRow(it, playedAt, statusFor) }
             } else {
-                // No files directly in this folder: surface its immediate subfolders so
-                // containers like Download/YTDLnis stay navigable.
-                val prefix = "$scope/"
+                val prefix = "$activeScope/"
                 val children = deviceItems
                     .filter { it.folderPath.startsWith(prefix) }
                     .groupBy { it.folderPath.removePrefix(prefix).substringBefore('/') }
@@ -749,7 +826,7 @@ class PlayFragment : Fragment() {
                         playedAt,
                         statusFor
                     )
-                    rows += DeviceRow.Header(deviceFolderTitle(scope), folders.size)
+                    rows += DeviceRow.Header(deviceFolderTitle(activeScope), folders.size)
                     sorted.forEach { rows += DeviceRow.Folder(it) }
                 }
             }
@@ -840,6 +917,11 @@ class PlayFragment : Fragment() {
     private fun deviceScopeSubtitle(): String? {
         val scope = deviceScopeFolder
         if (scope != null) return deviceFolderTitle(scope)
+        if (deviceShowCarousel) {
+            val allFolders = groupDeviceFolders(deviceItems)
+            val first = allFolders.firstOrNull()?.path
+            if (first != null) return deviceFolderTitle(first)
+        }
         return DeviceFilesPrefs.folderName(requireContext())
     }
 
@@ -1001,7 +1083,18 @@ class PlayFragment : Fragment() {
         loadDeviceMedia(force = true)
     }
 
+    private fun dismissKeyboardAndCollapseSearch() {
+        val imm = context?.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        view?.windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
+        val searchView = searchMenuItem?.actionView as? SearchView
+        searchView?.clearFocus()
+        if (searchMenuItem?.isActionViewExpanded == true) {
+            searchMenuItem?.collapseActionView()
+        }
+    }
+
     private fun playDeviceMedia(media: DeviceMedia, queue: List<DeviceMedia>) {
+        dismissKeyboardAndCollapseSearch()
         val item = playbackItemFor(media)
         if (playbackState.currentItem?.mediaId == item.mediaId) {
             PlaybackLauncher.openPlayer(requireContext(), item)
@@ -1415,11 +1508,7 @@ class PlayFragment : Fragment() {
     ): PlayRow.Track {
         val dateMs = playDateMap()[item.mediaId]
         val subtitle = item.playDetailSubtitle(requireContext(), playFields, dateMs)
-        val trailing = if (PlayField.LENGTH in playFields) {
-            item.durationMs?.takeIf { it > 0 }?.toStringTimeStamp()
-        } else {
-            null
-        }
+        val trailing = item.durationMs?.takeIf { it > 0 }?.toStringTimeStamp()
         val current = playbackState.currentItem
         return PlayRow.Track(
             item = item,

@@ -5,6 +5,12 @@
     <color name="update_status_ok_container">#1E4D2B</color>
     <color name="update_status_on_ok_container">#B4F1C3</color>
 
-    <color name="capsule_time_bg">#E8EDF5</color>
-    <color name="capsule_time_text">#14171A</color>
+    <color name="capsule_time_bg">#252A30</color>
+    <color name="capsule_time_text">#FFFFFF</color>
+
+    <!-- Material 3 Expressive Preference Colors -->
+    <color name="preference_card_bg">#1D1E22</color>
+    <color name="preference_card_stroke">#16FFFFFF</color>
+    <color name="preference_icon_bg">#2C2D33</color>
+    <color name="preference_icon_tint">#E2E4EB</color>
 </resources>

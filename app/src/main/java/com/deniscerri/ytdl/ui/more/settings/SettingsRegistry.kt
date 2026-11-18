@@ -7,6 +7,7 @@ import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.models.SearchSettingsItem
 import com.deniscerri.ytdl.ui.more.settings.advanced.AdvancedSettingsModule
+import com.deniscerri.ytdl.ui.more.settings.appearance.AppearanceSettingsModule
 import com.deniscerri.ytdl.ui.more.settings.downloading.DownloadSettingsModule
 import com.deniscerri.ytdl.ui.more.settings.folder.FolderSettingsModule
 import com.deniscerri.ytdl.ui.more.settings.folder.temporary.TemporaryFilesModule
@@ -19,6 +20,7 @@ import com.deniscerri.ytdl.ui.more.settings.updating.ytdlp.YtdlpUpdateSettingsMo
 
 object SettingsRegistry {
     private val xmlToModule = mapOf(
+        R.xml.appearance_preferences to AppearanceSettingsModule,
         R.xml.general_preferences to GeneralSettingsModule,
         R.xml.player_preferences to PlayerSettingsModule,
         R.xml.folders_preference to FolderSettingsModule,

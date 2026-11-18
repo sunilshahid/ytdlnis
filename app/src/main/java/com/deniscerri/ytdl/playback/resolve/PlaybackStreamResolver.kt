@@ -6,6 +6,7 @@ import com.deniscerri.ytdl.core.SessionOrchestrator
 import com.deniscerri.ytdl.database.DBManager
 import com.deniscerri.ytdl.playback.model.PlaybackItem
 import com.deniscerri.ytdl.playback.model.PlaybackSource
+import com.deniscerri.ytdl.playback.chapters.ChapterRepository
 import com.deniscerri.ytdl.util.Extensions.isYoutubeURL
 import com.deniscerri.ytdl.util.extractors.ytdlp.YTDLPUtil
 import kotlinx.coroutines.Dispatchers
@@ -25,9 +26,16 @@ class PlaybackStreamResolver(context: Context) {
     suspend fun resolve(item: PlaybackItem, options: ResolveOptions = ResolveOptions()): ResolvedStream {
         item.localUri?.takeIf { it.isNotBlank() }?.let { local ->
             val sidecarSubtitles = SubtitleSidecarFinder.findForMedia(appContext, local)
+            // Container-level chapter tracks are invisible to MediaExtractor; read them with the
+            // bundled ffprobe so the player can show the chapter pill, segmented seekbar and
+            // sponsor auto-skip for downloaded / device files.
+            val chapters = ChapterRepository.toPlaybackChapters(
+                ChapterRepository.load(appContext, local)
+            )
             return ResolvedStream(
                 singleUri = local,
                 durationMs = item.durationMs,
+                playbackChapters = chapters,
                 subtitles = sidecarSubtitles,
                 resolverName = "local"
             )

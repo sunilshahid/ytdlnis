@@ -27,7 +27,9 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.animation.DecelerateInterpolator
 import android.view.animation.Interpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.ScrollView
@@ -787,6 +789,20 @@ object Extensions {
         return packageInfo.requestedPermissions?.contains(this) ?: false
     }
 
+    fun extractAudioFormat(displayName: String?, localUri: String?, mimeType: String?): String? {
+        val fromName = displayName?.substringAfterLast('.', "")?.takeIf { it.isNotBlank() && it.length in 2..5 }
+        if (fromName != null && fromName.all { it.isLetterOrDigit() }) return fromName.uppercase()
+        val fromUri = localUri?.substringAfterLast('.', "")?.takeIf { it.isNotBlank() && it.length in 2..5 }
+        if (fromUri != null && fromUri.all { it.isLetterOrDigit() }) return fromUri.uppercase()
+        if (!mimeType.isNullOrBlank()) {
+            val sub = mimeType.substringAfter('/', "")
+            if (sub.isNotBlank() && sub.length in 2..5 && sub.all { it.isLetterOrDigit() }) {
+                return sub.uppercase()
+            }
+        }
+        return null
+    }
+
     private val unicodeEscape = Regex("""\\u([0-9a-fA-F]{4})""")
     fun String.fixYtdlpPath(): String {
         // 1. Undo literal \uXXXX escapes
@@ -797,5 +813,42 @@ object Extensions {
             if (!fixed.contains('\uFFFD')) s = fixed
         }
         return s
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    fun View.applyTactilePressAnimation(scaleDown: Float = 0.965f) {
+        setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.animate()
+                        .scaleX(scaleDown)
+                        .scaleY(scaleDown)
+                        .setDuration(90)
+                        .setInterpolator(DecelerateInterpolator())
+                        .start()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val isInside = event.x in 0f..v.width.toFloat() && event.y in 0f..v.height.toFloat()
+                    val targetScale = if (isInside) scaleDown else 1.0f
+                    if (v.scaleX != targetScale) {
+                        v.animate()
+                            .scaleX(targetScale)
+                            .scaleY(targetScale)
+                            .setDuration(90)
+                            .setInterpolator(if (isInside) DecelerateInterpolator() else OvershootInterpolator(1.5f))
+                            .start()
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.animate()
+                        .scaleX(1.0f)
+                        .scaleY(1.0f)
+                        .setDuration(130)
+                        .setInterpolator(OvershootInterpolator(1.5f))
+                        .start()
+                }
+            }
+            false
+        }
     }
 }

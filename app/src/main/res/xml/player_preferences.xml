@@ -2,6 +2,16 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <PreferenceCategory android:title="@string/video_playback">
+        <SwitchPreferenceCompat
+            android:widgetLayout="@layout/preferece_material_switch"
+            app:defaultValue="false"
+            android:icon="@drawable/ic_video"
+            android:key="scrub_preview_mini"
+            app:summary="@string/scrub_preview_mini_summary"
+            app:title="@string/scrub_preview_mini" />
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/device_files_title">
         <SwitchPreferenceCompat
             android:widgetLayout="@layout/preferece_material_switch"
@@ -51,6 +61,7 @@
         <SwitchPreferenceCompat
             android:widgetLayout="@layout/preferece_material_switch"
             app:defaultValue="true"
+            android:icon="@drawable/ic_lyrics"
             android:key="lyrics_provider_betterlyrics"
             app:summary="@string/lyrics_provider_betterlyrics_summary"
             app:title="@string/lyrics_provider_betterlyrics" />
@@ -58,6 +69,7 @@
         <SwitchPreferenceCompat
             android:widgetLayout="@layout/preferece_material_switch"
             app:defaultValue="true"
+            android:icon="@drawable/ic_subtitles"
             android:key="lyrics_provider_lyricsplus"
             app:summary="@string/lyrics_provider_lyricsplus_summary"
             app:title="@string/lyrics_provider_lyricsplus" />
@@ -65,6 +77,7 @@
         <SwitchPreferenceCompat
             android:widgetLayout="@layout/preferece_material_switch"
             app:defaultValue="true"
+            android:icon="@drawable/ic_lyrics"
             android:key="lyrics_provider_lrclib"
             app:summary="@string/lyrics_provider_lrclib_summary"
             app:title="@string/lyrics_provider_lrclib" />
@@ -72,6 +85,7 @@
         <SwitchPreferenceCompat
             android:widgetLayout="@layout/preferece_material_switch"
             app:defaultValue="true"
+            android:icon="@drawable/ic_subtitles_alternative"
             android:key="lyrics_provider_youtube_subs"
             app:summary="@string/lyrics_provider_youtube_subs_summary"
             app:title="@string/lyrics_provider_youtube_subs" />

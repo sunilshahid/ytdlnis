@@ -36,6 +36,12 @@ data class PlaybackItem(
 ) {
     val isLocal: Boolean get() = !localUri.isNullOrBlank()
 
+    val folderName: String?
+        get() = extras["device.folder.path"]?.trim('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+            ?: extras["folderName"]
+            ?: localUri?.let { runCatching { java.io.File(it).parentFile?.name }.getOrNull() }
+            ?: album
+
     fun toMediaItem(
         audioUri: String? = null,
         videoUri: String? = null,

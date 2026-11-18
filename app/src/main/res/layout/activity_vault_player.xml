@@ -14,7 +14,7 @@
         app:controller_layout_id="@layout/exo_vault_player_control_view"
         app:keep_content_on_player_reset="true"
         app:resize_mode="fit"
-        app:show_buffering="when_playing"
+        app:show_buffering="never"
         app:show_timeout="3500"
         app:shutter_background_color="@android:color/transparent"
         app:surface_type="surface_view"

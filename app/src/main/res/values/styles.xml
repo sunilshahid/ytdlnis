@@ -68,7 +68,11 @@
     </style>
 
     <style name="Preference.SwitchPreferenceCompat.Material3" parent="@style/Preference.SwitchPreferenceCompat.Material">
+        <item name="android:layout">@layout/preference_material</item>
         <item name="widgetLayout">@layout/preferece_material_switch</item>
+        <item name="allowDividerAbove">false</item>
+        <item name="allowDividerBelow">false</item>
+        <item name="iconSpaceReserved">false</item>
     </style>
 
     <style name="snackBarStyle" parent="@style/Widget.Material3.Snackbar">
@@ -85,6 +89,53 @@
 
     <style name="PreferenceTheme" parent="PreferenceThemeOverlay">
         <item name="singleLineTitle">false</item>
+        <item name="android:divider">@null</item>
+        <item name="android:dividerHeight">0dp</item>
+        <item name="preferenceStyle">@style/AppPreferenceMaterial</item>
+        <item name="preferenceCategoryStyle">@style/AppPreferenceCategoryMaterial</item>
+        <item name="switchPreferenceCompatStyle">@style/Preference.SwitchPreferenceCompat.Material3</item>
+        <item name="dialogPreferenceStyle">@style/AppPreferenceDialogMaterial</item>
+        <item name="checkBoxPreferenceStyle">@style/AppPreferenceCheckBoxMaterial</item>
+        <item name="editTextPreferenceStyle">@style/AppPreferenceEditTextMaterial</item>
+    </style>
+
+    <style name="AppPreferenceMaterial" parent="@style/Preference.Material">
+        <item name="android:layout">@layout/preference_material</item>
+        <item name="allowDividerAbove">false</item>
+        <item name="allowDividerBelow">false</item>
+        <item name="singleLineTitle">false</item>
+        <item name="iconSpaceReserved">false</item>
+    </style>
+
+    <style name="AppPreferenceCategoryMaterial" parent="@style/Preference.Category.Material">
+        <item name="android:layout">@layout/preference_category_material</item>
+        <item name="allowDividerAbove">false</item>
+        <item name="allowDividerBelow">false</item>
+        <item name="iconSpaceReserved">false</item>
+    </style>
+
+    <style name="AppPreferenceDialogMaterial" parent="@style/Preference.DialogPreference.Material">
+        <item name="android:layout">@layout/preference_material</item>
+        <item name="allowDividerAbove">false</item>
+        <item name="allowDividerBelow">false</item>
+        <item name="singleLineTitle">false</item>
+        <item name="iconSpaceReserved">false</item>
+    </style>
+
+    <style name="AppPreferenceCheckBoxMaterial" parent="@style/Preference.CheckBoxPreference.Material">
+        <item name="android:layout">@layout/preference_material</item>
+        <item name="allowDividerAbove">false</item>
+        <item name="allowDividerBelow">false</item>
+        <item name="singleLineTitle">false</item>
+        <item name="iconSpaceReserved">false</item>
+    </style>
+
+    <style name="AppPreferenceEditTextMaterial" parent="@style/Preference.DialogPreference.EditTextPreference.Material">
+        <item name="android:layout">@layout/preference_material</item>
+        <item name="allowDividerAbove">false</item>
+        <item name="allowDividerBelow">false</item>
+        <item name="singleLineTitle">false</item>
+        <item name="iconSpaceReserved">false</item>
     </style>
 
     <style name="MyZeroSizeTextAppearance">

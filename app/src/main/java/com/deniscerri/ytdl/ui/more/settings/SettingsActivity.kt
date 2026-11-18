@@ -72,7 +72,8 @@ class SettingsActivity : BaseActivity(), SettingHost {
     }
 
     private val xmlToNavId = mapOf(
-        R.xml.general_preferences to R.id.appearanceSettingsFragment,
+        R.xml.appearance_preferences to R.id.appearanceSettingsFragment,
+        R.xml.general_preferences to R.id.generalSettingsFragment,
         R.xml.player_preferences to R.id.playerSettingsFragment,
         R.xml.folders_preference to R.id.folderSettingsFragment,
         R.xml.temporary_files_preferences to R.id.temporaryFilesFragment,

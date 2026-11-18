@@ -83,6 +83,15 @@
 
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/view_show_carousel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/device_show_carousel"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="14sp" />
+
         </LinearLayout>
 
         <TextView

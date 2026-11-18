@@ -20,12 +20,12 @@ import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.playback.model.PlaybackItem
 import com.deniscerri.ytdl.playback.model.PlaybackSource
 import com.deniscerri.ytdl.playback.model.PlaybackType
+import com.deniscerri.ytdl.util.Extensions.applyTactilePressAnimation
+import com.deniscerri.ytdl.util.Extensions.extractAudioFormat
 import com.deniscerri.ytdl.util.Extensions.toStringTimeStamp
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.MaterialColors
 import com.deniscerri.ytdl.ui.play.PlaybackArtworkLoader
-import android.animation.ValueAnimator
-import android.graphics.Color
 import androidx.core.graphics.ColorUtils
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.slider.Slider
@@ -93,6 +93,14 @@ class PlayAdapter(
 ) : ListAdapter<PlayRow, RecyclerView.ViewHolder>(PlayRowDiff) {
 
     private var isGrid = false
+
+    var currentDominantColor: Int? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
 
     fun setGrid(grid: Boolean) {
         if (isGrid == grid) return
@@ -302,11 +310,12 @@ class PlayAdapter(
     }
 
     private inner class TrackHolder(view: View) : RecyclerView.ViewHolder(view) {
-        private val root: View = view.findViewById(R.id.play_track_root)
+        private val card: MaterialCardView = view.findViewById(R.id.play_track_root)
         private val art: ImageView = view.findViewById(R.id.play_row_art)
         private val typeBadge: ImageView? = view.findViewById(R.id.play_row_type_badge)
         private val title: TextView = view.findViewById(R.id.play_row_title)
         private val subtitle: TextView = view.findViewById(R.id.play_row_subtitle)
+        private val formatBadge: TextView? = view.findViewById(R.id.play_row_format_badge)
         private val duration: TextView = view.findViewById(R.id.play_row_duration)
         private val equalizer: ImageView = view.findViewById(R.id.play_row_equalizer)
         private val menu: ImageButton = view.findViewById(R.id.play_row_menu)
@@ -318,40 +327,43 @@ class PlayAdapter(
             view,
             com.google.android.material.R.attr.colorPrimary
         )
+        private val colorSurfaceContainer = MaterialColors.getColor(
+            view,
+            com.google.android.material.R.attr.colorSurfaceContainer,
+            Color.parseColor("#1E232B")
+        )
+        private val colorSecondaryContainer = MaterialColors.getColor(
+            view,
+            com.google.android.material.R.attr.colorSecondaryContainer,
+            Color.parseColor("#2A3A4A")
+        )
         private val colorOutlineVariant = MaterialColors.getColor(
             view,
-            com.google.android.material.R.attr.colorOutlineVariant
+            com.google.android.material.R.attr.colorOutlineVariant,
+            Color.DKGRAY
         )
 
         fun bind(row: PlayRow.Track) {
             title.text = row.item.title
             title.setTextColor(if (row.isCurrent) colorPrimary else colorOnSurface)
-            subtitle.text = row.subtitle
-            subtitle.isVisible = !row.subtitle.isNullOrBlank()
+            val format = extractAudioFormat(null, row.item.localUri, null)
+                ?: if (row.item.source == PlaybackSource.YOUTUBE) "YT" else null
+            if (format != null) {
+                formatBadge?.text = format
+                formatBadge?.isVisible = true
+            } else {
+                formatBadge?.isVisible = false
+            }
+            val cleanArtist = row.item.artist?.takeIf { it.isNotBlank() }
+                ?: row.subtitle?.substringBefore(" · ")?.takeIf { it.isNotBlank() }
+                ?: row.subtitle
+            subtitle.text = cleanArtist
+            subtitle.isVisible = !cleanArtist.isNullOrBlank()
             duration.text = row.trailing.orEmpty()
             duration.isVisible = !row.trailing.isNullOrBlank()
             equalizer.isVisible = row.isCurrent
 
-            val density = itemView.resources.displayMetrics.density
-            if (root is MaterialCardView) {
-                if (row.isCurrent) {
-                    root.strokeColor = colorPrimary
-                    root.strokeWidth = (2f * density).toInt()
-                } else {
-                    root.strokeColor = colorOutlineVariant
-                    root.strokeWidth = (1f * density).toInt()
-                }
-            } else if (row.isCurrent) {
-                root.setBackgroundResource(R.drawable.bg_active_track_row)
-            } else {
-                val outValue = android.util.TypedValue()
-                itemView.context.theme.resolveAttribute(
-                    android.R.attr.selectableItemBackground,
-                    outValue,
-                    true
-                )
-                root.setBackgroundResource(outValue.resourceId)
-            }
+            setActiveCard(card, row.isCurrent)
 
             if (typeBadge != null) {
                 if (row.item.type == PlaybackType.VIDEO) {
@@ -375,25 +387,35 @@ class PlayAdapter(
         fun updatePlayingState(row: PlayRow.Track) {
             title.setTextColor(if (row.isCurrent) colorPrimary else colorOnSurface)
             equalizer.isVisible = row.isCurrent
-            val density = itemView.resources.displayMetrics.density
-            if (root is MaterialCardView) {
-                if (row.isCurrent) {
-                    root.strokeColor = colorPrimary
-                    root.strokeWidth = (2f * density).toInt()
+            setActiveCard(card, row.isCurrent)
+        }
+
+        private fun setActiveCard(targetCard: MaterialCardView, active: Boolean) {
+            val density = targetCard.resources.displayMetrics.density
+            val tint = currentDominantColor
+            if (active) {
+                val bg = if (tint != null) {
+                    ColorUtils.blendARGB(colorSecondaryContainer, tint, 0.28f)
                 } else {
-                    root.strokeColor = colorOutlineVariant
-                    root.strokeWidth = (1f * density).toInt()
+                    colorSecondaryContainer
                 }
-            } else if (row.isCurrent) {
-                root.setBackgroundResource(R.drawable.bg_active_track_row)
+                targetCard.setCardBackgroundColor(bg)
+                targetCard.strokeColor = tint ?: colorPrimary
+                targetCard.strokeWidth = (2f * density).toInt()
             } else {
-                val outValue = android.util.TypedValue()
-                itemView.context.theme.resolveAttribute(
-                    android.R.attr.selectableItemBackground,
-                    outValue,
-                    true
-                )
-                root.setBackgroundResource(outValue.resourceId)
+                val bg = if (tint != null) {
+                    ColorUtils.blendARGB(colorSurfaceContainer, tint, 0.10f)
+                } else {
+                    colorSurfaceContainer
+                }
+                targetCard.setCardBackgroundColor(bg)
+                val outline = if (tint != null) {
+                    ColorUtils.blendARGB(colorOutlineVariant, tint, 0.30f)
+                } else {
+                    (colorOutlineVariant and 0x00FFFFFF) or 0x33000000
+                }
+                targetCard.strokeColor = outline
+                targetCard.strokeWidth = (1f * density).toInt()
             }
         }
     }
@@ -460,30 +482,5 @@ class PlayAdapter(
         private const val TYPE_TRACK = 3
         private const val TYPE_TRACK_GRID = 4
         private const val TYPE_EMPTY = 5
-    }
-}
-
-@SuppressLint("ClickableViewAccessibility")
-private fun View.applyTactilePressAnimation() {
-    setOnTouchListener { v, event ->
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                v.animate()
-                    .scaleX(0.97f)
-                    .scaleY(0.97f)
-                    .setDuration(90)
-                    .setInterpolator(DecelerateInterpolator())
-                    .start()
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                v.animate()
-                    .scaleX(1.0f)
-                    .scaleY(1.0f)
-                    .setDuration(130)
-                    .setInterpolator(OvershootInterpolator(1.1f))
-                    .start()
-            }
-        }
-        false
     }
 }

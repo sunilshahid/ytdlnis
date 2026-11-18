@@ -57,11 +57,15 @@ object PlaybackArtworkLoader {
         }
     }
 
-    fun load(target: ImageView, item: PlaybackItem, crossfade: Boolean = false) {
+    fun load(target: ImageView, item: PlaybackItem, crossfade: Boolean = false, fullQuality: Boolean = false) {
         val context = target.context.applicationContext
         appContextRef = context
 
-        val key = "${item.mediaId}|${item.artworkUri.orEmpty()}|${item.localUri.orEmpty()}"
+        val key = if (fullQuality) {
+            "${item.mediaId}|full|${item.artworkUri.orEmpty()}|${item.localUri.orEmpty()}"
+        } else {
+            "${item.mediaId}|${item.artworkUri.orEmpty()}|${item.localUri.orEmpty()}"
+        }
         if (target.tag == key) return
         val prevDrawable = if (crossfade) target.drawable else null
         target.tag = key
@@ -99,7 +103,12 @@ object PlaybackArtworkLoader {
         if (!preferLocal) {
             val uri = item.artworkUri?.takeIf { it.isNotBlank() }
             if (uri == null) return
-            val request = Picasso.get().load(uri).fit().centerCrop()
+            val request = Picasso.get().load(uri)
+            if (fullQuality) {
+                request.fit().centerInside()
+            } else {
+                request.fit().centerCrop()
+            }
             if (prevDrawable != null) {
                 request.placeholder(prevDrawable)
             } else {
@@ -114,7 +123,7 @@ object PlaybackArtworkLoader {
         }
         scope.launch {
             val bitmap = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                loadLocalBitmap(context, item)
+                loadLocalBitmap(context, item, fullQuality)
             }
             synchronized(loading) { loading.remove(key) }
             if (bitmap != null) cache.put(key, bitmap)
@@ -125,7 +134,8 @@ object PlaybackArtworkLoader {
                     // Local extraction produced nothing — fall back to remote art when present.
                     val remote = item.artworkUri?.takeIf { it.isNotBlank() }
                     if (remote != null && !remote.startsWith("file:")) {
-                        val request = Picasso.get().load(remote).fit().centerCrop()
+                        val request = Picasso.get().load(remote)
+                        if (fullQuality) request.fit().centerInside() else request.fit().centerCrop()
                         if (prevDrawable != null) {
                             request.placeholder(prevDrawable)
                         } else {
@@ -160,20 +170,22 @@ object PlaybackArtworkLoader {
         }
     }
 
-    private fun loadLocalBitmap(context: Context, item: PlaybackItem): Bitmap? {
+    private fun loadLocalBitmap(context: Context, item: PlaybackItem, fullQuality: Boolean = false): Bitmap? {
         val local = item.localUri?.takeIf { it.isNotBlank() } ?: return null
         val uri = runCatching { Uri.parse(local) }.getOrNull() ?: return null
 
-        // Check persistent disk thumbnail cache first
+        // For list thumbnails, check persistent disk thumbnail cache first
         val safeKey = item.mediaId.replace(Regex("[^a-zA-Z0-9._-]"), "_")
         val diskThumb = java.io.File(java.io.File(context.cacheDir, "art_thumbs"), "$safeKey.webp")
-        if (diskThumb.exists() && diskThumb.length() > 0L) {
+        if (!fullQuality && diskThumb.exists() && diskThumb.length() > 0L) {
             runCatching { BitmapFactory.decodeFile(diskThumb.absolutePath) }.getOrNull()?.let { return it }
         }
 
+        val targetSize = if (fullQuality) 1440 else THUMBNAIL_SIZE
+
         // Fast path: ffmpeg disk cache already holds artwork for this file (one stat call).
         val cachedPath = localPathOf(context, uri)
-        if (cachedPath.isNotBlank()) {
+        if (!fullQuality && cachedPath.isNotBlank()) {
             val cached = when (item.type) {
                 PlaybackType.VIDEO -> FrameExtractor.cachedFor(
                     context, FrameExtractor.VIDEO_VARIANT, cachedPath, THUMBNAIL_SIZE
@@ -186,7 +198,7 @@ object PlaybackArtworkLoader {
                 Log.d(TAG, "artwork cached: ${item.title} -> $cachedPath")
                 return cached
             }
-        } else {
+        } else if (cachedPath.isBlank()) {
             Log.d(TAG, "no local path for ${item.title} (uri=$local)")
         }
 
@@ -194,7 +206,7 @@ object PlaybackArtworkLoader {
             runCatching {
                 context.contentResolver.loadThumbnail(
                     uri,
-                    Size(THUMBNAIL_SIZE, THUMBNAIL_SIZE),
+                    Size(targetSize, targetSize),
                     null
                 )
             }.getOrNull()?.let { return it }
@@ -210,9 +222,9 @@ object PlaybackArtworkLoader {
             }
             if (item.type == PlaybackType.AUDIO) {
                 runCatching { retriever.embeddedPicture }.getOrNull()
-                    ?.let { bytes -> decodeSampled(bytes) }
+                    ?.let { bytes -> decodeSampled(bytes, targetSize) }
             } else {
-                videoFrame(retriever)
+                videoFrame(retriever, targetSize)
             }
         } catch (_: Exception) {
             null
@@ -223,11 +235,11 @@ object PlaybackArtworkLoader {
             val path = cachedPath.ifBlank { localPathOf(context, uri) }
             if (path.isBlank()) null
             else when (item.type) {
-                PlaybackType.VIDEO -> FrameExtractor.frameFor(context, path, THUMBNAIL_SIZE)
-                PlaybackType.AUDIO -> FrameExtractor.coverFor(context, path, THUMBNAIL_SIZE)
+                PlaybackType.VIDEO -> FrameExtractor.frameFor(context, path, targetSize)
+                PlaybackType.AUDIO -> FrameExtractor.coverFor(context, path, targetSize)
             }
         }
-        if (resultBitmap != null) {
+        if (resultBitmap != null && !fullQuality) {
             runCatching {
                 diskThumb.parentFile?.mkdirs()
                 val tmp = java.io.File(diskThumb.parentFile, "${diskThumb.name}.tmp")
@@ -279,24 +291,24 @@ object PlaybackArtworkLoader {
         }.getOrNull() ?: ""
     }
 
-    private fun videoFrame(retriever: MediaMetadataRetriever): Bitmap? {
+    private fun videoFrame(retriever: MediaMetadataRetriever, targetSize: Int = THUMBNAIL_SIZE): Bitmap? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             runCatching {
                 retriever.getScaledFrameAtTime(
                     0L,
                     MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                    THUMBNAIL_SIZE,
-                    THUMBNAIL_SIZE
+                    targetSize,
+                    targetSize
                 )
             }.getOrNull()?.let { return it }
         }
-        return runCatching { retriever.getFrameAtTime(0L) }.getOrNull()?.let(::scaleDown)
+        return runCatching { retriever.getFrameAtTime(0L) }.getOrNull()?.let { scaleDown(it, targetSize) }
     }
 
-    private fun scaleDown(source: Bitmap): Bitmap {
+    private fun scaleDown(source: Bitmap, targetSize: Int = THUMBNAIL_SIZE): Bitmap {
         val largest = maxOf(source.width, source.height).coerceAtLeast(1)
-        if (largest <= THUMBNAIL_SIZE) return source
-        val ratio = THUMBNAIL_SIZE.toFloat() / largest
+        if (largest <= targetSize) return source
+        val ratio = targetSize.toFloat() / largest
         return Bitmap.createScaledBitmap(
             source,
             (source.width * ratio).toInt().coerceAtLeast(1),

@@ -440,6 +440,11 @@ class MainActivity : BaseActivity() {
             window.statusBarColor = getColor(android.R.color.transparent)
             incognitoHeader.visibility = View.GONE
         }
+
+        val showingNavbarItems = NavbarUtil.getNavBarItems(this).filter { it.isVisible }.map { it.itemId }
+        if (showingNavbarItems.contains(navController.currentDestination?.id)) {
+            showBottomNavigation()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

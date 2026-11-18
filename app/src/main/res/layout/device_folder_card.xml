@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/folder_card_root"
+    android:layout_width="120dp"
+    android:layout_height="142dp"
+    android:layout_marginEnd="10dp"
+    android:clickable="true"
+    android:focusable="true"
+    app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="0dp"
+    app:strokeColor="?attr/colorOutlineVariant"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="8dp">
+
+        <!-- 2x2 Mosaic Preview -->
+        <GridLayout
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:columnCount="2"
+            android:rowCount="2">
+
+            <!-- Tile 1: Folder Icon Container -->
+            <FrameLayout
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginBottom="4dp"
+                android:background="@drawable/bg_format_pill">
+
+                <ImageView
+                    android:id="@+id/folder_tile_icon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/baseline_folder_24"
+                    app:tint="?attr/colorPrimary" />
+
+            </FrameLayout>
+
+            <!-- Tile 2: Track 1 Art -->
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/folder_tile_art1"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginBottom="4dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_music"
+                app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Avatar" />
+
+            <!-- Tile 3: Track 2 Art -->
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/folder_tile_art2"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="4dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_music"
+                app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Avatar" />
+
+            <!-- Tile 4: Track 3 Art -->
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/folder_tile_art3"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_music"
+                app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Avatar" />
+
+        </GridLayout>
+
+        <!-- Folder Name -->
+        <TextView
+            android:id="@+id/folder_card_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
+
+        <!-- Track Count -->
+        <TextView
+            android:id="@+id/folder_card_count"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="11sp" />
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

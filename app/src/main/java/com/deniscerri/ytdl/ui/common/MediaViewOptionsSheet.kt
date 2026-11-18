@@ -124,6 +124,7 @@ class MediaViewOptionsSheet : BottomSheetDialogFragment() {
         val summaryView = view.findViewById<TextView>(R.id.view_options_summary)
         val showSection = view.findViewById<View>(R.id.view_show_section)
         val showGroup = view.findViewById<MaterialButtonToggleGroup>(R.id.view_show_mode_group)
+        val carouselSwitch = view.findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.view_show_carousel)
         val layoutGroup = view.findViewById<MaterialButtonToggleGroup>(R.id.view_layout_group)
         val sortValue = view.findViewById<AutoCompleteTextView>(R.id.view_sort_value)
         val orderGroup = view.findViewById<MaterialButtonToggleGroup>(R.id.view_order_group)
@@ -273,8 +274,11 @@ class MediaViewOptionsSheet : BottomSheetDialogFragment() {
                         ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, sorts)
                     )
                     sortValue.setText(getString(DeviceFilesPrefs.sort(context).labelRes), false)
+                    carouselSwitch?.isVisible = true
+                    carouselSwitch?.isChecked = DeviceFilesPrefs.showCarousel(context)
                 }
                 Mode.PLAY -> {
+                    carouselSwitch?.isVisible = false
                     layoutGroup.check(
                         when (PlayViewPrefs.layout(context)) {
                             DeviceLayoutMode.LIST -> R.id.view_layout_list
@@ -333,6 +337,12 @@ class MediaViewOptionsSheet : BottomSheetDialogFragment() {
                     DeviceFilesPrefs.setShowMode(context, selected)
                     changed = true
                 }
+            }
+
+            carouselSwitch?.setOnCheckedChangeListener { _, isChecked ->
+                if (suppressListeners) return@setOnCheckedChangeListener
+                DeviceFilesPrefs.setShowCarousel(context, isChecked)
+                changed = true
             }
         }
 

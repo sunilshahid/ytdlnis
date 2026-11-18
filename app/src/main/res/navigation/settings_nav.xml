@@ -4,8 +4,12 @@
     app:startDestination="@id/mainSettingsFragment">
     <fragment
         android:id="@+id/appearanceSettingsFragment"
-        android:name="com.deniscerri.ytdl.ui.more.settings.general.GeneralSettingsFragment"
+        android:name="com.deniscerri.ytdl.ui.more.settings.appearance.AppearanceSettingsFragment"
         android:label="AppearanceSettingsFragment" />
+    <fragment
+        android:id="@+id/generalSettingsFragment"
+        android:name="com.deniscerri.ytdl.ui.more.settings.general.GeneralSettingsFragment"
+        android:label="GeneralSettingsFragment" />
     <fragment
         android:id="@+id/playerSettingsFragment"
         android:name="com.deniscerri.ytdl.ui.more.settings.player.PlayerSettingsFragment"
@@ -62,6 +66,9 @@
         <action
             android:id="@+id/action_mainSettingsFragment_to_appearanceSettingsFragment"
             app:destination="@id/appearanceSettingsFragment" />
+        <action
+            android:id="@+id/action_mainSettingsFragment_to_generalSettingsFragment"
+            app:destination="@id/generalSettingsFragment" />
         <action
             android:id="@+id/action_mainSettingsFragment_to_playerSettingsFragment"
             app:destination="@id/playerSettingsFragment" />

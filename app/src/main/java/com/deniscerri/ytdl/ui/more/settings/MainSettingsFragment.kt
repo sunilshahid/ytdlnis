@@ -23,6 +23,8 @@ import androidx.navigation.fragment.findNavController
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
+import androidx.recyclerview.widget.RecyclerView
+import com.deniscerri.ytdl.util.Extensions.applyTactilePressAnimation
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.deniscerri.ytdl.BuildConfig
@@ -70,6 +72,26 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        setDivider(null)
+
+        val density = resources.displayMetrics.density
+        val topPadding = (4 * density).toInt()
+        val bottomPadding = (24 * density).toInt()
+        listView.clipToPadding = false
+        listView.setPadding(listView.paddingLeft, topPadding, listView.paddingRight, bottomPadding)
+
+        listView.addOnChildAttachStateChangeListener(object : RecyclerView.OnChildAttachStateChangeListener {
+            override fun onChildViewAttachedToWindow(view: View) {
+                if (view !is TextView) {
+                    view.applyTactilePressAnimation()
+                }
+            }
+            override fun onChildViewDetachedFromWindow(view: View) {
+                view.animate().cancel()
+                view.scaleX = 1.0f
+                view.scaleY = 1.0f
+            }
+        })
 
         ViewCompat.setOnApplyWindowInsetsListener(listView) { v, insets ->
             val systemBars = insets.getInsets(
@@ -78,9 +100,9 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
 
             v.setPadding(
                 v.paddingLeft,
-                v.paddingTop,
+                topPadding,
                 v.paddingRight,
-                v.paddingBottom + systemBars.bottom
+                bottomPadding + systemBars.bottom
             )
 
             insets
@@ -94,9 +116,16 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
 
         val appearance = findPreference<Preference>("appearance")
         val separator = if (LocaleUtil.currentLocale().layoutDirection == LayoutDirection.RTL) "،" else ","
-        appearance?.summary = "${if (Build.VERSION.SDK_INT < 33) getString(R.string.language) + "$separator " else ""}${getString(R.string.Theme)}$separator ${getString(R.string.accents)}$separator ${getString(R.string.preferred_search_engine)}"
+        appearance?.summary = "${getString(R.string.Theme)}$separator ${getString(R.string.accents)}$separator ${getString(R.string.app_icon)}"
         appearance?.setOnPreferenceClickListener {
             navController.navigate(R.id.action_mainSettingsFragment_to_appearanceSettingsFragment)
+            true
+        }
+
+        val general = findPreference<Preference>("general")
+        general?.summary = "${if (Build.VERSION.SDK_INT < 33) getString(R.string.language) + "$separator " else ""}${getString(R.string.preferred_search_engine)}$separator ${getString(R.string.preferred_home_screen)}"
+        general?.setOnPreferenceClickListener {
+            navController.navigate(R.id.action_mainSettingsFragment_to_generalSettingsFragment)
             true
         }
 

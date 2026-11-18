@@ -3,6 +3,11 @@
 
     <Preference
         android:key="appearance"
+        app:icon="@drawable/baseline_color_lens_24"
+        android:title="@string/appearance"/>
+
+    <Preference
+        android:key="general"
         app:icon="@drawable/ic_settings"
         android:title="@string/general"/>
 

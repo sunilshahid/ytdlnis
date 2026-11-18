@@ -5,14 +5,12 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
-import androidx.appcompat.widget.SwitchCompat
 import androidx.core.view.isVisible
-import androidx.navigation.findNavController
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.fragment.findNavController
-import androidx.preference.ListPreference
 import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreferenceCompat
 import androidx.recyclerview.widget.RecyclerView
@@ -20,8 +18,8 @@ import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.models.SearchSettingsItem
 import com.deniscerri.ytdl.ui.more.settings.DefaultPreferenceActions
 import com.deniscerri.ytdl.ui.more.settings.SettingsActivity
-import com.deniscerri.ytdl.ui.more.settings.SettingsRegistry
-import com.google.android.material.button.MaterialButton
+import com.deniscerri.ytdl.util.Extensions.applyTactilePressAnimation
+import com.google.android.material.materialswitch.MaterialSwitch
 
 class SettingsSearchAdapter(
     private var items: List<SearchSettingsItem>,
@@ -102,6 +100,9 @@ class SettingsSearchAdapter(
         // Handle Visuals (Dependencies)
         holder.itemView.isEnabled = pref.isEnabled
         holder.itemView.alpha = if (pref.isEnabled) 1.0f else 0.5f
+        if (!item.isHeader) {
+            holder.itemView.applyTactilePressAnimation()
+        }
 
         holder.itemView.setOnLongClickListener {
             val bundle = Bundle().apply {
@@ -130,9 +131,8 @@ class SettingsSearchAdapter(
                 holder.switchWidget.isChecked = (pref as SwitchPreferenceCompat).isChecked
                 holder.switchWidget.isFocusable = pref.isEnabled
                 holder.switchWidget.isClickable = pref.isEnabled
-                holder.icon.isVisible = pref.icon != null
-                pref.icon?.apply { holder.icon.icon = this }
-
+                holder.iconFrame.isVisible = pref.icon != null
+                pref.icon?.let { holder.icon.setImageDrawable(it) }
 
                 holder.itemView.setOnClickListener {
                     holder.switchWidget.performClick()
@@ -147,8 +147,8 @@ class SettingsSearchAdapter(
                 holder.title.text = pref.title
                 holder.summary.text = pref.summary
                 holder.summary.isVisible = !pref.summary.isNullOrBlank()
-                holder.icon.isVisible = pref.icon != null
-                pref.icon?.apply { holder.icon.icon = this }
+                holder.iconFrame.isVisible = pref.icon != null
+                pref.icon?.let { holder.icon.setImageDrawable(it) }
 
                 holder.seekbar.max = (pref as SeekBarPreference).max
                 holder.seekbar.progress = pref.value
@@ -157,8 +157,7 @@ class SettingsSearchAdapter(
                     override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                         holder.seekbarValue.text = progress.toString()
                     }
-                    override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
                     override fun onStopTrackingTouch(seekBar: SeekBar?) {
                         seekBar?.apply {
                             pref.value = progress
@@ -166,7 +165,6 @@ class SettingsSearchAdapter(
                             holder.seekbarValue.text = progress.toString()
                             activity.refreshUI()
                         }
-
                     }
                 })
             }
@@ -174,13 +172,12 @@ class SettingsSearchAdapter(
                 holder.title.text = pref.title
                 holder.summary.text = pref.summary
                 holder.summary.isVisible = !pref.summary.isNullOrBlank()
-                holder.icon.isVisible = pref.icon != null
-                pref.icon?.apply { holder.icon.icon = this }
-
+                holder.iconFrame.isVisible = pref.icon != null
+                pref.icon?.let { holder.icon.setImageDrawable(it) }
 
                 holder.itemView.setOnClickListener {
                     if (pref.onPreferenceClickListener == null || item.module == null) {
-                        val didLaunchDialog = DefaultPreferenceActions.onPreferenceDisplayDialog( activity, pref) {
+                        val didLaunchDialog = DefaultPreferenceActions.onPreferenceDisplayDialog(activity, pref) {
                             activity.refreshUI()
                         }
                         if (!didLaunchDialog) {
@@ -201,20 +198,23 @@ class SettingsSearchAdapter(
     class SwitchViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val title: TextView = view.findViewById(R.id.preference_title)
         val summary: TextView = view.findViewById(R.id.preference_summary)
-        val switchWidget: SwitchCompat = view.findViewById(R.id.preference_switch)
-        var icon: MaterialButton = view.findViewById(R.id.preference_icon)
+        val switchWidget: MaterialSwitch = view.findViewById(R.id.preference_switch)
+        val iconFrame: View = view.findViewById(R.id.preference_icon_frame)
+        val icon: ImageView = view.findViewById(R.id.preference_icon)
     }
 
     class DefaultViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val title: TextView = view.findViewById(R.id.preference_title)
         val summary: TextView = view.findViewById(R.id.preference_summary)
-        var icon: MaterialButton = view.findViewById(R.id.preference_icon)
+        val iconFrame: View = view.findViewById(R.id.preference_icon_frame)
+        val icon: ImageView = view.findViewById(R.id.preference_icon)
     }
 
     class SeekbarViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val title: TextView = view.findViewById(R.id.preference_title)
         val summary: TextView = view.findViewById(R.id.preference_summary)
-        var icon: MaterialButton = view.findViewById(R.id.preference_icon)
+        val iconFrame: View = view.findViewById(R.id.preference_icon_frame)
+        val icon: ImageView = view.findViewById(R.id.preference_icon)
         var seekbar: SeekBar = view.findViewById(R.id.seekBar)
         var seekbarValue: TextView = view.findViewById(R.id.seekbarValue)
     }

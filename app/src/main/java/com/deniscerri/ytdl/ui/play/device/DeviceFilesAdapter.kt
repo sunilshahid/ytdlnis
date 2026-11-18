@@ -13,12 +13,16 @@ import android.view.animation.OvershootInterpolator
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.playback.model.PlaybackType
+import com.deniscerri.ytdl.util.Extensions.applyTactilePressAnimation
+import com.deniscerri.ytdl.util.Extensions.extractAudioFormat
 import com.deniscerri.ytdl.util.Extensions.toStringTimeStamp
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
@@ -48,6 +52,14 @@ class DeviceFilesAdapter(
     var grid: Boolean = false
         private set
 
+    var currentDominantColor: Int? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
     private var selectedMediaIds: Set<String> = emptySet()
     private var selectionMode: Boolean = false
 
@@ -72,7 +84,7 @@ class DeviceFilesAdapter(
     fun spanSize(position: Int): Int {
         if (position !in 0 until itemCount) return 1
         return when (getItem(position)) {
-            is DeviceRow.Header, is DeviceRow.Message -> 2
+            is DeviceRow.Header, is DeviceRow.Message, is DeviceRow.FolderCarousel -> 2
             else -> 1
         }
     }
@@ -81,6 +93,7 @@ class DeviceFilesAdapter(
         is DeviceRow.Header -> TYPE_HEADER
         is DeviceRow.File -> if (grid) TYPE_FILE_GRID else TYPE_FILE_LIST
         is DeviceRow.Folder -> if (grid) TYPE_FOLDER_GRID else TYPE_FOLDER_LIST
+        is DeviceRow.FolderCarousel -> TYPE_FOLDER_CAROUSEL
         is DeviceRow.Message -> TYPE_MESSAGE
     }
 
@@ -92,6 +105,8 @@ class DeviceFilesAdapter(
                 ListHolder(inflater.inflate(R.layout.play_track_row, parent, false))
             TYPE_FILE_GRID, TYPE_FOLDER_GRID ->
                 GridHolder(inflater.inflate(R.layout.device_grid_item, parent, false))
+            TYPE_FOLDER_CAROUSEL ->
+                CarouselHolder(inflater.inflate(R.layout.device_folder_carousel, parent, false))
             else -> MessageHolder(inflater.inflate(R.layout.play_empty_row, parent, false))
         }
     }
@@ -106,6 +121,7 @@ class DeviceFilesAdapter(
                 if (holder is GridHolder) holder.bindFolder(row.folder) else
                     (holder as ListHolder).bindFolder(row.folder)
             }
+            is DeviceRow.FolderCarousel -> (holder as CarouselHolder).bind(row)
             is DeviceRow.Message -> (holder as MessageHolder).bind(row)
         }
     }
@@ -129,32 +145,51 @@ class DeviceFilesAdapter(
     }
 
     private inner class ListHolder(view: View) : RecyclerView.ViewHolder(view) {
-        private val root: View = view.findViewById(R.id.play_track_root)
+        private val card: MaterialCardView = view.findViewById(R.id.play_track_root)
         private val art: ImageView = view.findViewById(R.id.play_row_art)
         private val selectedScrim: View? = view.findViewById(R.id.play_row_selected_scrim)
         private val selectedBadge: ImageView? = view.findViewById(R.id.play_row_selected_badge)
         private val typeBadge: ImageView = view.findViewById(R.id.play_row_type_badge)
         private val title: TextView = view.findViewById(R.id.play_row_title)
         private val subtitle: TextView = view.findViewById(R.id.play_row_subtitle)
+        private val formatBadge: TextView? = view.findViewById(R.id.play_row_format_badge)
         private val duration: TextView = view.findViewById(R.id.play_row_duration)
         private val equalizer: ImageView = view.findViewById(R.id.play_row_equalizer)
         private val menu: ImageButton = view.findViewById(R.id.play_row_menu)
         private val colorOnSurface = MaterialColors.getColor(view, com.google.android.material.R.attr.colorOnSurface)
         private val colorPrimary = MaterialColors.getColor(view, com.google.android.material.R.attr.colorPrimary)
-        private val colorMuted = MaterialColors.getColor(
+        private val colorSurfaceContainer = MaterialColors.getColor(
             view,
-            com.google.android.material.R.attr.colorOnSurfaceVariant
+            com.google.android.material.R.attr.colorSurfaceContainer,
+            Color.parseColor("#1E232B")
+        )
+        private val colorSecondaryContainer = MaterialColors.getColor(
+            view,
+            com.google.android.material.R.attr.colorSecondaryContainer,
+            Color.parseColor("#2A3A4A")
+        )
+        private val colorOutlineVariant = MaterialColors.getColor(
+            view,
+            com.google.android.material.R.attr.colorOutlineVariant,
+            Color.DKGRAY
         )
 
         fun bindFile(row: DeviceRow.File) {
             val context = itemView.context
             val media = row.media
             val isSelected = selectionMode && media.mediaId in selectedMediaIds
+            val isCurrent = row.isCurrent || isSelected
             title.text = media.title
-            title.setTextColor(if (row.isCurrent || isSelected) colorPrimary else colorOnSurface)
-            subtitle.text = media.detailParts(context, row.fields, row.status, row.lastPlayedAt)
-                .joinToString(" · ")
-                .ifBlank { media.folderName }
+            title.setTextColor(if (isCurrent) colorPrimary else colorOnSurface)
+            val format = extractAudioFormat(media.displayName, media.filePath, media.mimeType)
+            if (format != null) {
+                formatBadge?.text = format
+                formatBadge?.isVisible = true
+            } else {
+                formatBadge?.isVisible = false
+            }
+            val artistText = media.artist?.takeIf { it.isNotBlank() } ?: media.folderName
+            subtitle.text = artistText
             subtitle.isVisible = subtitle.text.isNotBlank()
             duration.text = media.durationMs.takeIf { it > 0L }?.toStringTimeStamp().orEmpty()
             duration.isVisible = !duration.text.isNullOrBlank()
@@ -167,7 +202,7 @@ class DeviceFilesAdapter(
             thumbnails.load(art, media)
             typeBadge.isVisible = media.type == PlaybackType.VIDEO
             typeBadge.setImageResource(R.drawable.ic_video)
-            setActiveBackground(root, row.isCurrent || isSelected)
+            setActiveCard(card, isCurrent)
             itemView.applyTactilePressAnimation()
 
             itemView.setOnClickListener {
@@ -188,9 +223,10 @@ class DeviceFilesAdapter(
 
         fun updatePlayingState(row: DeviceRow.File) {
             val isSelected = selectionMode && row.media.mediaId in selectedMediaIds
-            title.setTextColor(if (row.isCurrent || isSelected) colorPrimary else colorOnSurface)
+            val isCurrent = row.isCurrent || isSelected
+            title.setTextColor(if (isCurrent) colorPrimary else colorOnSurface)
             equalizer.isVisible = row.isCurrent && !selectionMode
-            setActiveBackground(root, row.isCurrent || isSelected)
+            setActiveCard(card, isCurrent)
         }
 
         fun bindFolder(folder: DeviceFolder) {
@@ -199,6 +235,7 @@ class DeviceFilesAdapter(
             title.setTextColor(colorOnSurface)
             subtitle.text = folder.detail(context)
             subtitle.isVisible = true
+            formatBadge?.isVisible = false
             duration.text = ""
             duration.isVisible = false
             equalizer.isVisible = false
@@ -210,24 +247,40 @@ class DeviceFilesAdapter(
             art.imageTintList = ColorStateList.valueOf(colorPrimary)
             art.scaleType = ImageView.ScaleType.CENTER_INSIDE
             art.tag = "folder:${folder.path}"
-            setActiveBackground(root, false)
+            setActiveCard(card, false)
+            itemView.applyTactilePressAnimation()
             itemView.setOnClickListener {
                 if (!selectionMode) onFolderClick(folder)
             }
             itemView.setOnLongClickListener(null)
         }
 
-        private fun setActiveBackground(target: View, active: Boolean) {
+        private fun setActiveCard(targetCard: MaterialCardView, active: Boolean) {
+            val density = targetCard.resources.displayMetrics.density
+            val tint = currentDominantColor
             if (active) {
-                target.setBackgroundResource(R.drawable.bg_active_track_row)
+                val bg = if (tint != null) {
+                    ColorUtils.blendARGB(colorSecondaryContainer, tint, 0.28f)
+                } else {
+                    colorSecondaryContainer
+                }
+                targetCard.setCardBackgroundColor(bg)
+                targetCard.strokeColor = tint ?: colorPrimary
+                targetCard.strokeWidth = (2f * density).toInt()
             } else {
-                val outValue = android.util.TypedValue()
-                itemView.context.theme.resolveAttribute(
-                    android.R.attr.selectableItemBackground,
-                    outValue,
-                    true
-                )
-                target.setBackgroundResource(outValue.resourceId)
+                val bg = if (tint != null) {
+                    ColorUtils.blendARGB(colorSurfaceContainer, tint, 0.10f)
+                } else {
+                    colorSurfaceContainer
+                }
+                targetCard.setCardBackgroundColor(bg)
+                val outline = if (tint != null) {
+                    ColorUtils.blendARGB(colorOutlineVariant, tint, 0.30f)
+                } else {
+                    (colorOutlineVariant and 0x00FFFFFF) or 0x33000000
+                }
+                targetCard.strokeColor = outline
+                targetCard.strokeWidth = (1f * density).toInt()
             }
         }
     }
@@ -357,6 +410,106 @@ class DeviceFilesAdapter(
         }
     }
 
+    private inner class CarouselHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val recycler: RecyclerView = view.findViewById(R.id.folder_carousel_recycler)
+
+        init {
+            recycler.layoutManager = LinearLayoutManager(view.context, LinearLayoutManager.HORIZONTAL, false)
+            recycler.setHasFixedSize(true)
+        }
+
+        fun bind(row: DeviceRow.FolderCarousel) {
+            recycler.adapter = FolderCardAdapter(row.folders, row.selectedPath)
+        }
+    }
+
+    private inner class FolderCardAdapter(
+        private val folders: List<DeviceFolder>,
+        private val selectedPath: String?
+    ) : RecyclerView.Adapter<FolderCardViewHolder>() {
+
+        override fun getItemCount(): Int = folders.size
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FolderCardViewHolder {
+            val v = LayoutInflater.from(parent.context).inflate(R.layout.device_folder_card, parent, false)
+            return FolderCardViewHolder(v)
+        }
+
+        override fun onBindViewHolder(holder: FolderCardViewHolder, position: Int) {
+            holder.bind(folders[position], folders[position].path == selectedPath)
+        }
+    }
+
+    private inner class FolderCardViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val card: MaterialCardView = view.findViewById(R.id.folder_card_root)
+        private val art1: ImageView = view.findViewById(R.id.folder_tile_art1)
+        private val art2: ImageView = view.findViewById(R.id.folder_tile_art2)
+        private val art3: ImageView = view.findViewById(R.id.folder_tile_art3)
+        private val name: TextView = view.findViewById(R.id.folder_card_name)
+        private val count: TextView = view.findViewById(R.id.folder_card_count)
+        private val colorPrimary = MaterialColors.getColor(view, com.google.android.material.R.attr.colorPrimary)
+        private val colorOutline = MaterialColors.getColor(view, com.google.android.material.R.attr.colorOutlineVariant)
+        private val colorSurfaceSelected = MaterialColors.getColor(view, com.google.android.material.R.attr.colorSurfaceContainerHighest)
+        private val colorSurfaceNormal = MaterialColors.getColor(view, com.google.android.material.R.attr.colorSurfaceContainerHigh)
+
+        fun bind(folder: DeviceFolder, isSelected: Boolean) {
+            val context = itemView.context
+            name.text = folder.label(context)
+            count.text = "(${folder.items.size})"
+
+            val tint = currentDominantColor
+            if (isSelected) {
+                card.strokeWidth = dp(2)
+                card.strokeColor = tint ?: colorPrimary
+                val bg = if (tint != null) {
+                    ColorUtils.blendARGB(colorSurfaceSelected, tint, 0.28f)
+                } else {
+                    colorSurfaceSelected
+                }
+                card.setCardBackgroundColor(bg)
+            } else {
+                card.strokeWidth = dp(1)
+                card.strokeColor = if (tint != null) {
+                    ColorUtils.blendARGB(colorOutline, tint, 0.35f)
+                } else {
+                    colorOutline
+                }
+                val bg = if (tint != null) {
+                    ColorUtils.blendARGB(colorSurfaceNormal, tint, 0.10f)
+                } else {
+                    colorSurfaceNormal
+                }
+                card.setCardBackgroundColor(bg)
+            }
+
+            val items = folder.items
+            if (items.isNotEmpty()) {
+                art1.isVisible = true
+                thumbnails.load(art1, items[0])
+            } else {
+                art1.setImageResource(R.drawable.ic_music)
+            }
+            if (items.size > 1) {
+                art2.isVisible = true
+                thumbnails.load(art2, items[1])
+            } else {
+                art2.setImageResource(R.drawable.ic_music)
+            }
+            if (items.size > 2) {
+                art3.isVisible = true
+                thumbnails.load(art3, items[2])
+            } else {
+                art3.setImageResource(R.drawable.ic_music)
+            }
+
+            itemView.applyTactilePressAnimation()
+            itemView.setOnClickListener { onFolderClick(folder) }
+        }
+
+        private fun dp(value: Int): Int =
+            (value * itemView.resources.displayMetrics.density).toInt()
+    }
+
     private object DeviceRowDiff : DiffUtil.ItemCallback<DeviceRow>() {
         override fun areItemsTheSame(oldItem: DeviceRow, newItem: DeviceRow): Boolean =
             oldItem.stableId == newItem.stableId
@@ -386,30 +539,6 @@ class DeviceFilesAdapter(
         private const val TYPE_FOLDER_LIST = 3
         private const val TYPE_FOLDER_GRID = 4
         private const val TYPE_MESSAGE = 5
-    }
-}
-
-@SuppressLint("ClickableViewAccessibility")
-private fun View.applyTactilePressAnimation() {
-    setOnTouchListener { v, event ->
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                v.animate()
-                    .scaleX(0.97f)
-                    .scaleY(0.97f)
-                    .setDuration(90)
-                    .setInterpolator(DecelerateInterpolator())
-                    .start()
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                v.animate()
-                    .scaleX(1.0f)
-                    .scaleY(1.0f)
-                    .setDuration(130)
-                    .setInterpolator(OvershootInterpolator(1.1f))
-                    .start()
-            }
-        }
-        false
+        private const val TYPE_FOLDER_CAROUSEL = 6
     }
 }

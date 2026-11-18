@@ -7,6 +7,12 @@
     <color name="icon_bg">#FFFFFF</color>
     <color name="icon_fg">#db2e2e</color>
 
+    <!-- Material 3 Expressive Preference Colors -->
+    <color name="preference_card_bg">#F2F4F8</color>
+    <color name="preference_card_stroke">#0F000000</color>
+    <color name="preference_icon_bg">#E2E5EC</color>
+    <color name="preference_icon_tint">#44474F</color>
+
 
     <color name="blue_md_theme_light_primary">#0058CB</color>
     <color name="blue_md_theme_light_onPrimary">#FFFFFF</color>

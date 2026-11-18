@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="playing_from">Playing from</string>
     <string name="fullscreen">Fullscreen</string>
     <string name="playback_position">Playback position</string>
     <string name="worst_quality">Worst quality</string>
@@ -519,6 +520,9 @@
     <string name="disable_flat_playlist">Disable flat playlist</string>
     <string name="disable_flat_playlist_summary">Don\'t use --flat-playlist. Slower data fetching, but more data rich</string>
     <string name="chapters">Chapters</string>
+    <string name="video_playback">Video playback</string>
+    <string name="scrub_preview_mini">Mini scrub preview</string>
+    <string name="scrub_preview_mini_summary">Show a small frame card above the seekbar. When off, the frame is previewed in the player itself, MX Player style</string>
     <string name="use_original_url_playlist">Use original url for playlist url</string>
     <string name="use_original_url_playlist_summary">Use playlist url given by user instead of the playlist_webpage_url tag from the json dump</string>
     <string name="update_ytdlp_while_downloading">Update yt-dlp while downloading</string>
@@ -890,6 +894,7 @@
     <string name="device_show_all_folders">All folders</string>
     <string name="device_show_files">Files</string>
     <string name="device_show_folders">Folders</string>
+    <string name="device_show_carousel">Folder carousel</string>
     <string name="device_sort_title">Title</string>
     <string name="device_sort_date">Date</string>
     <string name="device_sort_played">Played time</string>

@@ -22,6 +22,7 @@ import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.playback.model.PlaybackType
 import com.deniscerri.ytdl.util.FrameExtractor
+import com.deniscerri.ytdl.util.PlaybackColors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

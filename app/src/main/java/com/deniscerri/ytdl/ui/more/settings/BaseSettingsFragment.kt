@@ -3,13 +3,13 @@ package com.deniscerri.ytdl.ui.more.settings
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.os.Bundle
-import android.util.Log
 import android.view.View
 import androidx.activity.result.ActivityResultLauncher
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
@@ -18,7 +18,11 @@ import androidx.preference.PreferenceGroup
 import androidx.preference.PreferenceGroupAdapter
 import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
+import androidx.recyclerview.widget.RecyclerView
+import android.widget.TextView
 import com.deniscerri.ytdl.util.ApkInstallUtil
+import com.deniscerri.ytdl.util.Extensions.applyTactilePressAnimation
+import com.google.android.material.color.MaterialColors
 
 
 abstract class BaseSettingsFragment : PreferenceFragmentCompat(), SettingHost {
@@ -87,18 +91,37 @@ abstract class BaseSettingsFragment : PreferenceFragmentCompat(), SettingHost {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        setDivider(null)
+
+        val density = resources.displayMetrics.density
+        val topPadding = (4 * density).toInt()
+        val bottomPadding = (24 * density).toInt()
+        listView.clipToPadding = false
+        listView.setPadding(listView.paddingLeft, topPadding, listView.paddingRight, bottomPadding)
+
+        listView.addOnChildAttachStateChangeListener(object : RecyclerView.OnChildAttachStateChangeListener {
+            override fun onChildViewAttachedToWindow(view: View) {
+                if (view !is TextView) {
+                    view.applyTactilePressAnimation()
+                }
+            }
+            override fun onChildViewDetachedFromWindow(view: View) {
+                view.animate().cancel()
+                view.scaleX = 1.0f
+                view.scaleY = 1.0f
+            }
+        })
 
         ViewCompat.setOnApplyWindowInsetsListener(listView) { v, insets ->
             val systemBars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars()
             )
 
-
             v.setPadding(
                 v.paddingLeft,
-                v.paddingTop,
+                topPadding,
                 v.paddingRight,
-                v.paddingBottom + systemBars.bottom
+                bottomPadding + systemBars.bottom
             )
 
             insets
@@ -116,10 +139,15 @@ abstract class BaseSettingsFragment : PreferenceFragmentCompat(), SettingHost {
                     listView.postDelayed({
                         val holder = listView.findViewHolderForAdapterPosition(position)
                         holder?.itemView?.let { itemView ->
-                            val originalColor = itemView.background
-                            itemView.setBackgroundColor(requireContext().getColor(android.R.color.system_control_highlight_light))
+                            val originalTint = itemView.backgroundTintList
+                            val highlight = MaterialColors.getColor(
+                                requireContext(),
+                                com.google.android.material.R.attr.colorSecondaryContainer,
+                                Color.GRAY
+                            )
+                            itemView.backgroundTintList = ColorStateList.valueOf(highlight)
                             itemView.postDelayed({
-                                itemView.background = originalColor
+                                itemView.backgroundTintList = originalTint
                             }, 1000)
                         }
                     }, 300)

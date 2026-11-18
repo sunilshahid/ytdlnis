@@ -1,366 +1,681 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/audio_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Scrollable Content with large artwork and bottom-distributed controls -->
-    <androidx.core.widget.NestedScrollView
-        android:id="@+id/audio_scroll"
+    <!-- Main Player Container: Scrollable Content with large artwork and controls + Top Header -->
+    <FrameLayout
+        android:id="@+id/audio_main_container"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipChildren="false"
-        android:clipToPadding="false"
-        android:fillViewport="true">
+        android:layout_height="match_parent">
 
-        <LinearLayout
-            android:id="@+id/audio_content"
+        <!-- Scrollable Content with large artwork and bottom-distributed controls -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/audio_scroll"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clipChildren="false"
             android:clipToPadding="false"
-            android:gravity="center_horizontal"
-            android:orientation="vertical"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="72dp"
-            android:paddingBottom="24dp">
+            android:fillViewport="true">
 
-            <!-- Artwork & Radial Bloom Glow (Substantial 300dp artwork) -->
-            <FrameLayout
-                android:id="@+id/audio_artwork_card"
-                android:layout_width="320dp"
-                android:layout_height="320dp"
-                android:layout_marginTop="8dp"
+            <LinearLayout
+                android:id="@+id/audio_content"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
                 android:clipChildren="false"
-                android:clipToPadding="false">
+                android:clipToPadding="false"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingHorizontal="20dp"
+                android:paddingTop="72dp"
+                android:paddingBottom="56dp">
 
-                <com.deniscerri.ytdl.ui.play.GlowView
-                    android:id="@+id/audio_art_glow"
-                    android:layout_width="420dp"
-                    android:layout_height="420dp"
-                    android:layout_gravity="center" />
+                <!-- Artwork & Radial Bloom Glow (Substantial 300dp artwork) -->
+                <FrameLayout
+                    android:id="@+id/audio_artwork_card"
+                    android:layout_width="320dp"
+                    android:layout_height="320dp"
+                    android:layout_marginTop="8dp"
+                    android:clipChildren="false"
+                    android:clipToPadding="false">
 
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:id="@+id/audio_art"
-                    android:layout_width="300dp"
-                    android:layout_height="300dp"
+                    <!-- Scaled independently from the card so the swipe gesture and the
+                         queue-sheet transform never fight over scaleX/scaleY. -->
+                    <FrameLayout
+                        android:id="@+id/audio_art_transform"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:clipChildren="false"
+                        android:clipToPadding="false">
+
+                        <com.deniscerri.ytdl.ui.play.GlowView
+                            android:id="@+id/audio_art_glow"
+                            android:layout_width="420dp"
+                            android:layout_height="420dp"
+                            android:layout_gravity="center" />
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/audio_art"
+                            android:layout_width="300dp"
+                            android:layout_height="300dp"
+                            android:layout_gravity="center"
+                            android:contentDescription="@string/now_playing"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/ic_music"
+                            android:transitionName="artwork_transition"
+                            app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.AudioPlayerArt" />
+
+                    </FrameLayout>
+
+                </FrameLayout>
+
+                <!-- Flexible Space to push controls toward bottom -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:minHeight="24dp" />
+
+                <!-- Squiggly / Wavy Seekbar flanked by Capsule Time Pills -->
+                <LinearLayout
+                    android:id="@+id/audio_seek_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/audio_position"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_capsule_time"
+                        android:gravity="center"
+                        android:minWidth="56dp"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="7dp"
+                        android:textColor="@color/capsule_time_text"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <com.deniscerri.ytdl.ui.play.WavySeekBar
+                        android:id="@+id/audio_seek"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_marginHorizontal="6dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/audio_duration"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_capsule_time"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:minWidth="56dp"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="7dp"
+                        android:textColor="@color/capsule_time_text"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="0.4"
+                    android:minHeight="14dp" />
+
+                <!-- Expressive Action Row: [Like] - [Audio] - [Lyrics] -->
+                <LinearLayout
+                    android:id="@+id/audio_action_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/audio_like"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="42dp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="18dp"
+                        android:text="@string/like"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="13sp"
+                        app:backgroundTint="?attr/colorSurfaceVariant"
+                        app:cornerRadius="21dp"
+                        app:icon="@drawable/ic_favorite_border"
+                        app:iconGravity="textStart"
+                        app:iconPadding="8dp"
+                        app:iconSize="18dp"
+                        app:iconTint="?attr/colorOnSurfaceVariant"
+                        app:strokeWidth="0dp" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/audio_source"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_capsule_badge"
+                        android:gravity="center"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="6dp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/audio_lyrics_button"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="42dp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="18dp"
+                        android:text="@string/lyrics"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="13sp"
+                        app:backgroundTint="?attr/colorSurfaceVariant"
+                        app:cornerRadius="21dp"
+                        app:icon="@drawable/ic_lyrics"
+                        app:iconGravity="textStart"
+                        app:iconPadding="8dp"
+                        app:iconSize="18dp"
+                        app:iconTint="?attr/colorOnSurfaceVariant"
+                        app:strokeWidth="0dp" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="0.8"
+                    android:minHeight="20dp" />
+
+                <!-- Expressive Media Controls: [Shuffle] [Prev] (Play/Pause Blob) [Next] [Repeat] -->
+                <LinearLayout
+                    android:id="@+id/audio_controls_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageButton
+                        android:id="@+id/audio_shuffle"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_player_control_squircle"
+                        android:contentDescription="@string/shuffle"
+                        android:padding="14dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_shuffle"
+                        app:tint="?attr/colorOnSurface" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <ImageButton
+                        android:id="@+id/audio_previous"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_player_control_squircle"
+                        android:contentDescription="@string/previous"
+                        android:padding="14dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_lyrics_rewind"
+                        app:tint="?attr/colorOnSurface" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <ImageButton
+                        android:id="@+id/audio_play_pause"
+                        android:layout_width="76dp"
+                        android:layout_height="76dp"
+                        android:background="@drawable/bg_player_play_expressive"
+                        android:contentDescription="@string/play"
+                        android:padding="20dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_lyrics_play"
+                        app:tint="?attr/colorOnPrimaryContainer" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <ImageButton
+                        android:id="@+id/audio_next"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_player_control_squircle"
+                        android:contentDescription="@string/next"
+                        android:padding="14dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_lyrics_forward"
+                        app:tint="?attr/colorOnSurface" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <ImageButton
+                        android:id="@+id/audio_repeat"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_player_control_squircle"
+                        android:contentDescription="@string/repeat"
+                        android:padding="14dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_repeat"
+                        app:tint="?attr/colorOnSurface" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="0.4"
+                    android:minHeight="12dp" />
+
+                <!-- Speed Selector Button -->
+                <LinearLayout
+                    android:id="@+id/audio_speed_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/audio_speed"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="0dp"
+                        android:text="@string/speed_1x"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="0.6"
+                    android:minHeight="16dp" />
+
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+
+        <!-- Pinned Top Header with smooth gradient scrim for seamless blending -->
+        <LinearLayout
+            android:id="@+id/audio_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:background="@drawable/bg_player_header_gradient"
+            android:gravity="center_vertical"
+            android:minHeight="?attr/actionBarSize"
+            android:orientation="horizontal"
+            android:paddingStart="6dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="20dp">
+
+            <ImageButton
+                android:id="@+id/audio_back"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/back"
+                android:src="@drawable/ic_back"
+                app:tint="?attr/colorOnSurface" />
+
+            <LinearLayout
+                android:id="@+id/audio_header_meta"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/audio_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:singleLine="true"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/audio_artist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <!-- Queue Bottom Sheet (Sliding Up Next Drawer) -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/audio_queue_sheet"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true"
+        app:behavior_fitToContents="false"
+        app:behavior_halfExpandedRatio="0.55"
+        app:behavior_hideable="false"
+        app:behavior_peekHeight="30dp"
+        app:cardBackgroundColor="@android:color/transparent"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="0dp"
+        app:gestureInsetBottomIgnored="true"
+        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior"
+        app:strokeWidth="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <!-- Bottom Sheet Drag Handle Pill (the little line under player) -->
+            <FrameLayout
+                android:id="@+id/queue_drag_handle_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingVertical="10dp">
+
+                <View
+                    android:id="@+id/queue_drag_handle"
+                    android:layout_width="38dp"
+                    android:layout_height="4.5dp"
                     android:layout_gravity="center"
-                    android:contentDescription="@string/now_playing"
-                    android:scaleType="centerCrop"
-                    android:src="@drawable/ic_music"
-                    android:transitionName="artwork_transition"
-                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.AudioPlayerArt" />
+                    android:background="@drawable/bg_queue_drag_handle" />
 
             </FrameLayout>
 
-            <!-- Flexible Space to push controls toward bottom -->
-            <View
+            <!-- Shared top slot: compact transport controls at the half state,
+                 mini-player header at the full queue state. Both crossfade in place
+                 so the queue below never shifts while the sheet moves. -->
+            <FrameLayout
+                android:id="@+id/queue_top_slot"
+                android:layout_width="match_parent"
+                android:layout_height="76dp">
+
+                <LinearLayout
+                    android:id="@+id/queue_compact_controls"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:alpha="0"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="14dp"
+                    android:visibility="invisible">
+
+                    <ImageButton
+                        android:id="@+id/queue_compact_shuffle"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:background="@drawable/bg_player_control_squircle"
+                        android:contentDescription="@string/shuffle"
+                        android:padding="12dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_shuffle"
+                        app:tint="?attr/colorOnSurface" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <ImageButton
+                        android:id="@+id/queue_compact_previous"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:background="@drawable/bg_player_control_squircle"
+                        android:contentDescription="@string/previous"
+                        android:padding="12dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_lyrics_rewind"
+                        app:tint="?attr/colorOnSurface" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <ImageButton
+                        android:id="@+id/queue_compact_play_pause"
+                        android:layout_width="64dp"
+                        android:layout_height="64dp"
+                        android:background="@drawable/bg_player_play_expressive"
+                        android:contentDescription="@string/play"
+                        android:padding="17dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_lyrics_play"
+                        app:tint="?attr/colorOnPrimaryContainer" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <ImageButton
+                        android:id="@+id/queue_compact_next"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:background="@drawable/bg_player_control_squircle"
+                        android:contentDescription="@string/next"
+                        android:padding="12dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_lyrics_forward"
+                        app:tint="?attr/colorOnSurface" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <ImageButton
+                        android:id="@+id/queue_compact_repeat"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:background="@drawable/bg_player_control_squircle"
+                        android:contentDescription="@string/repeat"
+                        android:padding="12dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_repeat"
+                        app:tint="?attr/colorOnSurface" />
+
+                </LinearLayout>
+
+                <!-- Full-Screen Top Mini-Player Header (fades in when expanded) -->
+                <LinearLayout
+                    android:id="@+id/queue_mini_header"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:alpha="0"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="14dp"
+                    android:visibility="invisible">
+
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                        app:cardCornerRadius="10dp"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="0dp">
+
+                        <ImageView
+                            android:id="@+id/queue_mini_art"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/now_playing"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/ic_music" />
+
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/queue_mini_title"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/queue_mini_artist"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="12sp" />
+
+                    </LinearLayout>
+
+                    <ImageButton
+                        android:id="@+id/queue_mini_prev"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/previous"
+                        android:padding="8dp"
+                        android:src="@drawable/ic_lyrics_rewind"
+                        app:tint="?attr/colorOnSurface" />
+
+                    <ImageButton
+                        android:id="@+id/queue_mini_play_pause"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/play"
+                        android:padding="9dp"
+                        android:src="@drawable/ic_lyrics_play"
+                        app:tint="?attr/colorOnSurface" />
+
+                    <ImageButton
+                        android:id="@+id/queue_mini_next"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/next"
+                        android:padding="8dp"
+                        android:src="@drawable/ic_lyrics_forward"
+                        app:tint="?attr/colorOnSurface" />
+
+                </LinearLayout>
+
+            </FrameLayout>
+
+            <!-- "Playing from" Header Section -->
+            <LinearLayout
+                android:id="@+id/queue_header_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingBottom="6dp">
+
+                <TextView
+                    android:id="@+id/queue_playing_from_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/playing_from"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="12sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/queue_source_title"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/queue_count_badge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_format_pill"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="3dp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Queue RecyclerView with ItemTouchHelper Drag-To-Reorder -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/audio_queue_recycler"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
-                android:minHeight="24dp" />
-
-            <!-- Squiggly / Wavy Seekbar flanked by Capsule Time Pills -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/audio_position"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_capsule_time"
-                    android:gravity="center"
-                    android:minWidth="56dp"
-                    android:paddingHorizontal="14dp"
-                    android:paddingVertical="7dp"
-                    android:textColor="@color/capsule_time_text"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
-
-                <com.deniscerri.ytdl.ui.play.WavySeekBar
-                    android:id="@+id/audio_seek"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_marginHorizontal="6dp"
-                    android:layout_weight="1" />
-
-                <TextView
-                    android:id="@+id/audio_duration"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_capsule_time"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:minWidth="56dp"
-                    android:paddingHorizontal="14dp"
-                    android:paddingVertical="7dp"
-                    android:textColor="@color/capsule_time_text"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
-
-            </LinearLayout>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="0.4"
-                android:minHeight="14dp" />
-
-            <!-- Expressive Action Row: [Like] - [Audio] - [Lyrics] -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/audio_like"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="42dp"
-                    android:insetTop="0dp"
-                    android:insetBottom="0dp"
-                    android:minWidth="0dp"
-                    android:paddingHorizontal="18dp"
-                    android:text="@string/like"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="13sp"
-                    app:backgroundTint="?attr/colorSurfaceVariant"
-                    app:cornerRadius="21dp"
-                    app:icon="@drawable/ic_favorite_border"
-                    app:iconGravity="textStart"
-                    app:iconPadding="8dp"
-                    app:iconSize="18dp"
-                    app:iconTint="?attr/colorOnSurfaceVariant"
-                    app:strokeWidth="0dp" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <TextView
-                    android:id="@+id/audio_source"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_capsule_badge"
-                    android:gravity="center"
-                    android:paddingHorizontal="14dp"
-                    android:paddingVertical="6dp"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/audio_lyrics_button"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="42dp"
-                    android:insetTop="0dp"
-                    android:insetBottom="0dp"
-                    android:minWidth="0dp"
-                    android:paddingHorizontal="18dp"
-                    android:text="@string/lyrics"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="13sp"
-                    app:backgroundTint="?attr/colorSurfaceVariant"
-                    app:cornerRadius="21dp"
-                    app:icon="@drawable/ic_lyrics"
-                    app:iconGravity="textStart"
-                    app:iconPadding="8dp"
-                    app:iconSize="18dp"
-                    app:iconTint="?attr/colorOnSurfaceVariant"
-                    app:strokeWidth="0dp" />
-
-            </LinearLayout>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="0.8"
-                android:minHeight="20dp" />
-
-            <!-- Expressive Media Controls: [Shuffle] [Prev] (Play/Pause Blob) [Next] [Repeat] -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <ImageButton
-                    android:id="@+id/audio_shuffle"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_player_control_squircle"
-                    android:contentDescription="@string/shuffle"
-                    android:padding="14dp"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_shuffle"
-                    app:tint="?attr/colorOnSurface" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <ImageButton
-                    android:id="@+id/audio_previous"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_player_control_squircle"
-                    android:contentDescription="@string/previous"
-                    android:padding="14dp"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_lyrics_rewind"
-                    app:tint="?attr/colorOnSurface" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <ImageButton
-                    android:id="@+id/audio_play_pause"
-                    android:layout_width="76dp"
-                    android:layout_height="76dp"
-                    android:background="@drawable/bg_player_play_expressive"
-                    android:contentDescription="@string/play"
-                    android:padding="20dp"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_lyrics_play"
-                    app:tint="?attr/colorOnPrimaryContainer" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <ImageButton
-                    android:id="@+id/audio_next"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_player_control_squircle"
-                    android:contentDescription="@string/next"
-                    android:padding="14dp"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_lyrics_forward"
-                    app:tint="?attr/colorOnSurface" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <ImageButton
-                    android:id="@+id/audio_repeat"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_player_control_squircle"
-                    android:contentDescription="@string/repeat"
-                    android:padding="14dp"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_repeat"
-                    app:tint="?attr/colorOnSurface" />
-
-            </LinearLayout>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="0.4"
-                android:minHeight="12dp" />
-
-            <!-- Speed Selector Button -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:orientation="horizontal">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/audio_speed"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="0dp"
-                    android:text="@string/speed_1x"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
-
-            </LinearLayout>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="0.6"
-                android:minHeight="16dp" />
+                android:clipToPadding="false"
+                android:paddingHorizontal="12dp"
+                android:paddingBottom="36dp" />
 
         </LinearLayout>
-    </androidx.core.widget.NestedScrollView>
 
-    <!-- Pinned Top Header with smooth gradient scrim for seamless blending -->
-    <LinearLayout
-        android:id="@+id/audio_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:background="@drawable/bg_player_header_gradient"
-        android:gravity="center_vertical"
-        android:minHeight="?attr/actionBarSize"
-        android:orientation="horizontal"
-        android:paddingStart="6dp"
-        android:paddingTop="8dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="20dp">
+    </com.google.android.material.card.MaterialCardView>
 
-        <ImageButton
-            android:id="@+id/audio_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/back"
-            android:src="@drawable/ic_back"
-            app:tint="?attr/colorOnSurface" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:gravity="center_vertical"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/audio_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:singleLine="true"
-                android:textColor="?attr/colorOnSurface"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/audio_artist"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="1dp"
-                android:ellipsize="end"
-                android:singleLine="true"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="13sp" />
-        </LinearLayout>
-
-    </LinearLayout>
-
-</FrameLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
