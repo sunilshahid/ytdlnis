@@ -20,6 +20,7 @@ import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import androidx.recyclerview.widget.RecyclerView
 import android.widget.TextView
+import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.util.ApkInstallUtil
 import com.deniscerri.ytdl.util.Extensions.applyTactilePressAnimation
 import com.google.android.material.color.MaterialColors
@@ -102,7 +103,16 @@ abstract class BaseSettingsFragment : PreferenceFragmentCompat(), SettingHost {
         listView.addOnChildAttachStateChangeListener(object : RecyclerView.OnChildAttachStateChangeListener {
             override fun onChildViewAttachedToWindow(view: View) {
                 if (view !is TextView) {
-                    view.applyTactilePressAnimation()
+                    view.applyTactilePressAnimation(0.94f)
+                }
+                val icon = view.findViewById<android.widget.ImageView>(android.R.id.icon)
+                val iconFrame = view.findViewById<View>(R.id.icon_frame)
+                if (iconFrame != null) {
+                    if (icon == null || icon.drawable == null || icon.visibility == View.GONE) {
+                        iconFrame.visibility = View.GONE
+                    } else {
+                        iconFrame.visibility = View.VISIBLE
+                    }
                 }
             }
             override fun onChildViewDetachedFromWindow(view: View) {

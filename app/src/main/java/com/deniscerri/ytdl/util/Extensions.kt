@@ -816,14 +816,14 @@ object Extensions {
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    fun View.applyTactilePressAnimation(scaleDown: Float = 0.965f) {
+    fun View.applyTactilePressAnimation(scaleDown: Float = 0.94f) {
         setOnTouchListener { v, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     v.animate()
                         .scaleX(scaleDown)
                         .scaleY(scaleDown)
-                        .setDuration(90)
+                        .setDuration(80)
                         .setInterpolator(DecelerateInterpolator())
                         .start()
                 }
@@ -834,8 +834,8 @@ object Extensions {
                         v.animate()
                             .scaleX(targetScale)
                             .scaleY(targetScale)
-                            .setDuration(90)
-                            .setInterpolator(if (isInside) DecelerateInterpolator() else OvershootInterpolator(1.5f))
+                            .setDuration(80)
+                            .setInterpolator(if (isInside) DecelerateInterpolator() else OvershootInterpolator(2.0f))
                             .start()
                     }
                 }
@@ -843,8 +843,8 @@ object Extensions {
                     v.animate()
                         .scaleX(1.0f)
                         .scaleY(1.0f)
-                        .setDuration(130)
-                        .setInterpolator(OvershootInterpolator(1.5f))
+                        .setDuration(150)
+                        .setInterpolator(OvershootInterpolator(2.2f))
                         .start()
                 }
             }

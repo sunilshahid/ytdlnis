@@ -5,290 +5,217 @@ import android.app.Activity
 import android.content.DialogInterface
 import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.LayoutDirection
-import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
-import androidx.core.text.layoutDirection
+import androidx.core.text.TextUtilsCompat
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
-import androidx.preference.Preference
-import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
-import androidx.recyclerview.widget.RecyclerView
-import com.deniscerri.ytdl.util.Extensions.applyTactilePressAnimation
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
 import com.deniscerri.ytdl.BuildConfig
 import com.deniscerri.ytdl.R
-import com.deniscerri.ytdl.database.models.BackupSettingsItem
-import com.deniscerri.ytdl.database.models.CommandTemplate
-import com.deniscerri.ytdl.database.models.CookieItem
-import com.deniscerri.ytdl.database.models.DownloadItem
-import com.deniscerri.ytdl.database.models.HistoryItem
-import com.deniscerri.ytdl.database.models.RestoreAppDataItem
-import com.deniscerri.ytdl.database.models.ResultItem
-import com.deniscerri.ytdl.database.models.SearchHistoryItem
-import com.deniscerri.ytdl.database.models.TemplateShortcut
-import com.deniscerri.ytdl.database.models.observeSources.ObserveSourcesItem
 import com.deniscerri.ytdl.database.viewmodel.SettingsViewModel
-import com.deniscerri.ytdl.util.LocaleUtil
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
+import com.deniscerri.ytdl.ui.compose.settings.MainSettingsScreen
+import com.deniscerri.ytdl.ui.compose.settings.MainSettingsUiState
 import com.deniscerri.ytdl.util.BackupSettingsUtil
 import com.deniscerri.ytdl.util.FileUtil
+import com.deniscerri.ytdl.util.LocaleUtil
 import com.deniscerri.ytdl.util.ThemeUtil
 import com.deniscerri.ytdl.util.UiUtil
-import com.deniscerri.ytdl.util.UpdateUtil
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
-import com.google.gson.Gson
-import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
 
-
-class MainSettingsFragment : PreferenceFragmentCompat() {
-    private var backup : Preference? = null
-    private var restore : Preference? = null
-    private var backupPath : Preference? = null
-
-    private var updateUtil: UpdateUtil? = null
-    private var activeDownloadCount = 0
+class MainSettingsFragment : ComposeFragment() {
 
     private lateinit var settingsViewModel: SettingsViewModel
-
+    private lateinit var preferences: SharedPreferences
     private lateinit var editor: SharedPreferences.Editor
 
+    private var uiState by mutableStateOf(MainSettingsUiState())
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-        setDivider(null)
-
-        val density = resources.displayMetrics.density
-        val topPadding = (4 * density).toInt()
-        val bottomPadding = (24 * density).toInt()
-        listView.clipToPadding = false
-        listView.setPadding(listView.paddingLeft, topPadding, listView.paddingRight, bottomPadding)
-
-        listView.addOnChildAttachStateChangeListener(object : RecyclerView.OnChildAttachStateChangeListener {
-            override fun onChildViewAttachedToWindow(view: View) {
-                if (view !is TextView) {
-                    view.applyTactilePressAnimation()
-                }
-            }
-            override fun onChildViewDetachedFromWindow(view: View) {
-                view.animate().cancel()
-                view.scaleX = 1.0f
-                view.scaleY = 1.0f
-            }
-        })
-
-        ViewCompat.setOnApplyWindowInsetsListener(listView) { v, insets ->
-            val systemBars = insets.getInsets(
-                WindowInsetsCompat.Type.systemBars()
-            )
-
-            v.setPadding(
-                v.paddingLeft,
-                topPadding,
-                v.paddingRight,
-                bottomPadding + systemBars.bottom
-            )
-
-            insets
-        }
-    }
-    override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-        setPreferencesFromResource(R.xml.root_preferences, rootKey)
-        val navController = findNavController()
-        val preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-        editor = preferences.edit()
-
-        val appearance = findPreference<Preference>("appearance")
-        val separator = if (LocaleUtil.currentLocale().layoutDirection == LayoutDirection.RTL) "،" else ","
-        appearance?.summary = "${getString(R.string.Theme)}$separator ${getString(R.string.accents)}$separator ${getString(R.string.app_icon)}"
-        appearance?.setOnPreferenceClickListener {
-            navController.navigate(R.id.action_mainSettingsFragment_to_appearanceSettingsFragment)
-            true
-        }
-
-        val general = findPreference<Preference>("general")
-        general?.summary = "${if (Build.VERSION.SDK_INT < 33) getString(R.string.language) + "$separator " else ""}${getString(R.string.preferred_search_engine)}$separator ${getString(R.string.preferred_home_screen)}"
-        general?.setOnPreferenceClickListener {
-            navController.navigate(R.id.action_mainSettingsFragment_to_generalSettingsFragment)
-            true
-        }
-
-        val player = findPreference<Preference>("player")
-        player?.summary = "${getString(R.string.device_files_title)}$separator ${getString(R.string.lyrics)}"
-        player?.setOnPreferenceClickListener {
-            navController.navigate(R.id.action_mainSettingsFragment_to_playerSettingsFragment)
-            true
-        }
-
-        val folders = findPreference<Preference>("folders")
-        folders?.summary = "${getString(R.string.music_directory)}$separator ${getString(R.string.video_directory)}$separator ${getString(R.string.command_directory)}"
-        folders?.setOnPreferenceClickListener {
-            navController.navigate(R.id.action_mainSettingsFragment_to_folderSettingsFragment)
-            true
-        }
-
-        val downloading = findPreference<Preference>("downloading")
-        downloading?.summary = "${getString(R.string.quick_download)}$separator ${getString(R.string.concurrent_downloads)}$separator ${getString(R.string.limit_rate)}"
-        downloading?.setOnPreferenceClickListener {
-            navController.navigate(R.id.action_mainSettingsFragment_to_downloadSettingsFragment)
-            true
-        }
-
-        val processing = findPreference<Preference>("processing")
-        processing?.summary = "${getString(R.string.sponsorblock)}$separator ${getString(R.string.embed_subtitles)}$separator ${getString(R.string.add_chapters)}"
-        processing?.setOnPreferenceClickListener {
-            navController.navigate(R.id.action_mainSettingsFragment_to_processingSettingsFragment)
-            true
-        }
-
-        val updating = findPreference<Preference>("updating")
-        updating?.summary = "${getString(R.string.update_ytdl)}$separator ${getString(R.string.update_app)}"
-        updating?.setOnPreferenceClickListener {
-            navController.navigate(R.id.action_mainSettingsFragment_to_updateSettingsFragment)
-            true
-        }
-
-        val advanced = findPreference<Preference>("advanced")
-        advanced?.summary = "PO Token$separator ${getString(R.string.other_youtube_extractor_args)}"
-        advanced?.setOnPreferenceClickListener {
-            navController.navigate(R.id.action_mainSettingsFragment_to_advancedSettingsFragment)
-            true
-        }
-
-        //about section -------------------------
-        updateUtil = UpdateUtil(requireContext())
-
-        WorkManager.getInstance(requireContext()).getWorkInfosByTagLiveData("download").observe(this){
-            activeDownloadCount = 0
-            it.forEach {w ->
-                if (w.state == WorkInfo.State.RUNNING) activeDownloadCount++
-            }
-        }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
+        preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        editor = preferences.edit()
+        updateState()
+    }
 
-        backup = findPreference("backup")
-        restore = findPreference("restore")
-        backupPath = findPreference("backup_path")
+    override fun onResume() {
+        super.onResume()
+        updateState()
+    }
 
-        findPreference<Preference>("package_name")?.apply {
-            summary = BuildConfig.APPLICATION_ID
-            setOnPreferenceClickListener {
-                UiUtil.copyToClipboard(summary.toString(), requireActivity())
-                true
-            }
-        }
+    private fun updateState() {
+        if (!isAdded) return
+        val isRtl = TextUtilsCompat.getLayoutDirectionFromLocale(LocaleUtil.currentLocale()) == ViewCompat.LAYOUT_DIRECTION_RTL
+        val separator = if (isRtl) "،" else ","
+        uiState = MainSettingsUiState(
+            appearanceSummary = "${getString(R.string.Theme)}$separator ${getString(R.string.accents)}$separator ${getString(R.string.app_icon)}",
+            generalSummary = "${if (Build.VERSION.SDK_INT < 33) getString(R.string.language) + "$separator " else ""}${getString(R.string.preferred_search_engine)}$separator ${getString(R.string.preferred_home_screen)}",
+            playerSummary = "${getString(R.string.device_files_title)}$separator ${getString(R.string.lyrics)}",
+            foldersSummary = "${getString(R.string.music_directory)}$separator ${getString(R.string.video_directory)}$separator ${getString(R.string.command_directory)}",
+            downloadingSummary = "${getString(R.string.quick_download)}$separator ${getString(R.string.concurrent_downloads)}$separator ${getString(R.string.limit_rate)}",
+            processingSummary = "${getString(R.string.sponsorblock)}$separator ${getString(R.string.embed_subtitles)}$separator ${getString(R.string.add_chapters)}",
+            updatingSummary = "${getString(R.string.update_ytdl)}$separator ${getString(R.string.update_app)}",
+            advancedSummary = "PO Token$separator ${getString(R.string.other_youtube_extractor_args)}",
+            automaticBackup = preferences.getBoolean("automatic_backup", true),
+            backupPath = FileUtil.formatPath(FileUtil.getBackupPath(requireContext())),
+            packageName = BuildConfig.APPLICATION_ID,
+        )
+    }
 
-        findPreference<Preference>("translators")?.setOnPreferenceClickListener {
-            TranslatorsDialog.show(requireContext())
-            true
-        }
-
-        backup!!.onPreferenceClickListener =
-            Preference.OnPreferenceClickListener {
-                val builder = MaterialAlertDialogBuilder(requireContext())
-                builder.setTitle(getString(R.string.select_backup_categories))
-                val values = resources.getStringArray(R.array.backup_category_values)
-                val entries = resources.getStringArray(R.array.backup_category_entries)
-                val checkedItems : ArrayList<Boolean> = arrayListOf()
-                values.forEach { _ ->
-                    checkedItems.add(true)
-                }
-
-                builder.setMultiChoiceItems(
-                    entries,
-                    checkedItems.toBooleanArray()
-                ) { _, which, isChecked ->
-                    checkedItems[which] = isChecked
-                }
-
-                builder.setPositiveButton(
-                    getString(R.string.ok)
-                ) { _: DialogInterface?, _: Int ->
-                    lifecycleScope.launch {
-                        if (checkedItems.all { !it }){
-                            Snackbar.make(requireView(), R.string.select_backup_categories, Snackbar.LENGTH_SHORT).show()
-                            return@launch
-                        }
-
-                        val selectedItems = values.mapIndexed { idx, it -> Pair<String, Boolean>(it, checkedItems[idx]) }.filter { it.second }.map { it.first }
-                        val pathResult = withContext(Dispatchers.IO){
-                            settingsViewModel.backup(selectedItems)
-                        }
-
-                        if (pathResult.isFailure) {
-                            val errorMessage = pathResult.exceptionOrNull()?.message ?: requireContext().getString(R.string.errored)
-                            val snack = Snackbar.make(requireView(), errorMessage, Snackbar.LENGTH_LONG)
-                            val snackbarView: View = snack.view
-                            val snackTextView = snackbarView.findViewById<View>(com.google.android.material.R.id.snackbar_text) as TextView
-                            snackTextView.maxLines = 9999999
-                            snack.setAction(android.R.string.copy){
-                                UiUtil.copyToClipboard(errorMessage ?: requireContext().getString(R.string.errored), requireActivity())
-                            }
-                            snack.show()
-                        }else {
-                            val s = Snackbar.make(
-                                requireView(),
-                                getString(R.string.backup_created_successfully),
-                                Snackbar.LENGTH_LONG
-                            )
-                            s.setAction(R.string.Open_File) {
-                                FileUtil.openFileIntent(requireActivity(), pathResult.getOrNull()!!)
-                            }
-                            s.show()
-                        }
-                    }
-                }
-
-                // handle the negative button of the alert dialog
-                builder.setNegativeButton(
-                    getString(R.string.cancel)
-                ) { _: DialogInterface?, _: Int -> }
-
-
-                val dialog = builder.create()
-                dialog.show()
-                true
-            }
-        restore!!.onPreferenceClickListener =
-            Preference.OnPreferenceClickListener {
+    @Composable
+    override fun Content() {
+        val navController = findNavController()
+        MainSettingsScreen(
+            state = uiState,
+            onAppearanceClick = {
+                navController.navigate(R.id.action_mainSettingsFragment_to_appearanceSettingsFragment)
+            },
+            onGeneralClick = {
+                navController.navigate(R.id.action_mainSettingsFragment_to_generalSettingsFragment)
+            },
+            onPlayerClick = {
+                navController.navigate(R.id.action_mainSettingsFragment_to_playerSettingsFragment)
+            },
+            onFoldersClick = {
+                navController.navigate(R.id.action_mainSettingsFragment_to_folderSettingsFragment)
+            },
+            onDownloadingClick = {
+                navController.navigate(R.id.action_mainSettingsFragment_to_downloadSettingsFragment)
+            },
+            onProcessingClick = {
+                navController.navigate(R.id.action_mainSettingsFragment_to_processingSettingsFragment)
+            },
+            onUpdatingClick = {
+                navController.navigate(R.id.action_mainSettingsFragment_to_updateSettingsFragment)
+            },
+            onAdvancedClick = {
+                navController.navigate(R.id.action_mainSettingsFragment_to_advancedSettingsFragment)
+            },
+            onBackupClick = {
+                showBackupDialog()
+            },
+            onRestoreClick = {
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "*/*"
+                    addFlags(
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                    )
                 }
-                intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
                 appRestoreResultLauncher.launch(intent)
-                true
-            }
-
-        backupPath?.apply {
-            summary = FileUtil.formatPath(FileUtil.getBackupPath(requireContext()))
-            setOnPreferenceClickListener {
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            },
+            onAutomaticBackupToggle = { enabled ->
+                editor.putBoolean("automatic_backup", enabled).apply()
+                uiState = uiState.copy(automaticBackup = enabled)
+            },
+            onBackupPathClick = {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                    addFlags(
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                    )
+                }
                 backupPathResultLauncher.launch(intent)
-                true
+            },
+            onPackageNameClick = {
+                UiUtil.copyToClipboard(BuildConfig.APPLICATION_ID, requireActivity())
+            },
+            onDiscordClick = {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://discord.gg/WW3KYWxAPm")))
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            },
+            onTelegramClick = {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/ytdlnis")))
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            },
+            onTranslatorsClick = {
+                TranslatorsDialog.show(requireContext())
+            },
+        )
+    }
+
+    private fun showBackupDialog() {
+        val builder = MaterialAlertDialogBuilder(requireContext())
+        builder.setTitle(getString(R.string.select_backup_categories))
+        val values = resources.getStringArray(R.array.backup_category_values)
+        val entries = resources.getStringArray(R.array.backup_category_entries)
+        val checkedItems = BooleanArray(values.size) { true }
+
+        builder.setMultiChoiceItems(entries, checkedItems) { _, which, isChecked ->
+            checkedItems[which] = isChecked
+        }
+
+        builder.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
+            lifecycleScope.launch {
+                if (checkedItems.none { it }) {
+                    view?.let {
+                        Snackbar.make(it, R.string.select_backup_categories, Snackbar.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                val selectedItems = values.filterIndexed { index, _ -> checkedItems[index] }
+                val pathResult = withContext(Dispatchers.IO) {
+                    settingsViewModel.backup(selectedItems)
+                }
+
+                if (pathResult.isFailure) {
+                    val errorMessage = pathResult.exceptionOrNull()?.message ?: getString(R.string.errored)
+                    view?.let { v ->
+                        val snack = Snackbar.make(v, errorMessage, Snackbar.LENGTH_LONG)
+                        val snackbarView: View = snack.view
+                        val snackTextView = snackbarView.findViewById<View>(com.google.android.material.R.id.snackbar_text) as? TextView
+                        snackTextView?.maxLines = 9999999
+                        snack.setAction(android.R.string.copy) {
+                            UiUtil.copyToClipboard(errorMessage, requireActivity())
+                        }
+                        snack.show()
+                    }
+                } else {
+                    view?.let { v ->
+                        val s = Snackbar.make(
+                            v,
+                            getString(R.string.backup_created_successfully),
+                            Snackbar.LENGTH_LONG
+                        )
+                        s.setAction(R.string.Open_File) {
+                            FileUtil.openFileIntent(requireActivity(), pathResult.getOrNull()!!)
+                        }
+                        s.show()
+                    }
+                }
             }
         }
+
+        builder.setNegativeButton(getString(R.string.cancel)) { _: DialogInterface?, _: Int -> }
+        builder.create().show()
     }
 
     private var backupPathResultLauncher = registerForActivityResult(
@@ -298,19 +225,15 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
             result.data?.data?.let {
                 activity?.contentResolver?.takePersistableUriPermission(
                     it,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             }
 
-            val path = result.data!!.data.toString()
-            backupPath!!.summary = FileUtil.formatPath(path)
-            editor.putString("backup_path", path)
-            editor.apply()
+            val path = result.data?.data?.toString().orEmpty()
+            uiState = uiState.copy(backupPath = FileUtil.formatPath(path))
+            editor.putString("backup_path", path).apply()
         }
     }
-
-
 
     private var appRestoreResultLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -319,8 +242,7 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
             result.data?.data?.let {
                 activity?.contentResolver?.takePersistableUriPermission(
                     it,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             }
             lifecycleScope.launch {
@@ -331,81 +253,72 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                     showAppRestoreInfoDialog(
                         onMerge = {
                             lifecycleScope.launch {
-                                val res = withContext(Dispatchers.IO){
+                                val res = withContext(Dispatchers.IO) {
                                     settingsViewModel.restoreData(restoreData, requireContext())
                                 }
                                 if (res) {
-                                    showRestoreFinishedDialog(restoreData, parsedDataMessage.toString())
-                                }else{
+                                    showRestoreFinishedDialog(parsedDataMessage.toString())
+                                } else {
                                     throw Error()
                                 }
                             }
                         },
-                        onReset =  {
+                        onReset = {
                             lifecycleScope.launch {
-                                val res = withContext(Dispatchers.IO){
-                                    settingsViewModel.restoreData(restoreData, requireContext(),true)
+                                val res = withContext(Dispatchers.IO) {
+                                    settingsViewModel.restoreData(restoreData, requireContext(), true)
                                 }
                                 if (res) {
-                                    showRestoreFinishedDialog(restoreData, parsedDataMessage.toString())
-                                }else{
+                                    showRestoreFinishedDialog(parsedDataMessage.toString())
+                                } else {
                                     throw Error()
                                 }
                             }
                         }
                     )
-
                 }.onFailure {
                     it.printStackTrace()
-                    Snackbar.make(requireView(), it.message.toString(), Snackbar.LENGTH_INDEFINITE).show()
+                    view?.let { v ->
+                        Snackbar.make(v, it.message.toString(), Snackbar.LENGTH_INDEFINITE).show()
+                    }
                 }
             }
-
         }
     }
 
-
-
     @SuppressLint("RestrictedApi")
-    private fun showAppRestoreInfoDialog(onMerge: () -> Unit, onReset: () -> Unit){
+    private fun showAppRestoreInfoDialog(onMerge: () -> Unit, onReset: () -> Unit) {
         val builder = MaterialAlertDialogBuilder(requireContext())
         builder.setTitle(getString(R.string.restore))
         builder.setMessage(getString(R.string.restore_info))
 
-        builder.setNegativeButton(getString(R.string.cancel)) { dialog : DialogInterface?, _: Int ->
+        builder.setNegativeButton(getString(R.string.cancel)) { dialog: DialogInterface?, _: Int ->
             dialog?.dismiss()
         }
 
-        builder.setPositiveButton(getString(R.string.restore)) { dialog : DialogInterface?, _: Int ->
+        builder.setPositiveButton(getString(R.string.restore)) { dialog: DialogInterface?, _: Int ->
             onMerge()
             dialog?.dismiss()
         }
 
-        builder.setNeutralButton(getString(R.string.reset)) { dialog : DialogInterface?, _: Int ->
+        builder.setNeutralButton(getString(R.string.reset)) { dialog: DialogInterface?, _: Int ->
             onReset()
             dialog?.dismiss()
         }
-
 
         val dialog = builder.create()
         dialog.show()
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL).gravity = Gravity.START
     }
 
-    private fun showRestoreFinishedDialog(data: RestoreAppDataItem, restoreDataMessage: String) {
-        val preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-
+    private fun showRestoreFinishedDialog(restoreDataMessage: String) {
         val builder = MaterialAlertDialogBuilder(requireContext())
         builder.setTitle(getString(R.string.restore))
         builder.setMessage("${getString(R.string.restore_complete)}\n\n$restoreDataMessage")
         builder.setCancelable(false)
-        builder.setPositiveButton(
-            getString(R.string.ok)
-        ) { _: DialogInterface?, _: Int ->
+        builder.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
             ThemeUtil.recreateAllActivities()
         }
-
-        val dialog = builder.create()
-        dialog.show()
+        builder.create().show()
     }
 }

@@ -1,9 +1,9 @@
 package com.deniscerri.ytdl.ui.compose.components
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -11,7 +11,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,7 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +44,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.deniscerri.ytdl.R
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /**
  * The M3 preference row used by Settings, Lyrics settings and More.
@@ -69,16 +71,37 @@ fun PreferenceCard(
     val shape = RoundedCornerShape(20.dp)
     val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.965f else 1.0f,
-        animationSpec = if (isPressed) {
-            tween(durationMillis = 90, easing = FastOutSlowInEasing)
-        } else {
-            spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium)
-        },
-        label = "preferenceCardScale"
-    )
+
+    val scale = remember { Animatable(1f) }
+    LaunchedEffect(interactionSource) {
+        var pressJob: Job? = null
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> {
+                    pressJob?.cancel()
+                    pressJob = launch {
+                        scale.animateTo(
+                            targetValue = 0.94f,
+                            animationSpec = tween(durationMillis = 70, easing = FastOutSlowInEasing)
+                        )
+                    }
+                }
+                is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    val currentJob = pressJob
+                    launch {
+                        currentJob?.join()
+                        scale.animateTo(
+                            targetValue = 1f,
+                            animationSpec = spring(
+                                dampingRatio = 0.45f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     val actualTrailing: (@Composable () -> Unit)? = trailing ?: if (showChevron) {
         {
@@ -97,8 +120,8 @@ fun PreferenceCard(
         .fillMaxWidth()
         .padding(horizontal = 14.dp, vertical = 3.5.dp)
         .graphicsLayer {
-            scaleX = scale
-            scaleY = scale
+            scaleX = scale.value
+            scaleY = scale.value
         }
 
     val content: @Composable () -> Unit = {
