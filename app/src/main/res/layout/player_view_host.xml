@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Host layout for `PlayerViewHost` (Compose interop).
+
+    media3 1.9.0 has no `setControllerLayoutId` setter: `controller_layout_id` is read from
+    attributes at inflation time. That is why the PlayerView used by Compose is inflated from this
+    layout instead of being constructed with `PlayerView(context)`.
+
+    The attributes mirror `activity_video_player.xml`, which is the primary consumer. Screens that
+    need a different player configuration (e.g. a thumbnail with `resize_mode="fixed_height"`)
+    should pass their own layout to `PlayerViewHost`.
+-->
+<androidx.media3.ui.PlayerView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/player_view_host"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    app:animation_enabled="false"
+    app:controller_layout_id="@layout/exo_player_control_view"
+    app:keep_content_on_player_reset="true"
+    app:resize_mode="fit"
+    app:show_buffering="never"
+    app:show_timeout="3500"
+    app:shutter_background_color="@android:color/transparent"
+    app:surface_type="surface_view"
+    app:use_controller="true" />

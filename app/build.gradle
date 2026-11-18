@@ -281,6 +281,14 @@ dependencies {
     implementation 'me.zhanghai.android.fastscroll:library:1.3.0'
     implementation 'com.google.accompanist:accompanist-webview:0.36.0'
     implementation 'androidx.compose.material3:material3-android:1.4.0'
+    // Compose migration (Phase 1).
+    // NOTE: activity-compose 1.9.1 is present in files-2.1 but its descriptor was cached by an older
+    // Gradle (metadata-2.106). This project runs Gradle 8.13 / metadata-2.107, so 1.9.1 is NOT
+    // resolvable with --offline. 1.9.0 is described in 2.107 and resolves.
+    implementation "androidx.activity:activity-compose:1.9.0"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.10.0"
+    // ui-tooling / ui-tooling-preview are intentionally absent until an approved online sync:
+    // only 1.6.8 is cached, and mixing it with ui 1.10.1 is not worth the risk.
     implementation "io.noties.markwon:core:4.6.2"
     implementation("com.github.teamnewpipe:newpipeextractor:v0.26.5")
 
