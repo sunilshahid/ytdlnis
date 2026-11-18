@@ -74,7 +74,7 @@ class ResultViewModel(private val application: Application) : AndroidViewModel(a
 
 
     private val notificationUtil: NotificationUtil
-    private val dao: ResultDao
+    val dao: ResultDao
     data class ResultsUiState(
         var processing: Boolean,
         var errorMessage: String?,
