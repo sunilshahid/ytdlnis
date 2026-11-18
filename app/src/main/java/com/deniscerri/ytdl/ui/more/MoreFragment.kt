@@ -4,95 +4,61 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.widget.CheckBox
-import android.widget.ImageView
-import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
-import androidx.core.content.ContextCompat
-import androidx.core.view.isVisible
-import androidx.fragment.app.Fragment
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.findNavController
 import androidx.preference.PreferenceManager
-import com.deniscerri.ytdl.BuildConfig
 import com.deniscerri.ytdl.MainActivity
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.viewmodel.DownloadViewModel
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
 import com.deniscerri.ytdl.ui.more.settings.SettingsActivity
 import com.deniscerri.ytdl.ui.more.terminal.TerminalActivity
-import com.deniscerri.ytdl.util.Extensions.applyTactilePressAnimation
 import com.deniscerri.ytdl.util.NavbarUtil
-import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 import kotlin.system.exitProcess
 
-class MoreFragment : Fragment() {
+/**
+ * MoreFragment hosting the Jetpack Compose [MoreScreen].
+ */
+class MoreFragment : ComposeFragment() {
     private lateinit var mainSharedPreferences: SharedPreferences
     private lateinit var mainSharedPreferencesEditor: SharedPreferences.Editor
-    private lateinit var terminal: View
-    private lateinit var logs: View
-    private lateinit var commandTemplates: View
-    private lateinit var downloadQueue: View
-    private lateinit var downloads: View
-    private lateinit var cookies: View
-    private lateinit var observeSources: View
-    private lateinit var privateVault: View
-    private lateinit var terminateApp: View
-    private lateinit var settings: View
     private lateinit var mainActivity: MainActivity
     private lateinit var downloadViewModel: DownloadViewModel
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
+
+    private var uiState by mutableStateOf(MoreUiState())
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         mainActivity = activity as MainActivity
         downloadViewModel = ViewModelProvider(this)[DownloadViewModel::class.java]
-        return inflater.inflate(R.layout.fragment_more, container, false)
+        mainSharedPreferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        mainSharedPreferencesEditor = mainSharedPreferences.edit()
     }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        updateState()
+    }
 
-        mainSharedPreferences =  PreferenceManager.getDefaultSharedPreferences(requireContext())
-        mainSharedPreferencesEditor = mainSharedPreferences.edit()
-        terminal = view.findViewById(R.id.terminal)
-        logs = view.findViewById(R.id.logs)
-        commandTemplates = view.findViewById(R.id.command_templates)
-        downloads = view.findViewById(R.id.downloads)
-        downloadQueue = view.findViewById(R.id.download_queue)
-        cookies = view.findViewById(R.id.cookies)
-        observeSources = view.findViewById(R.id.observe_sources)
-        privateVault = view.findViewById(R.id.private_vault)
-        terminateApp = view.findViewById(R.id.terminate)
-        settings = view.findViewById(R.id.settings)
+    override fun onResume() {
+        super.onResume()
+        updateState()
+    }
 
-        listOf(
-            terminal,
-            logs,
-            commandTemplates,
-            downloads,
-            downloadQueue,
-            cookies,
-            observeSources,
-            privateVault,
-            settings,
-            terminateApp
-        ).forEach { it.applyTactilePressAnimation() }
-
-        privateVault.isVisible = !com.deniscerri.ytdl.vault.VaultRepository.isStealthEnabled(requireContext())
-
-        val appIcon = view.findViewById<ImageView>(R.id.app_icon)
-        if (mainSharedPreferences.getString("theme_accent", "blue") == "Default" && Build.VERSION.SDK_INT >= 32) {
-            appIcon.backgroundTintList = MaterialColors.getColorStateList(requireContext(), R.attr.colorPrimary, ContextCompat.getColorStateList(requireContext(), R.color.icon_fg)!!)
-        } else {
-            appIcon.backgroundTintList = null
-        }
+    private fun updateState() {
+        if (!isAdded) return
 
         var showingTerminal = false
         var showingDownloads = false
@@ -104,76 +70,72 @@ class MoreFragment : Fragment() {
             showingDownloadQueue = any { n -> n.itemId == R.id.downloadQueueMainFragment && n.isVisible }
         }
 
-        terminal.isVisible = !showingTerminal
-        downloads.isVisible = !showingDownloads
-        downloadQueue.isVisible = !showingDownloadQueue
+        val appIconTintPrimary = mainSharedPreferences.getString("theme_accent", "blue") == "Default" && Build.VERSION.SDK_INT >= 32
+        val showPrivateVault = !com.deniscerri.ytdl.vault.VaultRepository.isStealthEnabled(requireContext())
 
-        terminal.setOnClickListener {
-            val intent = Intent(context, TerminalActivity::class.java)
-            startActivity(intent)
-        }
-
-        val slideNavOptions = NavOptions.Builder()
-            .setEnterAnim(R.anim.nav_slide_in_right)
-            .setExitAnim(R.anim.nav_slide_out_left)
-            .setPopEnterAnim(R.anim.nav_slide_in_left)
-            .setPopExitAnim(R.anim.nav_slide_out_right)
-            .build()
-
-        logs.setOnClickListener {
-            findNavController().navigate(R.id.downloadLogListFragment, null, slideNavOptions)
-        }
-
-        commandTemplates.setOnClickListener {
-            findNavController().navigate(R.id.commandTemplatesFragment, null, slideNavOptions)
-        }
-
-        downloads.setOnClickListener {
-            findNavController().navigate(R.id.historyFragment, null, slideNavOptions)
-        }
-
-        downloadQueue.setOnClickListener {
-            findNavController().navigate(R.id.downloadQueueMainFragment, null, slideNavOptions)
-        }
-
-        cookies.setOnClickListener {
-            findNavController().navigate(R.id.cookiesFragment, null, slideNavOptions)
-        }
-
-        observeSources.setOnClickListener {
-            findNavController().navigate(R.id.observeSourcesFragment, null, slideNavOptions)
-        }
-
-        privateVault.setOnClickListener {
-            startActivity(com.deniscerri.ytdl.vault.ui.VaultActivity.createIntent(requireContext()))
-        }
-
-        terminateApp.setOnClickListener {
-            showTerminateConfirmationDialog()
-        }
-        terminateApp.setOnLongClickListener {
-            showTerminateConfirmationDialog(skipPreference = true)
-            true
-        }
-
-        settings.setOnClickListener {
-            val intent = Intent(context, SettingsActivity::class.java)
-            startActivity(intent)
-        }
-
+        uiState = MoreUiState(
+            showTerminal = !showingTerminal,
+            showDownloads = !showingDownloads,
+            showDownloadQueue = !showingDownloadQueue,
+            showPrivateVault = showPrivateVault,
+            appIconTintPrimary = appIconTintPrimary,
+        )
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (::privateVault.isInitialized) {
-            privateVault.isVisible = !com.deniscerri.ytdl.vault.VaultRepository.isStealthEnabled(requireContext())
+    @Composable
+    override fun Content() {
+        val slideNavOptions = remember {
+            NavOptions.Builder()
+                .setEnterAnim(R.anim.nav_slide_in_right)
+                .setExitAnim(R.anim.nav_slide_out_left)
+                .setPopEnterAnim(R.anim.nav_slide_in_left)
+                .setPopExitAnim(R.anim.nav_slide_out_right)
+                .build()
         }
+
+        MoreScreen(
+            state = uiState,
+            onTerminalClick = {
+                val intent = Intent(context, TerminalActivity::class.java)
+                startActivity(intent)
+            },
+            onLogsClick = {
+                findNavController().navigate(R.id.downloadLogListFragment, null, slideNavOptions)
+            },
+            onCommandTemplatesClick = {
+                findNavController().navigate(R.id.commandTemplatesFragment, null, slideNavOptions)
+            },
+            onDownloadsClick = {
+                findNavController().navigate(R.id.historyFragment, null, slideNavOptions)
+            },
+            onDownloadQueueClick = {
+                findNavController().navigate(R.id.downloadQueueMainFragment, null, slideNavOptions)
+            },
+            onCookiesClick = {
+                findNavController().navigate(R.id.cookiesFragment, null, slideNavOptions)
+            },
+            onObserveSourcesClick = {
+                findNavController().navigate(R.id.observeSourcesFragment, null, slideNavOptions)
+            },
+            onPrivateVaultClick = {
+                startActivity(com.deniscerri.ytdl.vault.ui.VaultActivity.createIntent(requireContext()))
+            },
+            onSettingsClick = {
+                val intent = Intent(context, SettingsActivity::class.java)
+                startActivity(intent)
+            },
+            onTerminateClick = {
+                showTerminateConfirmationDialog()
+            },
+            onTerminateLongClick = {
+                showTerminateConfirmationDialog(skipPreference = true)
+            },
+        )
     }
 
     fun showTerminateConfirmationDialog(skipPreference: Boolean = false) {
         val shouldAskToTerminate = mainSharedPreferences.getBoolean("ask_terminate_app", true)
         if (!shouldAskToTerminate && !skipPreference) {
-            terminateApp.isEnabled = false
             terminateApp()
             return
         }
@@ -219,5 +181,4 @@ class MoreFragment : Fragment() {
     companion object {
         const val TAG = "MoreFragment"
     }
-
 }
