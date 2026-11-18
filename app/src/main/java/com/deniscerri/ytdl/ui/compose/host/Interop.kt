@@ -46,7 +46,7 @@ fun <T : View> LegacyViewHost(
  */
 @Composable
 fun PlayerViewHost(
-    player: Player,
+    player: Player? = null,
     modifier: Modifier = Modifier,
     @LayoutRes layoutRes: Int = R.layout.player_view_host,
     onReady: (PlayerView) -> Unit = {},

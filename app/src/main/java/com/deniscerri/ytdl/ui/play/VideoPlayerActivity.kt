@@ -24,12 +24,16 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.ImageButton
 import android.widget.ImageView
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.view.isVisible
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -54,9 +58,10 @@ import com.deniscerri.ytdl.playback.model.PlaybackExtrasCodec
 import com.deniscerri.ytdl.playback.model.PlaybackSubtitle
 import com.deniscerri.ytdl.playback.model.PlaybackType
 import com.deniscerri.ytdl.ui.BaseActivity
+import com.deniscerri.ytdl.ui.compose.play.video.VideoPlayerScreen
+import com.deniscerri.ytdl.ui.compose.play.video.VideoPlayerUiState
+import com.deniscerri.ytdl.ui.compose.theme.YtdlnisTheme
 import com.deniscerri.ytdl.util.Extensions.toStringTimeStamp
-import com.google.android.material.button.MaterialButton
-import com.squareup.picasso.Picasso
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,25 +84,8 @@ import kotlin.math.roundToInt
 class VideoPlayerActivity : BaseActivity() {
 
     private lateinit var playerView: PlayerView
-    private lateinit var poster: ImageView
-    private lateinit var loadingOverlay: View
-    private var loadingText: TextView? = null
-    private lateinit var errorOverlay: View
-    private lateinit var errorMessage: TextView
-    private lateinit var seekPreview: TextView
-
-    // Level indicator views (Volume & Brightness bar near top right)
-    private var levelIndicatorView: View? = null
-    private var levelIcon: ImageView? = null
-    private var levelProgress: ProgressBar? = null
-    private var levelText: TextView? = null
-    private var brightnessMeterDrawable: BrightnessMeterDrawable? = null
-
-    // Speed boost views (Top center tap-and-hold speed bar)
-    private var speedBoostContainer: View? = null
-    private var speedBoostTicksRow: View? = null
-    private var speedBoostLabel: TextView? = null
-    private var lockedUnlockBtn: ImageButton? = null
+    private var uiState by mutableStateOf(VideoPlayerUiState())
+    private var isPlayerViewInitialized = false
 
     private var attachedPlayer: Player? = null
     private var locked = false
@@ -120,31 +108,21 @@ class VideoPlayerActivity : BaseActivity() {
     private var currentBoostIndex = 4
     private var originalPlaybackSpeed = 1.0f
     private val boostSpeeds = floatArrayOf(0.25f, 0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 4.0f)
-    private val boostSpeedTextViewIds = listOf(
-        R.id.speed_opt_0_25,
-        R.id.speed_opt_0_5,
-        R.id.speed_opt_1_0,
-        R.id.speed_opt_1_5,
-        R.id.speed_opt_2_0,
-        R.id.speed_opt_2_5,
-        R.id.speed_opt_3_0,
-        R.id.speed_opt_4_0
-    )
 
     private val speedBoostRunnable = Runnable {
         startSpeedBoost()
     }
 
     private val collapseSpeedBarRunnable = Runnable {
-        speedBoostTicksRow?.visibility = View.GONE
+        uiState = uiState.copy(showBoostTicks = false)
     }
 
     private val hideLevelIndicatorRunnable = Runnable {
-        levelIndicatorView?.visibility = View.GONE
+        uiState = uiState.copy(levelVisible = false)
     }
 
     private val hideHints = Runnable {
-        seekPreview.visibility = View.GONE
+        uiState = uiState.copy(seekPreviewText = null)
     }
 
     private val hideScrubPreviewRunnable = Runnable {
@@ -431,16 +409,38 @@ class VideoPlayerActivity : BaseActivity() {
         window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
-        setContentView(R.layout.activity_video_player)
+
+        val composeView = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                YtdlnisTheme {
+                    VideoPlayerScreen(
+                        state = uiState,
+                        player = attachedPlayer ?: PlaybackController.player(),
+                        onPlayerReady = { pv ->
+                            if (!isPlayerViewInitialized) {
+                                isPlayerViewInitialized = true
+                                initPlayerView(pv)
+                            }
+                        },
+                        onRetryClick = { retryPlayback() },
+                        onUnlockClick = { setLocked(false) },
+                    )
+                }
+            }
+        }
+        setContentView(composeView)
         PlaybackController.init(this)
 
-        playerView = findViewById(R.id.video_player)
-        seekPreview = findViewById(R.id.video_seek_preview)
-        poster = findViewById(R.id.video_poster)
-        loadingOverlay = findViewById(R.id.video_loading)
-        loadingText = findViewById(R.id.video_loading_text)
-        errorOverlay = findViewById(R.id.video_error)
-        errorMessage = findViewById(R.id.video_error_message)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                handleExit()
+            }
+        })
+    }
+
+    private fun initPlayerView(pv: PlayerView) {
+        playerView = pv
 
         // Seek-preview stack lives inside the player's control overlay so it fades with the HUD
         scrubPreview = playerView.findViewById(R.id.video_scrub_preview)
@@ -458,33 +458,11 @@ class VideoPlayerActivity : BaseActivity() {
         }
         bindSeekPreview()
 
-        // Level indicator views (Volume/Brightness near top right)
-        levelIndicatorView = findViewById(R.id.video_level_indicator)
-        levelIcon = findViewById(R.id.video_level_icon)
-        levelProgress = findViewById(R.id.video_level_progress)
-        levelText = findViewById(R.id.video_level_text)
-
-        // Speed boost views
-        speedBoostContainer = findViewById(R.id.video_speed_boost_container)
-        speedBoostTicksRow = findViewById(R.id.video_speed_boost_ticks_row)
-        speedBoostLabel = findViewById(R.id.video_speed_boost_label)
-        lockedUnlockBtn = findViewById(R.id.video_locked_unlock_btn)
-
         playerView.setShutterBackgroundColor(Color.TRANSPARENT)
         playerView.setControllerShowTimeoutMs(3500)
 
         // Bind custom control buttons in exo_player_control_view
         bindCustomControls()
-
-        findViewById<MaterialButton>(R.id.video_retry).setOnClickListener {
-            retryPlayback()
-        }
-
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                handleExit()
-            }
-        })
 
         // Synchronize top and bottom controls visibility together
         controllerVisible = playerView.isControllerFullyVisible
@@ -547,11 +525,6 @@ class VideoPlayerActivity : BaseActivity() {
         // Lock button
         playerView.findViewById<ImageButton>(R.id.video_lock)?.setOnClickListener {
             setLocked(!locked)
-        }
-
-        // Floating unlock button
-        lockedUnlockBtn?.setOnClickListener {
-            setLocked(false)
         }
 
         // Resize button
@@ -946,11 +919,6 @@ class VideoPlayerActivity : BaseActivity() {
         if (item.mediaId != posterMediaId) {
             posterMediaId = item.mediaId
             renderedFirstFrame = isReadyOrPlaying
-            if (item.artworkUri.isNullOrBlank()) {
-                poster.setImageDrawable(null)
-            } else {
-                Picasso.get().load(item.artworkUri).into(poster)
-            }
         } else if (isReadyOrPlaying) {
             renderedFirstFrame = true
             playerView.findViewById<View>(androidx.media3.ui.R.id.exo_shutter)?.visibility = View.GONE
@@ -958,19 +926,22 @@ class VideoPlayerActivity : BaseActivity() {
 
         val isBuffering = player != null && player.playbackState == Player.STATE_BUFFERING && player.playWhenReady
         val loading = state.error == null && (!renderedFirstFrame || isBuffering)
-        loadingOverlay.isVisible = loading
-        loadingText?.isVisible = !renderedFirstFrame
-        poster.isVisible = !renderedFirstFrame && !item.artworkUri.isNullOrBlank()
-        errorOverlay.isVisible = state.error != null
-        state.error?.let { errorMessage.text = it }
+        uiState = uiState.copy(
+            artworkUri = item.artworkUri,
+            showPoster = !renderedFirstFrame && !item.artworkUri.isNullOrBlank(),
+            isLoading = loading,
+            showLoadingText = !renderedFirstFrame,
+            errorMessage = state.error
+        )
     }
 
     private fun retryPlayback() {
         renderedFirstFrame = false
-        errorOverlay.isVisible = false
-        loadingOverlay.isVisible = true
-        poster.isVisible =
-            !PlaybackController.state.value.currentItem?.artworkUri.isNullOrBlank()
+        uiState = uiState.copy(
+            errorMessage = null,
+            isLoading = true,
+            showPoster = !PlaybackController.state.value.currentItem?.artworkUri.isNullOrBlank()
+        )
         PlaybackController.retryCurrent()
     }
 
@@ -1041,7 +1012,7 @@ class VideoPlayerActivity : BaseActivity() {
     private fun setLocked(locked: Boolean) {
         this.locked = locked
         playerView.useController = !locked
-        lockedUnlockBtn?.isVisible = locked
+        uiState = uiState.copy(isLocked = locked)
         playerView.findViewById<ImageButton>(R.id.video_lock)?.setImageResource(
             if (locked) R.drawable.ic_lock else R.drawable.ic_unlock
         )
@@ -1115,9 +1086,11 @@ class VideoPlayerActivity : BaseActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         if (isInPictureInPictureMode) {
-            levelIndicatorView?.visibility = View.GONE
-            speedBoostContainer?.visibility = View.GONE
-            seekPreview.visibility = View.GONE
+            uiState = uiState.copy(
+                levelVisible = false,
+                speedBoostVisible = false,
+                seekPreviewText = null
+            )
             hideScrubPreview()
             playerView.useController = false
         } else {
@@ -1130,7 +1103,7 @@ class VideoPlayerActivity : BaseActivity() {
     private fun startSpeedBoost() {
         val player = attachedPlayer ?: return
         isSpeedBoostActive = true
-        levelIndicatorView?.visibility = View.GONE
+        uiState = uiState.copy(levelVisible = false)
         originalPlaybackSpeed = player.playbackParameters.speed.takeIf { it > 0f } ?: 1.0f
 
         currentBoostIndex = 4 // Default to 2.0x
@@ -1138,9 +1111,12 @@ class VideoPlayerActivity : BaseActivity() {
         val speed = boostSpeeds[currentBoostIndex]
         player.playbackParameters = PlaybackParameters(speed, 1.0f)
 
-        speedBoostContainer?.visibility = View.VISIBLE
-        speedBoostTicksRow?.visibility = View.VISIBLE
-        updateSpeedBoostUI(speed)
+        uiState = uiState.copy(
+            speedBoostVisible = true,
+            showBoostTicks = true,
+            currentBoostIndex = currentBoostIndex,
+            speedBoostLabel = "${speed}x Speed Playing"
+        )
 
         uiHandler.removeCallbacks(collapseSpeedBarRunnable)
         uiHandler.postDelayed(collapseSpeedBarRunnable, 1500) // Collapses in 1.5s per user request
@@ -1151,14 +1127,11 @@ class VideoPlayerActivity : BaseActivity() {
     }
 
     private fun updateSpeedBoostUI(speed: Float) {
-        speedBoostLabel?.text = "${speed}x Speed Playing"
-
-        boostSpeedTextViewIds.forEachIndexed { index, viewId ->
-            val tv = findViewById<TextView>(viewId) ?: return@forEachIndexed
-            val isSelected = index == currentBoostIndex
-            tv.setTextColor(if (isSelected) Color.parseColor("#2196F3") else Color.parseColor("#B3FFFFFF"))
-            tv.typeface = if (isSelected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        }
+        uiState = uiState.copy(
+            speedBoostVisible = true,
+            currentBoostIndex = currentBoostIndex,
+            speedBoostLabel = "${speed}x Speed Playing"
+        )
     }
 
     // --- Unified Top-Center Feedback Pill (Volume, Brightness, Seek, Double-tap, etc.) ---
@@ -1170,16 +1143,13 @@ class VideoPlayerActivity : BaseActivity() {
         timeoutMs: Long = 1500L
     ) {
         if (isSpeedBoostActive) return
-        iconRes?.let { levelIcon?.setImageResource(it) }
-        levelText?.text = text
-        if (progress != null) {
-            levelProgress?.visibility = View.VISIBLE
-            levelProgress?.max = maxProgress
-            levelProgress?.progress = progress
-        } else {
-            levelProgress?.visibility = View.GONE
-        }
-        levelIndicatorView?.visibility = View.VISIBLE
+        uiState = uiState.copy(
+            levelVisible = true,
+            levelIconRes = iconRes,
+            levelText = text,
+            levelProgress = progress,
+            levelMaxProgress = maxProgress
+        )
 
         uiHandler.removeCallbacks(hideLevelIndicatorRunnable)
         uiHandler.postDelayed(hideLevelIndicatorRunnable, timeoutMs)
@@ -1207,22 +1177,16 @@ class VideoPlayerActivity : BaseActivity() {
         }
     }
 
-    /**
-     * Shows the brightness icon with a radial fill that tracks the exact
-     * percentage: empty at 0%, quarter at 25%, half at 50%, three quarters at
-     * 75% and completely filled at 100%.
-     */
     private fun showBrightnessFeedback(percent: Int) {
         if (isSpeedBoostActive) return
-        val iconView = levelIcon ?: return
-        val meter = brightnessMeterDrawable
-            ?: BrightnessMeterDrawable(iconView.context).also { brightnessMeterDrawable = it }
-        if (iconView.drawable !== meter) {
-            iconView.setImageDrawable(meter)
+        val iconRes = when {
+            percent <= 25 -> R.drawable.ic_brightness_low
+            percent <= 50 -> R.drawable.ic_brightness_half
+            percent <= 75 -> R.drawable.ic_brightness_high
+            else -> R.drawable.ic_brightness_full
         }
-        meter.setPercent(percent, animate = true)
         showUnifiedFeedback(
-            iconRes = null,
+            iconRes = iconRes,
             text = "$percent%",
             progress = percent,
             maxProgress = 100,
@@ -1302,7 +1266,7 @@ class VideoPlayerActivity : BaseActivity() {
                         attachedPlayer?.playbackParameters = PlaybackParameters(newSpeed, 1.0f)
                         updateSpeedBoostUI(newSpeed)
 
-                        speedBoostTicksRow?.visibility = View.VISIBLE
+                        uiState = uiState.copy(showBoostTicks = true)
                         uiHandler.removeCallbacks(collapseSpeedBarRunnable)
                         uiHandler.postDelayed(collapseSpeedBarRunnable, 1500)
 
@@ -1376,7 +1340,7 @@ class VideoPlayerActivity : BaseActivity() {
                     isSpeedBoostActive = false
                     uiHandler.removeCallbacks(collapseSpeedBarRunnable)
                     attachedPlayer?.playbackParameters = PlaybackParameters(originalPlaybackSpeed, 1.0f)
-                    speedBoostContainer?.visibility = View.GONE
+                    uiState = uiState.copy(speedBoostVisible = false)
                     runCatching {
                         playerView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     }
@@ -1406,7 +1370,7 @@ class VideoPlayerActivity : BaseActivity() {
                     isSpeedBoostActive = false
                     uiHandler.removeCallbacks(collapseSpeedBarRunnable)
                     attachedPlayer?.playbackParameters = PlaybackParameters(originalPlaybackSpeed, 1.0f)
-                    speedBoostContainer?.visibility = View.GONE
+                    uiState = uiState.copy(speedBoostVisible = false)
                 }
                 doubleTapPending = false
                 gestureMode = GestureMode.NONE
