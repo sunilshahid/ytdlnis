@@ -42,8 +42,7 @@
     <fragment
         android:id="@+id/historyFragment"
         android:name="com.deniscerri.ytdl.ui.downloads.HistoryFragment"
-        android:label="@string/downloads"
-        tools:layout="@layout/fragment_history" >
+        android:label="@string/downloads" >
         <action
             android:id="@+id/action_historyFragment_to_downloadQueueMainFragment"
             app:destination="@id/downloadQueueMainFragment" />
@@ -88,7 +87,6 @@
     <fragment
         android:id="@+id/cookiesFragment"
         android:name="com.deniscerri.ytdl.ui.more.cookies.CookiesFragment"
-        tools:layout="@layout/fragment_cookies"
         android:label="CookiesFragment" />
     <fragment
         android:id="@+id/commandTemplatesFragment"

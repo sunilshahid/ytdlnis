@@ -37,6 +37,7 @@ import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.TextView
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.annotation.DimenRes
@@ -44,6 +45,42 @@ import androidx.annotation.OptIn
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.deniscerri.ytdl.ui.compose.theme.YtdlnisTheme
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.FileProvider
 import androidx.core.view.children
@@ -2560,78 +2597,88 @@ object UiUtil {
         builder.setTitle(context.getString(R.string.select_between))
         builder.setMessage(context.getString(R.string.select_between_desc))
         builder.setIcon(R.drawable.baseline_format_list_numbered_24)
-        val view = context.layoutInflater.inflate(R.layout.select_range_dialog, null)
 
-        val fromTextInput = view.findViewById<TextInputLayout>(R.id.from_textinput)
-        fromTextInput.editText!!.keyListener = DigitsKeyListener.getInstance("0123456789")
-        val toTextInput = view.findViewById<TextInputLayout>(R.id.to_textinput)
-        toTextInput.editText!!.keyListener = DigitsKeyListener.getInstance("0123456789")
+        var firstIndex = 0
+        var secondIndex = (itemCount - 1).coerceAtLeast(0)
+        var isValid = true
 
+        lateinit var dialog: AlertDialog
 
-        builder.setView(view)
-        builder.setPositiveButton(
-            context.getString(R.string.ok)
-        ) { _: DialogInterface?, _: Int ->
-            val firstIndex = fromTextInput.editText!!.text.toString().toInt() - 1
-            val secondIndex = toTextInput.editText!!.text.toString().toInt() - 1
+        val composeView = ComposeView(context).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setContent {
+                YtdlnisTheme {
+                    var startText by remember { mutableStateOf("1") }
+                    var endText by remember { mutableStateOf(itemCount.toString()) }
+                    var startError by remember { mutableStateOf<String?>(null) }
+                    var endError by remember { mutableStateOf<String?>(null) }
 
-            rangeSelected(Pair(firstIndex,secondIndex))
-        }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = startText,
+                            onValueChange = { newText ->
+                                val digits = newText.filter { it.isDigit() }.take(9)
+                                startText = digits
+                                val sVal = digits.toIntOrNull()
+                                val eVal = endText.toIntOrNull()
+                                val sOk = sVal != null && sVal > 0
+                                val eOk = eVal != null && eVal <= itemCount
+                                startError = if (!sOk && digits.isNotEmpty()) "Invalid Number" else null
+                                endError = if (!eOk && endText.isNotEmpty()) "Invalid Number" else null
+                                isValid = sOk && eOk
+                                if (sVal != null) firstIndex = sVal - 1
+                                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = isValid
+                            },
+                            label = { Text(stringResource(R.string.start)) },
+                            isError = startError != null,
+                            supportingText = startError?.let { { Text(it) } },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
 
-        // handle the negative button of the alert dialog
-        builder.setNegativeButton(
-            context.getString(R.string.cancel)
-        ) { _: DialogInterface?, _: Int -> }
-
-        val dialog = builder.create()
-        dialog.show()
-
-
-        fun checkRanges(start: String, end: String) : Boolean {
-            val res: Boolean
-
-            fromTextInput.error = ""
-            toTextInput.error = ""
-
-            if (start.isBlank() || end.isBlank()){
-                res = false
-            }else{
-                val startValid = kotlin.runCatching {
-                    start.toInt() > 0
-                }.getOrElse { false }
-
-                val endValid = kotlin.runCatching {
-                    end.toInt() <= itemCount
-                }.getOrElse { false }
-
-                if (!startValid) {
-                    fromTextInput.error = "Invalid Number"
+                        OutlinedTextField(
+                            value = endText,
+                            onValueChange = { newText ->
+                                val digits = newText.filter { it.isDigit() }.take(9)
+                                endText = digits
+                                val sVal = startText.toIntOrNull()
+                                val eVal = digits.toIntOrNull()
+                                val sOk = sVal != null && sVal > 0
+                                val eOk = eVal != null && eVal <= itemCount
+                                startError = if (!sOk && startText.isNotEmpty()) "Invalid Number" else null
+                                endError = if (!eOk && digits.isNotEmpty()) "Invalid Number" else null
+                                isValid = sOk && eOk
+                                if (eVal != null) secondIndex = eVal - 1
+                                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = isValid
+                            },
+                            label = { Text(stringResource(R.string.end)) },
+                            isError = endError != null,
+                            supportingText = endError?.let { { Text(it) } },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
-                if (!endValid) {
-                    toTextInput.error = "Invalid Number"
-                }
-
-                res = startValid && endValid
             }
-
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = res
-            return res
         }
 
-        fromTextInput.editText!!.doOnTextChanged { text, _, _, _ ->
-            val start = text.toString()
-            val end = toTextInput.editText!!.text.toString()
-            checkRanges(start, end)
+        builder.setView(composeView)
+        builder.setPositiveButton(context.getString(R.string.ok)) { _: DialogInterface?, _: Int ->
+            if (isValid) {
+                rangeSelected(Pair(firstIndex, secondIndex))
+            }
         }
+        builder.setNegativeButton(context.getString(R.string.cancel)) { _: DialogInterface?, _: Int -> }
 
-        toTextInput.editText!!.doOnTextChanged { text, _, _, _ ->
-            val start = fromTextInput.editText!!.text.toString()
-            val end = text.toString()
-            checkRanges(start, end)
-        }
-
-        fromTextInput.editText!!.setText("1")
-        toTextInput.editText!!.setText(itemCount.toString())
+        dialog = builder.create()
+        dialog.show()
     }
 
     private fun createPersonalFilenameTemplateChip(context: Activity, text: String, myChipGroup: ChipGroup, onClick: (f: Chip) -> Unit, onLongClick: (f: Chip) -> Unit) : Chip {
@@ -2657,16 +2704,28 @@ object UiUtil {
     private fun showGeneratedCommand(context: Activity, preferences: SharedPreferences, command: String) {
         val builder = MaterialAlertDialogBuilder(context)
         builder.setTitle(context.getString(R.string.command))
-        val view = context.layoutInflater.inflate(R.layout.command_dialog, null)
-        view.findViewById<TextView>(R.id.commandText).apply {
-            text = command
-            isLongClickable = true
-            setTextIsSelectable(true)
-            enableTextHighlight()
-            setPadding(20, 0, 20, 0)
+        val composeView = ComposeView(context).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setContent {
+                YtdlnisTheme {
+                    SelectionContainer {
+                        Text(
+                            text = command,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 350.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+            }
         }
 
-        builder.setView(view)
+        builder.setView(composeView)
         builder.setPositiveButton(
             context.getString(android.R.string.copy)
         ) { _: DialogInterface?, _: Int ->
@@ -2685,13 +2744,28 @@ object UiUtil {
     private fun showFullTextDialog(context: Activity, txt: String, title: String){
         val builder = MaterialAlertDialogBuilder(context)
         builder.setTitle(title)
-        val view = context.layoutInflater.inflate(R.layout.command_dialog, null)
-        val text = view.findViewById<TextView>(R.id.commandText)
-        text.text = txt
-        text.isLongClickable = true
-        text.setTextIsSelectable(true)
+        val composeView = ComposeView(context).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setContent {
+                YtdlnisTheme {
+                    SelectionContainer {
+                        Text(
+                            text = txt,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 350.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+            }
+        }
 
-        builder.setView(view)
+        builder.setView(composeView)
         builder.setPositiveButton(
             context.getString(android.R.string.copy)
         ) { _: DialogInterface?, _: Int ->
@@ -3246,96 +3320,110 @@ object UiUtil {
         builder.setTitle(context.getString(R.string.download_delay))
         builder.setMessage(context.getString(R.string.download_delay_summary))
         builder.setIcon(R.drawable.baseline_timer_24)
-        val view = context.layoutInflater.inflate(R.layout.download_delay_preference_dialog, null)
 
-        val downloadDelay = sharedPreferences.getString("download_delay", "0-0")!!
-        val minDelay = downloadDelay.split("-")[0]
-        val maxDelay = downloadDelay.split("-")[1]
+        val downloadDelay = sharedPreferences.getString("download_delay", "0-0") ?: "0-0"
+        val parts = downloadDelay.split("-")
+        val initialMin = parts.getOrNull(0) ?: "0"
+        val initialMax = parts.getOrNull(1) ?: "0"
 
-        val fromTextInput = view.findViewById<TextInputLayout>(R.id.from_textinput_layout)
-        fromTextInput.editText!!.keyListener = DigitsKeyListener.getInstance("0123456789.")
+        var firstIndex = initialMin.toFloatOrNull() ?: 0f
+        var secondIndex = initialMax.toFloatOrNull() ?: 0f
+        var isValid = true
 
-        val toTextInput = view.findViewById<TextInputLayout>(R.id.to_textinput_layout)
-        toTextInput.editText!!.keyListener = DigitsKeyListener.getInstance("0123456789.")
+        lateinit var dialog: AlertDialog
 
+        val composeView = ComposeView(context).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setContent {
+                YtdlnisTheme {
+                    var minText by remember { mutableStateOf(initialMin) }
+                    var maxText by remember { mutableStateOf(initialMax) }
+                    var minError by remember { mutableStateOf<String?>(null) }
+                    var maxError by remember { mutableStateOf<String?>(null) }
 
-        builder.setView(view)
-        builder.setPositiveButton(
-            context.getString(R.string.ok)
-        ) { _: DialogInterface?, _: Int ->
-            val firstIndex = fromTextInput.editText!!.text.toString().toFloat()
-            val secondIndex = toTextInput.editText!!.text.toString().toFloat()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = minText,
+                            onValueChange = { newText ->
+                                minText = newText
+                                val sVal = newText.toFloatOrNull()
+                                val eVal = maxText.toFloatOrNull()
+                                val sOk = sVal != null && sVal >= 0f
+                                val eOk = eVal != null && sVal != null && eVal >= sVal
+                                minError = if (!sOk && newText.isNotBlank()) "Invalid Number" else null
+                                maxError = if (!eOk && maxText.isNotBlank()) "Invalid Number" else null
+                                isValid = sOk && eOk
+                                if (sVal != null) firstIndex = sVal
+                                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = isValid
+                            },
+                            label = { Text(stringResource(R.string.min_delay)) },
+                            suffix = { Text("s") },
+                            isError = minError != null,
+                            supportingText = minError?.let { { Text(it) } },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
 
-            rangeSelected(Pair(firstIndex,secondIndex))
+                        Text(
+                            text = "–",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = if (minError != null || maxError != null) 16.dp else 0.dp),
+                        )
+
+                        OutlinedTextField(
+                            value = maxText,
+                            onValueChange = { newText ->
+                                maxText = newText
+                                val sVal = minText.toFloatOrNull()
+                                val eVal = newText.toFloatOrNull()
+                                val sOk = sVal != null && sVal >= 0f
+                                val eOk = eVal != null && sVal != null && eVal >= sVal
+                                minError = if (!sOk && minText.isNotBlank()) "Invalid Number" else null
+                                maxError = if (!eOk && newText.isNotBlank()) "Invalid Number" else null
+                                isValid = sOk && eOk
+                                if (eVal != null) secondIndex = eVal
+                                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = isValid
+                            },
+                            label = { Text(stringResource(R.string.max_delay)) },
+                            suffix = { Text("s") },
+                            isError = maxError != null,
+                            supportingText = maxError?.let { { Text(it) } },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
         }
 
-        // handle the negative button of the alert dialog
-        builder.setNegativeButton(
-            context.getString(R.string.cancel)
-        ) { _: DialogInterface?, _: Int -> }
-
-        builder.setNeutralButton(
-            context.getString(R.string.reset)
-        ) { _: DialogInterface?, _: Int ->
+        builder.setView(composeView)
+        builder.setPositiveButton(context.getString(R.string.ok)) { _: DialogInterface?, _: Int ->
+            if (isValid) {
+                rangeSelected(Pair(firstIndex, secondIndex))
+            }
+        }
+        builder.setNegativeButton(context.getString(R.string.cancel)) { _: DialogInterface?, _: Int -> }
+        builder.setNeutralButton(context.getString(R.string.reset)) { _: DialogInterface?, _: Int ->
             resetSelected()
         }
 
-        val dialog = builder.create()
+        dialog = builder.create()
         dialog.show()
-
-
-        fun checkRanges(start: String, end: String) : Boolean {
-            val res: Boolean
-
-            fromTextInput.error = ""
-            toTextInput.error = ""
-
-            if (start.isBlank() || end.isBlank()){
-                res = false
-            }else{
-                val startValid = kotlin.runCatching {
-                    start.toFloat() >= 0f
-                }.getOrElse { false }
-
-                val endValid = kotlin.runCatching {
-                    end.toFloat() >= start.toFloat()
-                }.getOrElse { false }
-
-                if (!startValid) {
-                    fromTextInput.error = "Invalid Number"
-                }
-                if (!endValid) {
-                    toTextInput.error = "Invalid Number"
-                }
-
-                res = startValid && endValid
-            }
-
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = res
-            return res
-        }
-
-        fromTextInput.editText!!.doOnTextChanged { text, _, _, _ ->
-            val start = text.toString()
-            val end = toTextInput.editText!!.text.toString()
-            checkRanges(start, end)
-        }
-
-        toTextInput.editText!!.doOnTextChanged { text, _, _, _ ->
-            val start = fromTextInput.editText!!.text.toString()
-            val end = text.toString()
-            checkRanges(start, end)
-        }
-
-        fromTextInput.editText!!.setText(minDelay)
-        toTextInput.editText!!.setText(maxDelay)
     }
 
     fun showChooseInstallerAppDialog(context: Activity, appIdSelected: (appId: String) -> Unit) {
         val builder = MaterialAlertDialogBuilder(context)
         builder.setTitle(context.getString(R.string.choose_installer_app))
         builder.setIcon(R.drawable.baseline_install_mobile_24)
-        val view = context.layoutInflater.inflate(R.layout.choose_installer_app_dialog, null)
 
         data class ExternalInstallerApp(
             val appName: String,
@@ -3388,20 +3476,54 @@ object UiUtil {
             return
         }
 
-        finalList.forEach { app ->
-            val card = context.layoutInflater.inflate(R.layout.installer_app_card, null)
-            card.findViewById<TextView>(R.id.app_name).text = app.appName
-            card.findViewById<ShapeableImageView>(R.id.app_icon).setImageDrawable(app.icon)
-
-            card.setOnClickListener {
-                appIdSelected(app.packageName)
-                alertDialog.dismiss()
+        val composeView = ComposeView(context).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setContent {
+                YtdlnisTheme {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp)
+                            .padding(vertical = 8.dp),
+                    ) {
+                        items(finalList) { app ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        appIdSelected(app.packageName)
+                                        alertDialog.dismiss()
+                                    }
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                AndroidView(
+                                    factory = { ctx ->
+                                        ImageView(ctx).apply {
+                                            scaleType = ImageView.ScaleType.CENTER_CROP
+                                        }
+                                    },
+                                    update = { it.setImageDrawable(app.icon) },
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape),
+                                )
+                                Spacer(Modifier.width(16.dp))
+                                Text(
+                                    text = app.appName,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                }
             }
-
-            (view as LinearLayout).addView(card)
         }
 
-        builder.setView(view)
+        builder.setView(composeView)
         alertDialog = builder.create()
         alertDialog.show()
     }
