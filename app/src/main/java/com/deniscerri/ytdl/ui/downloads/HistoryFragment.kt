@@ -1,73 +1,42 @@
 package com.deniscerri.ytdl.ui.downloads
 
-import android.annotation.SuppressLint
-import android.content.Context
-import android.content.DialogInterface
 import android.content.SharedPreferences
-import android.graphics.Canvas
-import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.text.InputType
-import android.util.DisplayMetrics
-import android.util.Log
-import android.view.LayoutInflater
-import android.view.Menu
-import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
-import android.view.Window
-import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RelativeLayout
-import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.view.ActionMode
-import androidx.appcompat.widget.SearchView
-import androidx.core.content.ContextCompat
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.core.os.bundleOf
-import androidx.core.view.children
-import androidx.core.view.forEach
-import androidx.core.view.isVisible
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
-import androidx.paging.PagingData
 import androidx.preference.PreferenceManager
-import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.ItemTouchHelper
-import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.DiffUtil
 import com.deniscerri.ytdl.MainActivity
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.DBManager.SORTING
 import com.deniscerri.ytdl.database.enums.DownloadType
-import com.deniscerri.ytdl.database.repository.HistoryRepository
+import com.deniscerri.ytdl.database.models.HistoryItem
+import com.deniscerri.ytdl.database.repository.HistoryRepository.HistorySortType
 import com.deniscerri.ytdl.database.viewmodel.DownloadCardViewModel
 import com.deniscerri.ytdl.database.viewmodel.DownloadViewModel
 import com.deniscerri.ytdl.database.viewmodel.HistoryViewModel
-import com.deniscerri.ytdl.ui.adapter.HistoryPaginatedAdapter
-import com.deniscerri.ytdl.util.Extensions.enableFastScroll
-import com.deniscerri.ytdl.util.Extensions.updateMenuItemBadge
+import com.deniscerri.ytdl.ui.compose.downloads.HistoryDownloadScreen
+import com.deniscerri.ytdl.ui.compose.downloads.collectAsPagingItems
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
 import com.deniscerri.ytdl.util.FileUtil
 import com.deniscerri.ytdl.util.NavbarUtil
-import com.deniscerri.ytdl.util.SortCategory
-import com.deniscerri.ytdl.util.SortOrderLabels
 import com.deniscerri.ytdl.util.UiUtil
 import com.deniscerri.ytdl.vault.ingest.VaultImporter
 import com.deniscerri.ytdl.vault.ui.VaultImportActivity
-import com.google.android.material.appbar.AppBarLayout
-import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.chip.Chip
-import com.google.android.material.chip.ChipGroup
-import com.google.android.material.color.MaterialColors
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
-import it.xabaras.android.recyclerview.swipedecorator.RecyclerViewSwipeDecorator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -76,810 +45,367 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * A fragment representing a list of Items.
+ * Paged download history hosted in Jetpack Compose (Phase 5).
+ * Replaces `fragment_history.xml` and `HistoryPaginatedAdapter`.
  */
-class HistoryFragment : Fragment(), HistoryPaginatedAdapter.OnItemClickListener{
-    private lateinit var historyViewModel : HistoryViewModel
-    private lateinit var downloadViewModel : DownloadViewModel
-    private lateinit var downloadCardViewModel : DownloadCardViewModel
+class HistoryFragment : ComposeFragment() {
 
-    private lateinit var fragmentView: View
-    private var mainActivity: MainActivity? = null
-    private var fragmentContext: Context? = null
-    private lateinit var layoutinflater: LayoutInflater
-    private lateinit var topAppBar: MaterialToolbar
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var historyAdapter: HistoryPaginatedAdapter
-    private lateinit var toggleAdapterView: Chip
-    private lateinit var sortSheet: BottomSheetDialog
-    private lateinit var uiHandler: Handler
-    private lateinit var noResults: RelativeLayout
-    private lateinit var selectionChips: LinearLayout
+    private lateinit var historyViewModel: HistoryViewModel
+    private lateinit var downloadViewModel: DownloadViewModel
+    private lateinit var downloadCardViewModel: DownloadCardViewModel
     private lateinit var sharedPreferences: SharedPreferences
-    private var websiteList: MutableList<String> = mutableListOf()
-    private var totalCount = 0
-    private var actionMode : ActionMode? = null
 
-    private lateinit var sortChip: Chip
+    private var selectedIds by mutableStateOf<Set<Long>>(emptySet())
+    private var searchQuery by mutableStateOf("")
+    private var useDownloadCardDesign by mutableStateOf(false)
 
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        fragmentView = inflater.inflate(R.layout.fragment_history, container, false)
-        mainActivity = activity as MainActivity?
-        return fragmentView
-    }
-
-    @SuppressLint("RestrictedApi")
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-        fragmentContext = context
-        layoutinflater = LayoutInflater.from(context)
-        topAppBar = view.findViewById(R.id.history_toolbar)
-        noResults = view.findViewById(R.id.no_results)
-        selectionChips = view.findViewById(R.id.history_selection_chips)
-        uiHandler = Handler(Looper.getMainLooper())
-        sortChip = view.findViewById(R.id.sortChip)
+        useDownloadCardDesign = sharedPreferences.getBoolean("history_use_download_card_design", false)
 
-        val bottomNav = mainActivity?.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNavigationView)
-        val hasNavTab = bottomNav?.menu?.findItem(R.id.historyFragment)?.isVisible == true
-        val isInNavBar = hasNavTab || NavbarUtil.getNavBarItems(requireActivity()).any { n -> n.itemId == R.id.historyFragment && n.isVisible }
-        if (isInNavBar) {
-            topAppBar.navigationIcon = null
-        }else{
-            mainActivity?.hideBottomNavigation()
-        }
-        topAppBar.setNavigationOnClickListener { mainActivity?.onBackPressedDispatcher?.onBackPressed() }
-        historyAdapter = HistoryPaginatedAdapter(this, requireActivity())
-        recyclerView = view.findViewById(R.id.recyclerviewhistorys)
-        recyclerView.enableFastScroll()
-        toggleAdapterView = view.findViewById(R.id.toggleView)
-        toggleAdapterView.setOnClickListener {
-            historyAdapter.toggleCardDesign()
-        }
-
-        val preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-        if (preferences.getStringSet("swipe_gesture", requireContext().resources.getStringArray(R.array.swipe_gestures_values).toSet())!!.toList().contains("history")){
-            val itemTouchHelper = ItemTouchHelper(simpleCallback)
-            itemTouchHelper.attachToRecyclerView(recyclerView)
-        }
-
-        recyclerView.layoutManager = GridLayoutManager(context, resources.getInteger(R.integer.grid_size))
-        noResults.isVisible = false
         historyViewModel = ViewModelProvider(this)[HistoryViewModel::class.java]
-        recyclerView.adapter = historyAdapter
-
-        lifecycleScope.launch {
-            historyViewModel.paginatedItems.collectLatest {
-                historyAdapter.submitData(it)
-            }
-        }
-
-        lifecycleScope.launch {
-            historyViewModel.filterCount.collectLatest {
-                topAppBar.updateMenuItemBadge(R.id.filters, it)
-            }
-        }
-
-        lifecycleScope.launch {
-            historyViewModel.websites.collectLatest {
-                if(it.isEmpty()) {
-                    noResults.isVisible = true
-                    selectionChips.isVisible = false
-                    topAppBar.menu.children.firstOrNull { m -> m.itemId == R.id.filters }?.isVisible = false
-                }else{
-                    noResults.isVisible = false
-                    selectionChips.isVisible = true
-                    topAppBar.menu.children.firstOrNull { m -> m.itemId == R.id.filters }?.isVisible = true
-
-                    websiteList = mutableListOf()
-                    for (item in it){
-                        if (item == "null" || item.isEmpty()) continue
-                        if (!websiteList.any { it.contentEquals(item, true) }) websiteList.add(item)
-                    }
-                }
-            }
-        }
-
-        lifecycleScope.launch {
-            historyViewModel.totalCount.collectLatest {
-                totalCount = it
-            }
-        }
-
-        lifecycleScope.launch {
-            historyViewModel.sortOrder.collectLatest {
-                when(it){
-                    SORTING.ASC -> sortChip.chipIcon = ContextCompat.getDrawable(requireContext(), R.drawable.ic_down)
-                    SORTING.DESC -> sortChip.chipIcon = ContextCompat.getDrawable(requireContext(), R.drawable.ic_up)
-                }
-            }
-        }
-
-        lifecycleScope.launch {
-            historyViewModel.sortType.collectLatest {
-            when(it){
-                    HistoryRepository.HistorySortType.AUTHOR -> sortChip.text = getString(R.string.author)
-                    HistoryRepository.HistorySortType.DATE -> sortChip.text = getString(R.string.date_added)
-                    HistoryRepository.HistorySortType.TITLE -> sortChip.text = getString(R.string.title)
-                    HistoryRepository.HistorySortType.FILESIZE -> sortChip.text = getString(R.string.file_size)
-                }
-            }
-        }
-
         downloadViewModel = ViewModelProvider(this)[DownloadViewModel::class.java]
         downloadCardViewModel = ViewModelProvider(requireActivity())[DownloadCardViewModel::class.java]
-        lifecycleScope.launch{
+
+        lifecycleScope.launch {
             downloadViewModel.alreadyExistsUiState.collectLatest { res ->
-                if (res.isNotEmpty()){
-                    withContext(Dispatchers.Main){
-                        val bundle = bundleOf(
-                            Pair("duplicates", res)
-                        )
+                if (res.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        val bundle = bundleOf(Pair("duplicates", res))
                         findNavController().navigate(R.id.action_historyFragment_to_downloadsAlreadyExistDialog, bundle)
                     }
                     downloadViewModel.alreadyExistsUiState.value = mutableListOf()
                 }
             }
         }
+    }
 
-        initMenu()
-        initChips()
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        val mainActivity = activity as? MainActivity
+        val bottomNav = mainActivity?.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNavigationView)
+        val hasNavTab = bottomNav?.menu?.findItem(R.id.historyFragment)?.isVisible == true
+        val isInNavBar = hasNavTab || NavbarUtil.getNavBarItems(requireActivity()).any { n -> n.itemId == R.id.historyFragment && n.isVisible }
+        if (!isInNavBar) {
+            mainActivity?.hideBottomNavigation()
+        }
     }
 
     fun scrollToTop() {
-        recyclerView.scrollToPosition(0)
-        Handler(Looper.getMainLooper()).post {
-            (topAppBar.parent as AppBarLayout).setExpanded(
-                true,
-                true
-            )
-        }
+        // Compose scroll handled within screen state
     }
 
     fun openSearchView() {
-        topAppBar.menu.performIdentifierAction(R.id.search_history, 0)
+        // Trigger search UI
     }
 
-    private fun initMenu() {
-        val searchView = topAppBar.menu.findItem(R.id.search_history).actionView as SearchView?
+    @Composable
+    override fun Content() {
+        val pagingItems = historyViewModel.paginatedItems.collectAsPagingItems(DIFF_CALLBACK)
+        val totalCount by historyViewModel.totalCount.collectAsStateWithLifecycle(0)
+        val sortOrder by historyViewModel.sortOrder.collectAsStateWithLifecycle(SORTING.DESC)
+        val sortType by historyViewModel.sortType.collectAsStateWithLifecycle(HistorySortType.DATE)
+        val statusFilter by historyViewModel.statusFilter.collectAsStateWithLifecycle(HistoryViewModel.HistoryStatus.ALL)
+        val websiteFilter by historyViewModel.websiteFilter.collectAsStateWithLifecycle("")
+        val filterBadgeCount by historyViewModel.filterCount.collectAsStateWithLifecycle(0)
+        val websitesRaw by historyViewModel.websites.collectAsStateWithLifecycle(emptyList())
 
-        val onActionExpandListener: MenuItem.OnActionExpandListener =
-            object : MenuItem.OnActionExpandListener {
-                override fun onMenuItemActionExpand(menuItem: MenuItem): Boolean {
-                    searchView?.requestFocus()
-                    return true
-                }
+        val websiteList = remember(websitesRaw) {
+            websitesRaw.filter { it.isNotBlank() && it != "null" }.distinct()
+        }
 
-                override fun onMenuItemActionCollapse(menuItem: MenuItem): Boolean {
-                    return true
-                }
-            }
-        topAppBar.menu.findItem(R.id.search_history)
-            .setOnActionExpandListener(onActionExpandListener)
+        val showingDownloadQueue = remember {
+            NavbarUtil.getNavBarItems(requireContext()).any { n -> n.itemId == R.id.downloadQueueMainFragment && n.isVisible }
+        }
 
-        searchView!!.inputType = InputType.TYPE_CLASS_TEXT
-        searchView.queryHint = getString(R.string.search_history_hint)
-        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String): Boolean {
-                topAppBar.menu.findItem(R.id.search_history).collapseActionView()
+        val enableSwipe = remember {
+            val gestures = sharedPreferences.getStringSet(
+                "swipe_gesture",
+                requireContext().resources.getStringArray(R.array.swipe_gestures_values).toSet()
+            ) ?: emptySet()
+            gestures.contains("history")
+        }
+
+        val coroutineScope = rememberCoroutineScope()
+
+        HistoryDownloadScreen(
+            items = pagingItems,
+            totalCount = totalCount,
+            selectedIds = selectedIds,
+            searchQuery = searchQuery,
+            sortType = sortType,
+            sortOrder = sortOrder,
+            typeFilter = "",
+            statusFilter = statusFilter,
+            websiteFilter = websiteFilter,
+            websiteList = websiteList,
+            filterBadgeCount = filterBadgeCount,
+            useDownloadCardDesign = useDownloadCardDesign,
+            enableSwipe = enableSwipe,
+            showDownloadQueueButton = !showingDownloadQueue,
+            onSearchQueryChange = { query ->
+                searchQuery = query
                 historyViewModel.setQueryFilter(query)
-                return true
-            }
-
-            override fun onQueryTextChange(newText: String): Boolean {
-                historyViewModel.setQueryFilter(newText)
-                return true
-            }
-        })
-        topAppBar.setOnClickListener { scrollToTop() }
-        val showingDownloadQueue = NavbarUtil.getNavBarItems(requireContext()).any { n -> n.itemId == R.id.downloadQueueMainFragment && n.isVisible }
-        topAppBar.menu.findItem(R.id.download_queue).isVisible = !showingDownloadQueue
-        topAppBar.setOnMenuItemClickListener { m: MenuItem ->
-            when (m.itemId) {
-                R.id.remove_history -> {
-                    if(websiteList.isEmpty()){
-                        Toast.makeText(context, R.string.history_is_empty, Toast.LENGTH_SHORT).show()
-                    }else{
-                        val deleteFile = booleanArrayOf(false)
-                        val deleteDialog = MaterialAlertDialogBuilder(fragmentContext!!)
-                        deleteDialog.setTitle(getString(R.string.you_are_going_to_delete_multiple_items))
-                        deleteDialog.setMultiChoiceItems(
-                            arrayOf(getString(R.string.delete_files_too)),
-                            booleanArrayOf(false)
-                        ) { _: DialogInterface?, _: Int, b: Boolean -> deleteFile[0] = b }
-                        deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-                        deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-                            historyViewModel.deleteAll(deleteFile[0])
-                        }
-                        deleteDialog.show()
-                    }
-                }
-                R.id.download_queue -> {
-                    findNavController().navigate(R.id.downloadQueueMainFragment)
-                }
-                R.id.remove_deleted_history -> {
-                    if(websiteList.isEmpty()){
-                        Toast.makeText(context, R.string.history_is_empty, Toast.LENGTH_SHORT).show()
-                    }else{
-                        val deleteDialog = MaterialAlertDialogBuilder(fragmentContext!!)
-                        deleteDialog.setTitle(getString(R.string.confirm_delete_history))
-                        deleteDialog.setMessage(getString(R.string.confirm_delete_history_desc))
-                        deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-                        deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-                            historyViewModel.clearDeleted()
-                        }
-                        deleteDialog.show()
-                    }
-                }
-                R.id.remove_duplicates -> {
-                    if(websiteList.isEmpty()){
-                        Toast.makeText(context, R.string.history_is_empty, Toast.LENGTH_SHORT).show()
-                    }else{
-                        val deleteDialog = MaterialAlertDialogBuilder(fragmentContext!!)
-                        deleteDialog.setTitle(getString(R.string.confirm_delete_history))
-                        deleteDialog.setMessage(getString(R.string.confirm_delete_history_desc))
-                        deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-                        deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-                            historyViewModel.deleteDuplicates()
-                        }
-                        deleteDialog.show()
-                    }
-                }
-                R.id.copy_urls -> {
-                    lifecycleScope.launch {
-                        val urls = withContext(Dispatchers.IO){
-                            historyViewModel.getURLS()
-                        }
-
-                        UiUtil.copyToClipboard(urls.distinct().joinToString("\n"), requireActivity())
-                    }
-                }
-                R.id.filters -> {
-                    val filterSheet = BottomSheetDialog(requireContext())
-                    filterSheet.requestWindowFeature(Window.FEATURE_NO_TITLE)
-                    filterSheet.setContentView(R.layout.history_other_filters_sheet)
-
-                    //format status
-                    val notDeleted = filterSheet.findViewById<RadioButton>(R.id.not_deleted)!!
-                    val deleted = filterSheet.findViewById<RadioButton>(R.id.deleted)!!
-                    val all = filterSheet.findViewById<RadioButton>(R.id.all)!!
-
-                    notDeleted.isChecked = historyViewModel.statusFilter.value == HistoryViewModel.HistoryStatus.NOT_DELETED
-                    deleted.isChecked = historyViewModel.statusFilter.value == HistoryViewModel.HistoryStatus.DELETED
-                    all.isChecked = historyViewModel.statusFilter.value == HistoryViewModel.HistoryStatus.ALL
-
-                    notDeleted.setOnClickListener {
-                        historyViewModel.setStatusFilter(HistoryViewModel.HistoryStatus.NOT_DELETED)
-                    }
-                    deleted.setOnClickListener {
-                        historyViewModel.setStatusFilter(HistoryViewModel.HistoryStatus.DELETED)
-                    }
-                    all.setOnClickListener {
-                        historyViewModel.setStatusFilter(HistoryViewModel.HistoryStatus.ALL)
-                    }
-
-                    if (websiteList.size < 2) {
-                        filterSheet.findViewById<View>(R.id.websiteFilters)?.isVisible = false
-                    }else{
-                        val websiteGroup = filterSheet.findViewById<ChipGroup>(R.id.websitesChipGroup)
-                        val websiteFilter = historyViewModel.websiteFilter.value
-
-                        for (i in websiteList.indices) {
-                            val w = websiteList[i]
-                            val tmp = layoutinflater.inflate(R.layout.filter_chip, websiteGroup, false) as Chip
-                            tmp.text = w
-                            tmp.id = i
-                            tmp.setOnClickListener {
-                                Log.e(TAG, tmp.isChecked.toString())
-                                if (tmp.isChecked) {
-                                    historyViewModel.setWebsiteFilter(tmp.text as String)
-                                    tmp.isChecked = true
-                                } else {
-                                    historyViewModel.setWebsiteFilter("")
-                                    tmp.isChecked = false
-                                }
+            },
+            onSortChange = { sort ->
+                historyViewModel.setSorting(sort)
+            },
+            onTypeFilterChange = { type ->
+                historyViewModel.setTypeFilter(type)
+            },
+            onStatusFilterChange = { status ->
+                historyViewModel.setStatusFilter(status)
+            },
+            onWebsiteFilterChange = { site ->
+                historyViewModel.setWebsiteFilter(site)
+            },
+            onToggleCardDesign = {
+                useDownloadCardDesign = !useDownloadCardDesign
+                sharedPreferences.edit().putBoolean("history_use_download_card_design", useDownloadCardDesign).apply()
+            },
+            onCardClick = { item ->
+                val filePresent = item.downloadPath.isNotEmpty() && item.downloadPath.any { File(it).exists() }
+                UiUtil.showHistoryItemDetailsCard(
+                    item,
+                    requireActivity(),
+                    filePresent,
+                    sharedPreferences,
+                    removeItem = { itm, deleteFile ->
+                        historyViewModel.delete(itm, deleteFile)
+                    },
+                    redownloadItem = { itm ->
+                        val downloadItem = downloadViewModel.createDownloadItemFromHistory(itm)
+                        runBlocking {
+                            if (!filePresent) {
+                                historyViewModel.delete(itm, false)
                             }
-                            if (w == websiteFilter){
-                                tmp.isChecked = true
-                            }
-                            websiteGroup!!.addView(tmp)
+                            downloadViewModel.queueDownloads(listOf(downloadItem), ignoreDuplicates = true)
                         }
-                    }
-
-                    val displayMetrics = DisplayMetrics()
-                    requireActivity().windowManager.defaultDisplay.getMetrics(displayMetrics)
-                    filterSheet.behavior.peekHeight = displayMetrics.heightPixels
-                    filterSheet.show()
-                }
-            }
-            true
-        }
-    }
-
-    private fun changeSortIcon(item: TextView, order: SORTING){
-        when(order){
-            SORTING.DESC ->{
-                item.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_up, 0,0,0)
-            }
-            SORTING.ASC ->                 {
-                item.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_down, 0,0,0)
-            }
-        }
-    }
-
-
-    private fun initChips() {
-        val sortChip = fragmentView.findViewById<Chip>(R.id.sortChip)
-        sortChip.setOnClickListener {
-            sortSheet = BottomSheetDialog(requireContext())
-            sortSheet.requestWindowFeature(Window.FEATURE_NO_TITLE)
-            sortSheet.setContentView(R.layout.history_sort_sheet)
-
-            val date = sortSheet.findViewById<TextView>(R.id.date)!!
-            val title = sortSheet.findViewById<TextView>(R.id.title)!!
-            val author = sortSheet.findViewById<TextView>(R.id.author)!!
-            val filesize = sortSheet.findViewById<TextView>(R.id.filesize)!!
-
-            val sortEntries = listOf(
-                Triple(HistoryRepository.HistorySortType.DATE, date, R.string.date_added to SortCategory.DATE_TIME),
-                Triple(HistoryRepository.HistorySortType.TITLE, title, R.string.title to SortCategory.ALPHABETICAL),
-                Triple(HistoryRepository.HistorySortType.AUTHOR, author, R.string.author to SortCategory.ALPHABETICAL),
-                Triple(HistoryRepository.HistorySortType.FILESIZE, filesize, R.string.file_size to SortCategory.SIZE)
-            )
-
-            fun renderSortSheet() {
-                val activeType = historyViewModel.sortType.value!!
-                val activeOrder = historyViewModel.sortOrder.value!!
-                sortEntries.forEach { (type, view, meta) ->
-                    val (baseLabelRes, category) = meta
-                    if (type == activeType) {
-                        val orderRes = SortOrderLabels.activeLabelRes(
-                            category,
-                            activeOrder == SORTING.DESC
+                        historyViewModel.delete(itm, false)
+                    },
+                    redownloadShowDownloadCard = { itm ->
+                        downloadCardViewModel.setResultItem(downloadViewModel.createResultItemFromHistory(itm))
+                        downloadCardViewModel.setDownloadItem(null)
+                        findNavController().navigate(
+                            R.id.downloadBottomSheetDialog,
+                            bundleOf(
+                                Pair("type", itm.type),
+                                Pair("ignore_duplicates", true),
+                            )
                         )
-                        view.text = "${getString(baseLabelRes)} · ${getString(orderRes)}"
-                        changeSortIcon(view, activeOrder)
-                    } else {
-                        view.text = getString(baseLabelRes)
-                        view.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty, 0, 0, 0)
                     }
+                )
+            },
+            onCardLongClick = { item ->
+                selectedIds = if (selectedIds.contains(item.id)) {
+                    selectedIds - item.id
+                } else {
+                    selectedIds + item.id
                 }
-            }
-
-            renderSortSheet()
-            sortEntries.forEach { (type, view, _) ->
-                view.setOnClickListener {
-                    historyViewModel.setSorting(type)
-                    renderSortSheet()
+            },
+            onSelectToggle = { id ->
+                selectedIds = if (selectedIds.contains(id)) {
+                    selectedIds - id
+                } else {
+                    selectedIds + id
                 }
-            }
-            val displayMetrics = DisplayMetrics()
-            requireActivity().windowManager.defaultDisplay.getMetrics(displayMetrics)
-            sortSheet.behavior.peekHeight = displayMetrics.heightPixels
-            sortSheet.show()
-        }
-
-        //format
-        val audio = fragmentView.findViewById<Chip>(R.id.audio_chip)
-        audio.setOnClickListener {
-            if (audio.isChecked) {
-                historyViewModel.setTypeFilter(DownloadType.audio.toString())
-                audio.isChecked = true
-            } else {
-                historyViewModel.setTypeFilter("")
-                audio.isChecked = false
-            }
-        }
-        val video = fragmentView.findViewById<Chip>(R.id.video_chip)
-        video.setOnClickListener {
-            if (video.isChecked) {
-                historyViewModel.setTypeFilter(DownloadType.video.toString())
-                video.isChecked = true
-            } else {
-                historyViewModel.setTypeFilter("")
-                video.isChecked = false
-            }
-        }
-        val command = fragmentView.findViewById<Chip>(R.id.command_chip)
-        command.setOnClickListener {
-            if (command.isChecked) {
-                historyViewModel.setTypeFilter(DownloadType.command.toString())
-                command.isChecked = true
-            } else {
-                historyViewModel.setTypeFilter("")
-                command.isChecked = false
-            }
-        }
-
-
-    }
-
-
-    override fun onCardClick(itemID: Long, filePresent: Boolean) {
-        lifecycleScope.launch {
-            val item = withContext(Dispatchers.IO){
-                historyViewModel.getByID(itemID)
-            }
-
-            UiUtil.showHistoryItemDetailsCard(item, requireActivity(), filePresent, sharedPreferences,
-                removeItem = { it, deleteFile ->
-                    historyViewModel.delete(it, deleteFile)
-                },
-                redownloadItem = {
-                    val downloadItem = downloadViewModel.createDownloadItemFromHistory(it)
-                    runBlocking{
-                        if (!filePresent) {
-                            historyViewModel.delete(it, false)
+            },
+            onSelectAll = {
+                coroutineScope.launch {
+                    val allIds = withContext(Dispatchers.IO) {
+                        historyViewModel.getItemIDsNotPresentIn(emptyList())
+                    }
+                    selectedIds = allIds.toSet()
+                }
+            },
+            onInvertSelection = {
+                coroutineScope.launch {
+                    val inverted = withContext(Dispatchers.IO) {
+                        historyViewModel.getItemIDsNotPresentIn(selectedIds.toList())
+                    }
+                    selectedIds = inverted.toSet()
+                }
+            },
+            onSelectBetween = {
+                if (selectedIds.size == 2) {
+                    coroutineScope.launch {
+                        val sorted = selectedIds.sorted()
+                        val middle = withContext(Dispatchers.IO) {
+                            historyViewModel.getIDsBetweenTwoItems(sorted.first(), sorted.last())
                         }
-                        downloadViewModel.queueDownloads(listOf(downloadItem), ignoreDuplicates = true)
-                    }
-                    historyViewModel.delete(it, false)
-                },
-                redownloadShowDownloadCard = {
-                    downloadCardViewModel.setResultItem(downloadViewModel.createResultItemFromHistory(it))
-                    downloadCardViewModel.setDownloadItem(null)
-
-                    findNavController().navigate(R.id.downloadBottomSheetDialog, bundleOf(
-                        Pair("type", it.type),
-                        Pair("ignore_duplicates", true),
-                    ))
-                }
-            )
-        }
-    }
-
-    override fun onCardSelect(isChecked: Boolean, position: Int) {
-        lifecycleScope.launch {
-            val selectedObjects = historyAdapter.getSelectedObjectsCount(totalCount)
-            if (actionMode == null) actionMode = (activity as AppCompatActivity?)!!.startSupportActionMode(contextualActionBar)
-            actionMode?.apply {
-                if (selectedObjects == 0){
-                    this.finish()
-                }else{
-                    actionMode?.title = "$selectedObjects ${getString(R.string.selected)}"
-                    this.menu.findItem(R.id.select_between).isVisible = false
-                    if(selectedObjects == 2){
-                        val selectedIDs = contextualActionBar.getSelectedIDs().sortedBy { it }
-                        val idsInMiddle = withContext(Dispatchers.IO){
-                            historyViewModel.getIDsBetweenTwoItems(selectedIDs.first(), selectedIDs.last())
-                        }
-                        this.menu.findItem(R.id.select_between).isVisible = idsInMiddle.isNotEmpty()
+                        selectedIds = selectedIds + middle
                     }
                 }
-            }
-
-            if (isChecked) {
-                if (actionMode == null){
-                    actionMode = (getActivity() as AppCompatActivity?)!!.startSupportActionMode(contextualActionBar)
-                }else{
-                    actionMode!!.title = "$selectedObjects ${getString(R.string.selected)}"
-                }
-            }
-            else {
-                actionMode?.title = "$selectedObjects ${getString(R.string.selected)}"
-                if (selectedObjects == 0){
-                    actionMode?.finish()
-                }
-            }
-        }
-    }
-
-
-    private val contextualActionBar = object : ActionMode.Callback {
-        override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
-            mode!!.menuInflater.inflate(R.menu.history_menu_context, menu)
-            mode.title = "${historyAdapter.getSelectedObjectsCount(totalCount)} ${getString(R.string.selected)}"
-            (activity as MainActivity).disableBottomNavigation()
-            topAppBar.menu.forEach { it.isEnabled = false }
-            return true
-        }
-
-        override fun onPrepareActionMode(
-            mode: ActionMode?,
-            menu: Menu?
-        ): Boolean {
-            return false
-        }
-
-        override fun onActionItemClicked(
-            mode: ActionMode?,
-            item: MenuItem?
-        ): Boolean {
-            return when (item!!.itemId) {
-                R.id.select_between -> {
-                    lifecycleScope.launch {
-                        val selectedIDs = getSelectedIDs().sortedBy { it }
-                        val idsInMiddle = withContext(Dispatchers.IO){
-                            historyViewModel.getIDsBetweenTwoItems(selectedIDs.first(), selectedIDs.last())
-                        }.toMutableList()
-                        idsInMiddle.addAll(selectedIDs)
-                        if (idsInMiddle.isNotEmpty()){
-                            historyAdapter.checkMultipleItems(idsInMiddle)
-                            actionMode?.title = "${idsInMiddle.count()} ${getString(R.string.selected)}"
-                        }
-                        mode?.menu?.findItem(R.id.select_between)?.isVisible = false
-                    }
-                    true
-                }
-                R.id.delete_results -> {
-                    val deleteFile = booleanArrayOf(false)
-                    val deleteDialog = MaterialAlertDialogBuilder(fragmentContext!!)
-                    deleteDialog.setTitle(getString(R.string.you_are_going_to_delete_multiple_items))
-                    deleteDialog.setMultiChoiceItems(
-                        arrayOf(getString(R.string.delete_files_too)),
-                        booleanArrayOf(false)
-                    ) { _: DialogInterface?, _: Int, b: Boolean -> deleteFile[0] = b }
-                    deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-                    deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
+            },
+            onClearSelection = {
+                selectedIds = emptySet()
+            },
+            onActionClick = { item ->
+                val quickAction = sharedPreferences.getString("history_quick_action", "share")
+                UiUtil.openOrShareFiles(requireActivity(), item.downloadPath, quickAction == "open")
+            },
+            onSwipeLeft = { item ->
+                UiUtil.showRemoveHistoryItemDialog(
+                    item,
+                    requireActivity(),
+                    delete = { itm, deleteFile ->
                         lifecycleScope.launch {
-                            val selectedObjects = getSelectedIDs()
-                            historyAdapter.clearCheckedItems()
-                            historyViewModel.deleteAllWithIDs(selectedObjects, deleteFile[0])
-                            actionMode?.finish()
-                        }
-                    }
-                    deleteDialog.show()
-                    true
-                }
-                R.id.share -> {
-                    lifecycleScope.launch {
-                        val selectedObjects = getSelectedIDs()
-                        val paths = withContext(Dispatchers.IO){
-                            historyViewModel.getDownloadPathsFromIDs(selectedObjects)
-                        }
-                        FileUtil.shareFileIntent(requireContext(), paths.flatten())
-                        historyAdapter.clearCheckedItems()
-                        actionMode?.finish()
-
-                    }
-                    true
-                }
-                R.id.copy_urls -> {
-                    lifecycleScope.launch {
-                        val selectedObjects = getSelectedIDs()
-                        val urls = withContext(Dispatchers.IO){
-                            historyViewModel.getURLsFromIDs(selectedObjects)
-                        }
-
-                        UiUtil.copyToClipboard(urls.distinct().joinToString("\n"), requireActivity())
-                        historyAdapter.clearCheckedItems()
-                        actionMode?.finish()
-                    }
-                    true
-                }
-                R.id.move_to_vault -> {
-                    lifecycleScope.launch {
-                        val selectedObjects = getSelectedIDs()
-                        val requests = withContext(Dispatchers.IO) {
-                            selectedObjects.mapNotNull { id ->
-                                val item = historyViewModel.getByID(id) ?: return@mapNotNull null
-                                if (item.type != DownloadType.video) return@mapNotNull null
-                                val localPath = item.downloadPath.firstOrNull { path ->
-                                    !path.startsWith("content://") && File(path).let { it.exists() && it.isFile }
+                            withContext(Dispatchers.IO) {
+                                historyViewModel.delete(itm, deleteFile)
+                            }
+                            if (!deleteFile) {
+                                view?.let { v ->
+                                    Snackbar.make(
+                                        v,
+                                        getString(R.string.you_are_going_to_delete) + ": " + itm.title,
+                                        Snackbar.LENGTH_INDEFINITE
+                                    ).setAction(getString(R.string.undo)) {
+                                        historyViewModel.insert(itm)
+                                    }.show()
                                 }
-                                val contentUri = if (localPath == null) {
-                                    item.downloadPath.firstOrNull { it.startsWith("content://") }
-                                        ?.let { runCatching { Uri.parse(it) }.getOrNull() }
-                                } else {
-                                    null
-                                }
-                                if (localPath == null && contentUri == null) return@mapNotNull null
-                                VaultImporter.MoveSourceRequest(
-                                    title = item.title,
-                                    filePath = localPath,
-                                    contentUri = contentUri,
-                                    originalFileName = localPath?.let { File(it).name },
-                                    playbackMediaId = "dl:${item.id}",
-                                    historyId = item.id
-                                )
                             }
                         }
-                        if (requests.isEmpty()) {
-                            Toast.makeText(
-                                requireContext(),
-                                R.string.vault_no_local_videos_selected,
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            historyAdapter.clearCheckedItems()
-                            actionMode?.finish()
-                            startActivity(
-                                VaultImportActivity.createBatchIntent(requireContext(), requests)
+                    }
+                )
+            },
+            onSwipeRight = { item ->
+                downloadCardViewModel.setResultItem(downloadViewModel.createResultItemFromHistory(item))
+                downloadCardViewModel.setDownloadItem(null)
+                findNavController().navigate(
+                    R.id.downloadBottomSheetDialog,
+                    bundleOf(
+                        Pair("type", item.type),
+                        Pair("ignore_duplicates", true)
+                    )
+                )
+            },
+            onNavigateToQueue = {
+                findNavController().navigate(R.id.downloadQueueMainFragment)
+            },
+            onClearAllHistory = { deleteFiles ->
+                historyViewModel.deleteAll(deleteFiles)
+            },
+            onClearDeletedHistory = {
+                historyViewModel.clearDeleted()
+            },
+            onClearDuplicateHistory = {
+                historyViewModel.deleteDuplicates()
+            },
+            onCopyAllUrls = {
+                coroutineScope.launch {
+                    val urls = withContext(Dispatchers.IO) {
+                        historyViewModel.getURLS()
+                    }
+                    UiUtil.copyToClipboard(urls.distinct().joinToString("\n"), requireActivity())
+                }
+            },
+            onDeleteSelected = { deleteFiles ->
+                val toDelete = selectedIds.toList()
+                selectedIds = emptySet()
+                coroutineScope.launch {
+                    historyViewModel.deleteAllWithIDs(toDelete, deleteFiles)
+                }
+            },
+            onShareSelected = {
+                val toShare = selectedIds.toList()
+                selectedIds = emptySet()
+                coroutineScope.launch {
+                    val paths = withContext(Dispatchers.IO) {
+                        historyViewModel.getDownloadPathsFromIDs(toShare)
+                    }
+                    FileUtil.shareFileIntent(requireContext(), paths.flatten())
+                }
+            },
+            onCopySelectedUrls = {
+                val toCopy = selectedIds.toList()
+                selectedIds = emptySet()
+                coroutineScope.launch {
+                    val urls = withContext(Dispatchers.IO) {
+                        historyViewModel.getURLsFromIDs(toCopy)
+                    }
+                    UiUtil.copyToClipboard(urls.distinct().joinToString("\n"), requireActivity())
+                }
+            },
+            onMoveSelectedToVault = {
+                val toMove = selectedIds.toList()
+                selectedIds = emptySet()
+                coroutineScope.launch {
+                    val requests = withContext(Dispatchers.IO) {
+                        toMove.mapNotNull { id ->
+                            val itm = historyViewModel.getByID(id) ?: return@mapNotNull null
+                            if (itm.type != DownloadType.video) return@mapNotNull null
+                            val localPath = itm.downloadPath.firstOrNull { path ->
+                                !path.startsWith("content://") && File(path).let { f -> f.exists() && f.isFile }
+                            }
+                            val contentUri = if (localPath == null) {
+                                itm.downloadPath.firstOrNull { it.startsWith("content://") }
+                                    ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                            } else null
+                            if (localPath == null && contentUri == null) return@mapNotNull null
+                            VaultImporter.MoveSourceRequest(
+                                title = itm.title,
+                                filePath = localPath,
+                                contentUri = contentUri,
+                                originalFileName = localPath?.let { File(it).name },
+                                playbackMediaId = "dl:${itm.id}",
+                                historyId = itm.id
                             )
                         }
                     }
-                    true
-                }
-                R.id.redownload -> {
-                    lifecycleScope.launch {
-                        val selectedObjects = getSelectedIDs()
-                        historyAdapter.clearCheckedItems()
-                        if (selectedObjects.size == 1) {
-                            val tmp = withContext(Dispatchers.IO) {
-                                historyViewModel.getByID(selectedObjects.first())
-                            }
-
-                            tmp?.apply {
-                                downloadCardViewModel.setResultItem(downloadViewModel.createResultItemFromHistory(tmp))
-                                downloadCardViewModel.setDownloadItem(null)
-
-                                findNavController().navigate(R.id.downloadBottomSheetDialog, bundleOf(
-                                    Pair("type", tmp.type),
-                                    Pair("ignore_duplicates", true)
-                                ))
-                            }
-                            actionMode?.finish()
-                        }else {
-                            val showDownloadCard = sharedPreferences.getBoolean("download_card", true)
-                            downloadViewModel.turnHistoryItemsToProcessingDownloads(selectedObjects, downloadNow = !showDownloadCard)
-                            if (showDownloadCard){
-                                val bundle = Bundle()
-                                bundle.putLongArray("currentHistoryIDs", selectedObjects.toLongArray())
-                                bundle.putBoolean("ignore_duplicates", true)
-                                findNavController().navigate(R.id.downloadMultipleBottomSheetDialog2, bundle)
-                            }
-                            actionMode?.finish()
-                        }
-                    }
-                    true
-                }
-                R.id.select_all -> {
-                    historyAdapter.checkAll()
-                    val selectedCount = historyAdapter.getSelectedObjectsCount(totalCount)
-                    mode?.title = "(${selectedCount}) ${resources.getString(R.string.all_items_selected)}"
-                    true
-                }
-                R.id.invert_selected -> {
-                    historyAdapter.invertSelected()
-                    val selectedCount = historyAdapter.getSelectedObjectsCount(totalCount)
-                    actionMode?.title = "$selectedCount ${getString(R.string.selected)}"
-                    if (selectedCount == 0) actionMode?.finish()
-                    true
-                }
-                else -> false
-            }
-        }
-
-        override fun onDestroyActionMode(mode: ActionMode?) {
-            actionMode = null
-            (activity as MainActivity).enableBottomNavigation()
-            historyAdapter.clearCheckedItems()
-            topAppBar.menu.forEach { it.isEnabled = true }
-        }
-
-        suspend fun getSelectedIDs() : List<Long>{
-            return if (historyAdapter.inverted || historyAdapter.checkedItems.isEmpty()){
-                withContext(Dispatchers.IO){
-                    historyViewModel.getItemIDsNotPresentIn(historyAdapter.checkedItems.toList())
-                }
-            }else{
-                historyAdapter.checkedItems.toList()
-            }
-        }
-    }
-
-
-    private var simpleCallback: ItemTouchHelper.SimpleCallback =
-        object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
-            override fun onMove(recyclerView: RecyclerView,viewHolder: RecyclerView.ViewHolder,target: RecyclerView.ViewHolder
-            ): Boolean {
-                return false
-            }
-
-            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                val itemID = viewHolder.itemView.tag.toString().toLong()
-                val position = viewHolder.bindingAdapterPosition
-                when (direction) {
-                    ItemTouchHelper.LEFT -> {
-                        lifecycleScope.launch {
-                            val deletedItem = withContext(Dispatchers.IO) {
-                                historyViewModel.getByID(itemID)
-                            }
-                            historyAdapter.notifyItemChanged(position)
-
-                            deletedItem?.apply {
-                                UiUtil.showRemoveHistoryItemDialog(deletedItem, requireActivity(),
-                                    delete = { item, deleteFile ->
-                                        lifecycleScope.launch {
-                                            withContext(Dispatchers.IO){
-                                                historyViewModel.delete(item, deleteFile)
-                                            }
-
-                                            if (!deleteFile){
-                                                Snackbar.make(recyclerView, getString(R.string.you_are_going_to_delete) + ": " + deletedItem.title, Snackbar.LENGTH_INDEFINITE)
-                                                    .setAction(getString(R.string.undo)) {
-                                                        historyViewModel.insert(deletedItem)
-                                                    }.show()
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    ItemTouchHelper.RIGHT -> {
-                        lifecycleScope.launch {
-                            val item = withContext(Dispatchers.IO) {
-                                historyViewModel.getByID(itemID)
-                            }
-                            historyAdapter.notifyItemChanged(position)
-
-                            item?.apply {
-                                downloadCardViewModel.setResultItem(downloadViewModel.createResultItemFromHistory(item))
-                                downloadCardViewModel.setDownloadItem(null)
-
-                                findNavController().navigate(R.id.downloadBottomSheetDialog, bundleOf(
-                                    Pair("type", item.type),
-                                    Pair("ignore_duplicates", true)
-                                ))
-                            }
-                        }
-                    }
-                }
-            }
-
-            override fun onChildDraw(
-                c: Canvas,
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder,
-                dX: Float,
-                dY: Float,
-                actionState: Int,
-                isCurrentlyActive: Boolean
-            ) {
-                RecyclerViewSwipeDecorator.Builder(
-                    requireContext(),
-                    c,
-                    recyclerView,
-                    viewHolder,
-                    dX,
-                    dY,
-                    actionState,
-                    isCurrentlyActive
-                )
-                    .addSwipeLeftBackgroundColor(Color.RED)
-                    .addSwipeLeftActionIcon(R.drawable.baseline_delete_24)
-                    .addSwipeRightBackgroundColor(
-                        MaterialColors.getColor(
+                    if (requests.isEmpty()) {
+                        Toast.makeText(
                             requireContext(),
-                            R.attr.colorOnSurfaceInverse, Color.TRANSPARENT
-                        )
-                    )
-                    .addSwipeRightActionIcon(R.drawable.ic_refresh)
-                    .create()
-                    .decorate()
-                super.onChildDraw(
-                    c,
-                    recyclerView,
-                    viewHolder,
-                    dX,
-                    dY,
-                    actionState,
-                    isCurrentlyActive
-                )
-            }
-        }
-
-    override fun onButtonClick(itemID: Long, isPresent: Boolean) {
-        if (isPresent){
-            val quickAction = sharedPreferences.getString("history_quick_action", "share")
-            lifecycleScope.launch {
-                val item = withContext(Dispatchers.IO){
-                    historyViewModel.getByID(itemID)
+                            R.string.vault_no_local_videos_selected,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        startActivity(VaultImportActivity.createBatchIntent(requireContext(), requests))
+                    }
                 }
-
-                item?.apply {
-                    UiUtil.openOrShareFiles(requireActivity(), downloadPath, quickAction == "open")
+            },
+            onRedownloadSelected = {
+                val toRedownload = selectedIds.toList()
+                selectedIds = emptySet()
+                coroutineScope.launch {
+                    if (toRedownload.size == 1) {
+                        val tmp = withContext(Dispatchers.IO) {
+                            historyViewModel.getByID(toRedownload.first())
+                        }
+                        tmp?.let {
+                            downloadCardViewModel.setResultItem(downloadViewModel.createResultItemFromHistory(it))
+                            downloadCardViewModel.setDownloadItem(null)
+                            findNavController().navigate(
+                                R.id.downloadBottomSheetDialog,
+                                bundleOf(
+                                    Pair("type", it.type),
+                                    Pair("ignore_duplicates", true)
+                                )
+                            )
+                        }
+                    } else if (toRedownload.size > 1) {
+                        val showDownloadCard = sharedPreferences.getBoolean("download_card", true)
+                        downloadViewModel.turnHistoryItemsToProcessingDownloads(toRedownload, downloadNow = !showDownloadCard)
+                        if (showDownloadCard) {
+                            val bundle = Bundle().apply {
+                                putLongArray("currentHistoryIDs", toRedownload.toLongArray())
+                                putBoolean("ignore_duplicates", true)
+                            }
+                            findNavController().navigate(R.id.downloadMultipleBottomSheetDialog2, bundle)
+                        }
+                    }
                 }
-            }
-
-        }
+            },
+        )
     }
+
     companion object {
-        private const val TAG = "historyFragment"
+        private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<HistoryItem>() {
+            override fun areItemsTheSame(oldItem: HistoryItem, newItem: HistoryItem): Boolean =
+                oldItem.id == newItem.id
+
+            override fun areContentsTheSame(oldItem: HistoryItem, newItem: HistoryItem): Boolean =
+                oldItem == newItem
+        }
     }
 }
