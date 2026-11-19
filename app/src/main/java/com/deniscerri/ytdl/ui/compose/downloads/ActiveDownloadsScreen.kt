@@ -48,7 +48,7 @@ fun ActiveDownloadsContent(
             ) {
                 items(
                     items = items,
-                    key = { it.id },
+                    key = { "${it.id}_${it.url}" },
                     contentType = { "active_download" },
                 ) { item ->
                     val event = progressEvents[item.id]

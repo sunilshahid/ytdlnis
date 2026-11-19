@@ -543,7 +543,7 @@ fun HistoryDownloadScreen(
                 ) {
                     items(
                         count = items.itemCount,
-                        key = { index -> items[index]?.id ?: index.toLong() },
+                        key = { index -> val item = items[index]; if (item != null && item.id != 0L) "${item.id}_$index" else "$index" },
                         contentType = { "history_item" },
                     ) { index ->
                         val item = items[index]

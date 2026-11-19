@@ -480,6 +480,7 @@ class VideoPlayerActivity : BaseActivity() {
         playerView.setOnTouchListener { _, event -> handleTouch(event) }
         setupImmersiveMode()
         observePlayback()
+        attachedPlayer?.let { attachPlayer(it) }
     }
 
     private fun bindCustomControls() {
@@ -949,15 +950,17 @@ class VideoPlayerActivity : BaseActivity() {
         attachedPlayer?.removeListener(playerListener)
         attachedPlayer = player
         player.addListener(playerListener)
-        VideoPlayerOverlays.applySubtitleStyle(playerView, this)
-        VideoPlayerOverlays.applyPreferredSubtitleSelection(player, this)
-        updateSubtitleButtonTint()
-        playerView.post {
-            playerView.player = player
-            playerView.setShutterBackgroundColor(Color.TRANSPARENT)
-            playerView.findViewById<View>(androidx.media3.ui.R.id.exo_shutter)?.visibility = View.GONE
+        if (::playerView.isInitialized) {
+            VideoPlayerOverlays.applySubtitleStyle(playerView, this)
+            VideoPlayerOverlays.applyPreferredSubtitleSelection(player, this)
+            updateSubtitleButtonTint()
+            playerView.post {
+                playerView.player = player
+                playerView.setShutterBackgroundColor(Color.TRANSPARENT)
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_shutter)?.visibility = View.GONE
+            }
+            playerView.keepScreenOn = player.isPlaying
         }
-        playerView.keepScreenOn = player.isPlaying
         renderedFirstFrame = player.playbackState == Player.STATE_READY ||
             player.isPlaying ||
             player.currentPosition > 0L ||
@@ -1471,7 +1474,9 @@ class VideoPlayerActivity : BaseActivity() {
         releasePlaybackAfterPreview()
         hideScrubPreview()
         attachedPlayer?.removeListener(playerListener)
-        playerView.player = null
+        if (::playerView.isInitialized) {
+            playerView.player = null
+        }
         attachedPlayer = null
     }
 

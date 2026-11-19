@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -247,7 +248,7 @@ fun HomeScreen(
 
                     // Suggestions list
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(state.suggestions, key = { "${it.type}_${it.text}" }) { suggestion ->
+                        itemsIndexed(state.suggestions, key = { index, suggestion -> "${suggestion.type}_${suggestion.text}_$index" }) { _, suggestion ->
                             SearchSuggestionRow(
                                 item = suggestion,
                                 onClick = onSuggestionClick,
@@ -281,7 +282,7 @@ fun HomeScreen(
                             onClick = { onPlaylistFilterSelected("") },
                         )
                     }
-                    items(state.playlistFilters, key = { it }) { filter ->
+                    itemsIndexed(state.playlistFilters, key = { index, filter -> "${filter}_$index" }) { _, filter ->
                         YtdlChip(
                             label = filter,
                             selected = state.selectedPlaylistFilter == filter,
@@ -313,7 +314,7 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
                 ) {
-                    items(state.results, key = { it.id }) { item ->
+                    itemsIndexed(state.results, key = { index, item -> "${item.id}_${item.url}_$index" }) { _, item ->
                         ResultCard(
                             item = item,
                             isSelected = state.selectedItemIds.contains(item.id),
