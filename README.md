@@ -13,13 +13,23 @@
 
 <div align="center">
 
-[![Package](https://img.shields.io/badge/Package-com.deniscerri.ytdl.extended-brightgreen?style=flat-square&logo=android)](https://github.com/deniscerri/ytdlnis)
+[![Version](https://img.shields.io/badge/Version-v1.9.3-blue?style=flat-square&logo=github)](https://github.com/sunilshahid/ytdlnis/releases/tag/v1.9.3)
+[![Package](https://img.shields.io/badge/Package-com.deniscerri.ytdl.extended-brightgreen?style=flat-square&logo=android)](https://github.com/sunilshahid/ytdlnis)
 [![License](https://img.shields.io/badge/License-GPL%20v3.0-blue?style=flat-square)](https://github.com/deniscerri/ytdlnis/blob/main/LICENSE)
 [![Android](https://img.shields.io/badge/Android-7.0%2B-green?style=flat-square&logo=android)](https://developer.android.com)
 [![Engine](https://img.shields.io/badge/Engine-yt--dlp-red?style=flat-square&logo=youtube)](https://github.com/yt-dlp/yt-dlp)
 [![ExoPlayer](https://img.shields.io/badge/Decoder-dav1d%20AV1%20Native-orange?style=flat-square)](https://code.videolan.org/videolan/dav1d)
 
 </div>
+
+<p align="center">
+  <a href="https://github.com/sunilshahid/ytdlnis/releases/latest">
+    <img src="https://img.shields.io/github/v/release/sunilshahid/ytdlnis?label=Download%20APK&style=for-the-badge&logo=github&color=2ea44f" alt="Download Latest APK" height="40"/>
+  </a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.deniscerri.ytdl.extended%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fsunilshahid%2Fytdlnis%22%2C%22author%22%3A%22sunilshahid%22%2C%22name%22%3A%22YTDLnis%20Extended%22%7D">
+    <img src="screenshots/badge_obtainium.png" alt="Get it on Obtainium" height="40"/>
+  </a>
+</p>
 
 <div align="center">
 	<a href="#-co-existence--standalone-package">Co-Existence Package</a> &nbsp;•&nbsp;
@@ -164,7 +174,16 @@
 
 ## 📦 Installation
 
-1. Navigate to the [Releases](https://github.com/deniscerri/ytdlnis/releases) page.
+<p align="center">
+  <a href="https://github.com/sunilshahid/ytdlnis/releases/latest">
+    <img src="https://img.shields.io/github/v/release/sunilshahid/ytdlnis?label=Download%20APK&style=for-the-badge&logo=github&color=2ea44f" alt="Download Latest APK" height="40"/>
+  </a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.deniscerri.ytdl.extended%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fsunilshahid%2Fytdlnis%22%2C%22author%22%3A%22sunilshahid%22%2C%22name%22%3A%22YTDLnis%20Extended%22%7D">
+    <img src="screenshots/badge_obtainium.png" alt="Get it on Obtainium" height="40"/>
+  </a>
+</p>
+
+1. Navigate to the [Releases](https://github.com/sunilshahid/ytdlnis/releases) page or tap **Download APK** above.
 2. Download the latest `YTDLnis-Extended-*-universal-release-github.apk` (or arm64-v8a).
 3. Open the APK on your Android device (Android 7.0 / API 24 or newer).
 4. Tap **Install** (or enable *Install unknown apps* if prompted).
