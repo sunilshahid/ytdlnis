@@ -29,7 +29,7 @@ abstract class ComposeSheetFragment : BottomSheetDialogFragment() {
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         setContent {
             YtdlnisTheme {
-                Content()
+                this@ComposeSheetFragment.Content()
             }
         }
     }

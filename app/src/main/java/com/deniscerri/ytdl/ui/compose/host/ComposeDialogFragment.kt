@@ -31,7 +31,7 @@ abstract class ComposeDialogFragment : DialogFragment() {
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         setContent {
             YtdlnisTheme {
-                Content()
+                this@ComposeDialogFragment.Content()
             }
         }
     }

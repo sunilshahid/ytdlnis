@@ -32,7 +32,7 @@ abstract class ComposeFragment : Fragment() {
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         setContent {
             YtdlnisTheme {
-                Content()
+                this@ComposeFragment.Content()
             }
         }
     }
