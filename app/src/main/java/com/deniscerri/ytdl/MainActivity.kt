@@ -20,6 +20,11 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.forEach
@@ -47,8 +52,10 @@ import com.deniscerri.ytdl.database.viewmodel.DownloadViewModel
 import com.deniscerri.ytdl.database.viewmodel.ResultViewModel
 import com.deniscerri.ytdl.database.viewmodel.SettingsViewModel
 import com.deniscerri.ytdl.playback.PlaybackController
-import com.deniscerri.ytdl.ui.play.WavySeekBar
 import com.deniscerri.ytdl.playback.PlaybackLauncher
+import com.deniscerri.ytdl.ui.compose.shell.MiniPlayer
+import com.deniscerri.ytdl.ui.compose.theme.YtdlnisTheme
+import com.deniscerri.ytdl.ui.play.WavySeekBar
 import com.deniscerri.ytdl.playback.model.PlaybackSource
 import com.deniscerri.ytdl.playback.model.PlaybackType
 import com.deniscerri.ytdl.ui.play.PlaybackArtworkLoader
@@ -105,9 +112,7 @@ class MainActivity : BaseActivity() {
     private lateinit var navController : NavController
     private var loadingRuntimeDialog: androidx.appcompat.app.AlertDialog? = null
 
-    private var miniPlayerView: View? = null
-    private var miniPlayerAllowed = true
-    private var miniPlayerState: PlaybackController.UiState = PlaybackController.state.value
+    private var miniPlayerAllowed by mutableStateOf(true)
 
     lateinit var installLauncher: ActivityResultLauncher<Intent>
         private set
@@ -382,7 +387,7 @@ class MainActivity : BaseActivity() {
             this.visibility = View.VISIBLE
             if (this is BottomNavigationView){
                 this@MainActivity.findViewById<FragmentContainerView>(R.id.frame_layout).updateLayoutParams<ConstraintLayout.LayoutParams> {
-                    val miniPlayer = this@MainActivity.findViewById<View>(R.id.mini_player)
+                    val miniPlayer = this@MainActivity.findViewById<View>(R.id.compose_mini_player)
                     bottomToTop = miniPlayer?.id ?: R.id.bottomNavigationView
                     bottomToBottom = ConstraintLayout.LayoutParams.UNSET
                 }
@@ -583,146 +588,22 @@ class MainActivity : BaseActivity() {
 
 
     private fun setupMiniPlayer() {
-        val mini = findViewById<View>(R.id.mini_player) ?: return
-        miniPlayerView = mini
-
-        val playPause = mini.findViewById<ImageButton>(R.id.mini_player_play_pause)
-        val next = mini.findViewById<ImageButton>(R.id.mini_player_next)
-        val close = mini.findViewById<ImageButton>(R.id.mini_player_close)
-        val content = mini.findViewById<View>(R.id.mini_player_content)
-
-        val art = mini.findViewById<View>(R.id.mini_player_art)
-        val openPlayerAction = View.OnClickListener {
-            val sharedArt = mini.findViewById<View>(R.id.mini_player_art) ?: art
-            PlaybackLauncher.openPlayer(this, sharedArt)
-        }
-        mini.setOnClickListener(openPlayerAction)
-        content?.setOnClickListener(openPlayerAction)
-        art?.setOnClickListener(openPlayerAction)
-        playPause.setOnClickListener {
-            val player = PlaybackController.player()
-            if (player == null || player.mediaItemCount == 0) {
-                PlaybackController.resume()
-            } else {
-                PlaybackController.togglePlayPause()
-            }
-        }
-        next.setOnClickListener { PlaybackController.next() }
-        close.setOnClickListener {
-            val slideHeight = mini.height.toFloat().takeIf { it > 0f } ?: (72f * resources.displayMetrics.density)
-            mini.animate()
-                .translationY(slideHeight)
-                .setDuration(220)
-                .setInterpolator(android.view.animation.AccelerateInterpolator())
-                .withEndAction {
-                    PlaybackController.stop(dismissed = true)
-                    mini.isVisible = false
-                    mini.translationY = 0f
-                }
-                .start()
-        }
-
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                PlaybackController.state.collect {
-                    miniPlayerState = it
-                    bindMiniPlayer()
+        val composeMini = findViewById<ComposeView>(R.id.compose_mini_player) ?: return
+        composeMini.apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                YtdlnisTheme {
+                    MiniPlayer(
+                        allowed = miniPlayerAllowed,
+                        onOpenPlayer = { PlaybackLauncher.openPlayer(this@MainActivity) }
+                    )
                 }
             }
         }
     }
 
     private fun bindMiniPlayer() {
-        val mini = miniPlayerView ?: return
-        val state = miniPlayerState
-        val item = state.currentItem
-        val isDismissed = PreferenceManager.getDefaultSharedPreferences(this)
-            .getBoolean("playback_dismissed", false)
-        val visible = item != null && miniPlayerAllowed && (!isDismissed || state.playing)
-        val wasVisible = mini.isVisible
-
-        if (visible && !wasVisible) {
-            val slideHeight = mini.height.toFloat().takeIf { it > 0f } ?: (72f * resources.displayMetrics.density)
-            mini.translationY = slideHeight
-            mini.isVisible = true
-            mini.animate()
-                .translationY(0f)
-                .setDuration(280)
-                .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f))
-                .start()
-        } else if (!visible && wasVisible) {
-            val slideHeight = mini.height.toFloat().takeIf { it > 0f } ?: (72f * resources.displayMetrics.density)
-            mini.animate()
-                .translationY(slideHeight)
-                .setDuration(220)
-                .setInterpolator(android.view.animation.AccelerateInterpolator())
-                .withEndAction {
-                    mini.isVisible = false
-                    mini.translationY = 0f
-                }
-                .start()
-            return
-        } else if (!visible) {
-            mini.isVisible = false
-            return
-        }
-
-        if (item == null) return
-
-        mini.findViewById<TextView>(R.id.mini_player_title).text = item.title
-        // Mirror the Play-tab row subtitle: artist · source · type, so a video never
-        // shows up labelled "audio".
-        val source = when (item.source) {
-            PlaybackSource.YOUTUBE -> getString(R.string.youtube)
-            PlaybackSource.DOWNLOAD -> getString(R.string.downloads)
-            PlaybackSource.LOCAL -> null
-        }
-        val type = getString(
-            if (item.type == PlaybackType.VIDEO) R.string.video else R.string.audio
-        )
-        mini.findViewById<TextView>(R.id.mini_player_subtitle).text = listOfNotNull(
-            item.artist?.takeIf { it.isNotBlank() },
-            source,
-            type
-        ).joinToString(" · ")
-
-        mini.findViewById<ImageButton>(R.id.mini_player_play_pause).setImageResource(
-            if (state.playing) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play
-        )
-
-        val miniCard = mini as? com.google.android.material.card.MaterialCardView
-        lifecycleScope.launch {
-            val glowColor = com.deniscerri.ytdl.util.PlaybackColors.artworkGlowColor(this@MainActivity, item)
-            if (glowColor != null && miniPlayerState.currentItem?.mediaId == item.mediaId) {
-                val surfaceColor = com.google.android.material.color.MaterialColors.getColor(
-                    this@MainActivity,
-                    com.google.android.material.R.attr.colorSurface,
-                    android.graphics.Color.BLACK
-                )
-                // Rich ambient glow-derived tint for the mini player pill background
-                val bgTint = androidx.core.graphics.ColorUtils.blendARGB(glowColor, surfaceColor, 0.72f)
-                miniCard?.setCardBackgroundColor(bgTint)
-
-                val playBtn = mini.findViewById<ImageButton>(R.id.mini_player_play_pause)
-                val playBg = androidx.core.graphics.ColorUtils.blendARGB(glowColor, android.graphics.Color.WHITE, 0.45f)
-                playBtn?.backgroundTintList = android.content.res.ColorStateList.valueOf(playBg)
-                val onPlay = if (androidx.core.graphics.ColorUtils.calculateLuminance(playBg) > 0.45) {
-                    android.graphics.Color.BLACK
-                } else {
-                    android.graphics.Color.WHITE
-                }
-                playBtn?.imageTintList = android.content.res.ColorStateList.valueOf(onPlay)
-
-                val iconTint = androidx.core.graphics.ColorUtils.blendARGB(glowColor, android.graphics.Color.WHITE, 0.75f)
-                mini.findViewById<ImageButton>(R.id.mini_player_next)?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
-                mini.findViewById<ImageButton>(R.id.mini_player_close)?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
-            }
-        }
-
-        val art = mini.findViewById<ImageView>(R.id.mini_player_art)
-        // Delegates to the shared artwork loader: remote art uses Picasso, local files go
-        // through the media retriever / bundled ffmpeg cover extraction.
-        PlaybackArtworkLoader.load(art, item)
+        // State updates and animations are reactively handled by Compose MiniPlayer
     }
 
     companion object {
