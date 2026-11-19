@@ -706,6 +706,24 @@ class DeviceThumbnailLoader(context: Context) {
         scope.cancel()
     }
 
+    suspend fun getThumbnail(item: DeviceMedia): Bitmap? {
+        val key = item.mediaId
+        cache.get(key)?.let { return it }
+        val bitmap = withContext(Dispatchers.IO) {
+            loadFromDiskCache(key) ?: run {
+                val extracted = loadBitmap(item)
+                if (extracted != null) {
+                    saveToDiskCache(key, extracted)
+                }
+                extracted
+            }
+        }
+        if (bitmap != null) {
+            cache.put(key, bitmap)
+        }
+        return bitmap
+    }
+
     /**
      * Pre-generates artwork for the whole library in the background. Called right after the
      * list is visible so every row's thumbnail disk cache is warm before the user scrolls;

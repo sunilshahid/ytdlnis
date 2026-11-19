@@ -1,45 +1,41 @@
 package com.deniscerri.ytdl.vault.ui
 
-import android.animation.ObjectAnimator
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.Editable
 import android.text.InputType
-import android.text.TextWatcher
-import android.view.View
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
-import android.widget.EditText
-import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.PopupMenu
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.ui.common.MediaViewOptionsSheet
+import com.deniscerri.ytdl.ui.compose.theme.YtdlnisTheme
+import com.deniscerri.ytdl.ui.compose.vault.VaultPickerState
+import com.deniscerri.ytdl.ui.compose.vault.VaultScreen
+import com.deniscerri.ytdl.ui.compose.vault.VaultSettingsData
+import com.deniscerri.ytdl.ui.compose.vault.VaultStage
+import com.deniscerri.ytdl.ui.compose.vault.VaultUiState
 import com.deniscerri.ytdl.ui.play.device.DeviceMedia
 import com.deniscerri.ytdl.ui.play.device.DeviceMediaRepository
 import com.deniscerri.ytdl.ui.play.device.DevicePermissions
 import com.deniscerri.ytdl.ui.play.device.DevicePlayStatus
-import com.deniscerri.ytdl.ui.play.device.DeviceSort
 import com.deniscerri.ytdl.ui.play.device.DeviceThumbnailLoader
 import com.deniscerri.ytdl.ui.play.device.sortDeviceMedia
 import com.deniscerri.ytdl.vault.VaultBiometrics
@@ -47,7 +43,6 @@ import com.deniscerri.ytdl.vault.VaultEnvelopeEngine
 import com.deniscerri.ytdl.vault.VaultField
 import com.deniscerri.ytdl.vault.VaultLayoutMode
 import com.deniscerri.ytdl.vault.VaultPickerField
-import com.deniscerri.ytdl.vault.VaultPickerSortBy
 import com.deniscerri.ytdl.vault.VaultRepository
 import com.deniscerri.ytdl.vault.VaultSessionManager
 import com.deniscerri.ytdl.vault.VaultSettings
@@ -56,93 +51,32 @@ import com.deniscerri.ytdl.vault.VaultStorage
 import com.deniscerri.ytdl.vault.VaultUiItem
 import com.deniscerri.ytdl.vault.ingest.VaultImporter
 import com.deniscerri.ytdl.vault.sortVaultItems
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.floatingactionbutton.FloatingActionButton
-import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * Private Vault main container handling Setup, Unlock (Password + Hardware Biometric CryptoObject
  * + Decoy + Exponential Backoff + Auto-Wipe), Gallery (Grid/List + in-RAM search + Play + Rename +
- * Export + Delete + SAF Cut & Move), and Vault Settings.
+ * Export + Delete + SAF Cut & Move), and Vault Settings — composed cleanly with Material 3.
  */
 class VaultActivity : AppCompatActivity() {
 
-    private lateinit var setupContainer: View
-    private lateinit var unlockContainer: View
-    private lateinit var galleryContainer: View
-    private lateinit var settingsContainer: View
-    private lateinit var pickerContainer: View
-    private lateinit var progressOverlay: View
-    private lateinit var progressLabel: TextView
-    private lateinit var blackoutVeil: View
+    private var uiState by mutableStateOf(VaultUiState())
 
-    private lateinit var pickerTitle: TextView
-    private lateinit var pickerViewOptionsBtn: ImageButton
-    private lateinit var pickerSearchInput: EditText
-    private lateinit var pickerRecycler: RecyclerView
-    private lateinit var pickerLoading: View
-    private lateinit var pickerEmptyView: View
-    private lateinit var pickerEmptyText: TextView
-    private lateinit var pickerGrantBtn: MaterialButton
-    private lateinit var pickerImportBtn: MaterialButton
-    private lateinit var pickerAdapter: VaultPickerAdapter
     private lateinit var pickerRepo: DeviceMediaRepository
     private lateinit var pickerThumbnails: DeviceThumbnailLoader
     private var allPickerVideos: List<DeviceMedia> = emptyList()
     private var visiblePickerVideos: List<DeviceMedia> = emptyList()
     private val selectedPickerIds = linkedSetOf<String>()
 
-    private lateinit var settingsBioSwitch: MaterialSwitch
-    private lateinit var settingsPmSwitch: MaterialSwitch
-    private lateinit var settingsAutoWipeBtn: MaterialButton
-    private lateinit var settingsChangePwBtn: MaterialButton
-    private lateinit var settingsStealthSwitch: MaterialSwitch
-    private lateinit var settingsStealthPinContainer: View
-    private lateinit var settingsStealthStatus: TextView
-    private lateinit var settingsStealthPinLayout: TextInputLayout
-    private lateinit var settingsStealthPinInput: TextInputEditText
-    private lateinit var settingsStealthSaveBtn: MaterialButton
-    private lateinit var settingsDecoyStatus: TextView
-    private lateinit var settingsDecoyBtn: MaterialButton
-    private lateinit var settingsClearDecoyBtn: MaterialButton
-    private lateinit var settingsKeepOpenSwitch: MaterialSwitch
-    private lateinit var settingsWipeBtn: MaterialButton
-    private var suppressSettingsListeners = false
-
-    private lateinit var setupPasswordInput: TextInputEditText
-    private lateinit var setupConfirmInput: TextInputEditText
-    private lateinit var setupErrorText: TextView
-
-    private lateinit var unlockPasswordInput: TextInputEditText
-    private lateinit var unlockErrorText: TextView
-    private lateinit var unlockButton: MaterialButton
-    private lateinit var unlockBioButton: MaterialButton
-
-    private lateinit var normalHeader: View
-    private lateinit var selectionHeader: View
-    private lateinit var selectionCountText: TextView
-    private lateinit var headerTitle: TextView
-    private lateinit var viewToggleBtn: ImageButton
-    private lateinit var settingsBtn: ImageButton
-    private lateinit var addFab: FloatingActionButton
-    private lateinit var searchInput: EditText
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var emptyView: View
-
-    private lateinit var adapter: VaultAdapter
     private var allItems: List<VaultUiItem> = emptyList()
     private var visibleItems: List<VaultUiItem> = emptyList()
     private val selectedIds = linkedSetOf<String>()
     private var isSelectionMode = false
-    private var isGridMode = true
     private var vaultViewSettings = VaultSettings()
 
     private var setupOnlyMode = false
@@ -171,6 +105,8 @@ class VaultActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var lockoutRunnable: Runnable? = null
 
+    private val autoWipeOptions = intArrayOf(0, 5, 10, 20)
+
     private val screenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_SCREEN_OFF) {
@@ -183,10 +119,7 @@ class VaultActivity : AppCompatActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         externalOverlayInFlight = false
-        if (VaultSessionManager.isUnlocked.value &&
-            ::pickerContainer.isInitialized &&
-            pickerContainer.visibility == View.VISIBLE
-        ) {
+        if (VaultSessionManager.isUnlocked.value && uiState.stage == VaultStage.PICKER) {
             loadPickerVideos()
         }
     }
@@ -237,165 +170,108 @@ class VaultActivity : AppCompatActivity() {
         }
         super.onCreate(savedInstanceState)
         externalOverlayInFlight = savedInstanceState?.getBoolean(KEY_EXTERNAL_OVERLAY_IN_FLIGHT) == true
-        setContentView(R.layout.activity_vault)
+
         @Suppress("DEPRECATION")
         overridePendingTransition(R.anim.vault_enter, R.anim.vault_hold)
 
         setupOnlyMode = intent.getBooleanExtra(EXTRA_SETUP_ONLY, false)
 
-        setupContainer = findViewById(R.id.vault_setup_container)
-        unlockContainer = findViewById(R.id.vault_unlock_container)
-        galleryContainer = findViewById(R.id.vault_gallery_container)
-        settingsContainer = findViewById(R.id.vault_settings_container)
-        pickerContainer = findViewById(R.id.vault_picker_container)
-        progressOverlay = findViewById(R.id.vault_progress_overlay)
-        progressLabel = findViewById(R.id.vault_progress_label)
-        blackoutVeil = findViewById(R.id.vault_blackout_veil)
-
-        pickerTitle = findViewById(R.id.vault_picker_title)
-        pickerViewOptionsBtn = findViewById(R.id.vault_picker_view_options_button)
-        pickerSearchInput = findViewById(R.id.vault_picker_search_input)
-        pickerRecycler = findViewById(R.id.vault_picker_recycler)
-        pickerLoading = findViewById(R.id.vault_picker_loading)
-        pickerEmptyView = findViewById(R.id.vault_picker_empty_view)
-        pickerEmptyText = findViewById(R.id.vault_picker_empty_text)
-        pickerGrantBtn = findViewById(R.id.vault_picker_grant_permission_btn)
-        pickerImportBtn = findViewById(R.id.vault_picker_import_button)
         pickerRepo = DeviceMediaRepository(this)
         pickerThumbnails = DeviceThumbnailLoader(this)
-        pickerAdapter = VaultPickerAdapter(pickerThumbnails) { media ->
-            togglePickerSelection(media)
-        }
-        pickerRecycler.layoutManager = GridLayoutManager(this, 2)
-        pickerRecycler.adapter = pickerAdapter
 
-        settingsBioSwitch = findViewById(R.id.vault_setting_bio_switch)
-        settingsPmSwitch = findViewById(R.id.vault_setting_pm_switch)
-        settingsAutoWipeBtn = findViewById(R.id.vault_setting_auto_wipe_btn)
-        settingsChangePwBtn = findViewById(R.id.vault_setting_change_pw_btn)
-        settingsStealthSwitch = findViewById(R.id.vault_setting_stealth_switch)
-        settingsStealthPinContainer = findViewById(R.id.vault_setting_stealth_pin_container)
-        settingsStealthStatus = findViewById(R.id.vault_setting_stealth_status)
-        settingsStealthPinLayout = findViewById(R.id.vault_setting_stealth_pin_layout)
-        settingsStealthPinInput = findViewById(R.id.vault_setting_stealth_pin_input)
-        settingsStealthSaveBtn = findViewById(R.id.vault_setting_stealth_save_btn)
-        settingsDecoyStatus = findViewById(R.id.vault_setting_decoy_status)
-        settingsDecoyBtn = findViewById(R.id.vault_setting_decoy_btn)
-        settingsClearDecoyBtn = findViewById(R.id.vault_setting_clear_decoy_btn)
-        settingsKeepOpenSwitch = findViewById(R.id.vault_setting_keep_open_switch)
-        settingsWipeBtn = findViewById(R.id.vault_setting_wipe_btn)
-
-        setupPasswordInput = findViewById(R.id.setup_password_input)
-        setupConfirmInput = findViewById(R.id.setup_confirm_input)
-        setupErrorText = findViewById(R.id.setup_error_text)
-
-        unlockPasswordInput = findViewById(R.id.unlock_password_input)
-        unlockErrorText = findViewById(R.id.unlock_error_text)
-        unlockButton = findViewById(R.id.unlock_button)
-        unlockBioButton = findViewById(R.id.unlock_biometric_button)
-
-        normalHeader = findViewById(R.id.vault_normal_header)
-        selectionHeader = findViewById(R.id.vault_selection_header)
-        selectionCountText = findViewById(R.id.vault_sel_count)
-        headerTitle = findViewById(R.id.vault_header_title)
-        viewToggleBtn = findViewById(R.id.vault_view_toggle_button)
-        settingsBtn = findViewById(R.id.vault_settings_button)
-        addFab = findViewById(R.id.vault_add_fab)
-        searchInput = findViewById(R.id.vault_search_input)
-        recyclerView = findViewById(R.id.vault_recycler)
-        emptyView = findViewById(R.id.vault_empty_view)
-
-        enforceNoLearningIme(setupPasswordInput)
-        enforceNoLearningIme(setupConfirmInput)
-        enforceNoLearningIme(unlockPasswordInput)
-        enforceNoLearningIme(searchInput)
-        enforceNoLearningIme(pickerSearchInput)
-        enforceNoLearningIme(settingsStealthPinInput)
-        applyAutofillPolicy(isPasswordManagerEnabled())
-
-        adapter = VaultAdapter(
-            onItemClick = { item ->
-                if (isSelectionMode) {
-                    toggleItemSelection(item)
-                } else {
-                    openVaultPlayer(item)
+        val composeView = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                YtdlnisTheme {
+                    VaultScreen(
+                        state = uiState,
+                        pickerThumbnailLoader = pickerThumbnails,
+                        onBackClick = { handleBackAction() },
+                        onCreateVault = { pw, confirm -> handleCreateVault(pw, confirm) },
+                        onUnlockPassword = { pw -> handlePasswordUnlock(pw) },
+                        onUnlockBiometric = { triggerBiometricUnlock() },
+                        onItemClick = { item ->
+                            if (uiState.isSelectionMode) {
+                                toggleItemSelection(item)
+                            } else {
+                                openVaultPlayer(item)
+                            }
+                        },
+                        onItemLongClick = { item -> enterSelectionModeWith(item) },
+                        onItemRename = { item -> showRenameDialog(item) },
+                        onItemExport = { item -> runRestore(listOf(item.meta.id), deleteFromVaultAfter = false) },
+                        onItemDelete = { item -> showDeleteConfirmDialog(listOf(item)) },
+                        onToggleSelectAll = { toggleSelectAll() },
+                        onExitSelectionMode = { exitSelectionMode() },
+                        onDeleteSelected = { confirmDeleteSelected() },
+                        onExportSelected = { runRestore(selectedIds.toList(), deleteFromVaultAfter = false) },
+                        onSearchQueryChange = { q ->
+                            uiState = uiState.copy(searchQuery = q)
+                            filterGallery(q)
+                        },
+                        onToggleSearch = {
+                            val active = !uiState.isSearchActive
+                            uiState = uiState.copy(isSearchActive = active)
+                            if (!active) {
+                                uiState = uiState.copy(searchQuery = "")
+                                filterGallery("")
+                            }
+                        },
+                        onOpenOptionsSheet = { openVaultViewOptions() },
+                        onOpenSettings = { openVaultSettings() },
+                        onLockVault = { smoothLockAndFinish() },
+                        onOpenPicker = { openInAppVideoPicker() },
+                        onCloseSettings = { closeVaultSettings() },
+                        onToggleBiometric = { enable -> handleToggleBiometric(enable) },
+                        onTogglePasswordManager = { enable -> handleTogglePasswordManager(enable) },
+                        onToggleStealth = { enable -> handleToggleStealth(enable) },
+                        onSaveStealthPin = { pin -> handleSaveStealthPin(pin) },
+                        onSetupDecoy = { showDecoyPasswordDialog() },
+                        onClearDecoy = { handleClearDecoy() },
+                        onChangePassword = { showChangePasswordDialog() },
+                        onSelectAutoWipe = { promptSelectAutoWipe() },
+                        onToggleKeepOpen = { enable -> handleToggleKeepOpen(enable) },
+                        onWipeVault = { confirmWipeVault() },
+                        onClosePicker = { closeInAppVideoPicker() },
+                        onPickerToggleItem = { media -> togglePickerSelection(media) },
+                        onPickerToggleSelectAll = { togglePickerSelectAll() },
+                        onPickerImportSelected = { importSelectedPickerVideos() },
+                        onPickerGrantPermission = {
+                            externalOverlayInFlight = true
+                            pickerPermissionLauncher.launch(DevicePermissions.required())
+                        },
+                        onPickerSearchChange = { q ->
+                            uiState = uiState.copy(
+                                pickerState = uiState.pickerState.copy(searchQuery = q)
+                            )
+                            filterPickerVideos(q)
+                        },
+                        onPickerToggleLayout = {
+                            val next = !uiState.pickerState.isGridMode
+                            uiState = uiState.copy(
+                                pickerState = uiState.pickerState.copy(isGridMode = next)
+                            )
+                        },
+                        onPickerOpenOptions = { openVaultPickerViewOptions() },
+                        onPickerBrowseSystem = { launchExternalDocumentPicker() }
+                    )
                 }
-            },
-            onItemLongClick = { item ->
-                enterSelectionModeWith(item)
-            },
-            onMoreClick = { anchor, item -> showItemMenu(anchor, item) }
-        )
-        recyclerView.layoutManager = GridLayoutManager(this, 2)
-        recyclerView.adapter = adapter
-
-        findViewById<MaterialButton>(R.id.setup_create_button).setOnClickListener { handleCreateVault() }
-        unlockButton.setOnClickListener { handlePasswordUnlock() }
-        unlockPasswordInput.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                handlePasswordUnlock()
-                true
-            } else {
-                false
             }
         }
-        setupConfirmInput.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                handleCreateVault()
-                true
-            } else {
-                false
-            }
-        }
+        setContentView(composeView)
 
-        findViewById<ImageButton>(R.id.vault_back_button).setOnClickListener { handleBackAction() }
-        findViewById<ImageButton>(R.id.vault_lock_button).setOnClickListener { smoothLockAndFinish() }
-        findViewById<ImageButton>(R.id.vault_sel_close_button).setOnClickListener { exitSelectionMode() }
-        findViewById<ImageButton>(R.id.vault_sel_select_all_button).setOnClickListener { toggleSelectAll() }
-        findViewById<ImageButton>(R.id.vault_sel_delete_button).setOnClickListener { confirmDeleteSelected() }
-        findViewById<ImageButton>(R.id.vault_sel_more_button).setOnClickListener { showSelectionMoreMenu(it) }
-        viewToggleBtn.setOnClickListener { openVaultViewOptions() }
         supportFragmentManager.setFragmentResultListener(
             MediaViewOptionsSheet.REQUEST_VAULT,
             this
         ) { _, bundle ->
             onVaultViewOptionsResult(bundle)
         }
-        settingsBtn.setOnClickListener { openVaultSettings() }
-        findViewById<ImageButton>(R.id.vault_settings_back_button).setOnClickListener { closeVaultSettings() }
-        findViewById<ImageButton>(R.id.vault_settings_lock_button).setOnClickListener { smoothLockAndFinish() }
-        addFab.setOnClickListener { openInAppVideoPicker() }
-
-        findViewById<ImageButton>(R.id.vault_picker_back_button).setOnClickListener { closeInAppVideoPicker() }
-        findViewById<ImageButton>(R.id.vault_picker_select_all_button).setOnClickListener { togglePickerSelectAll() }
-        pickerViewOptionsBtn.setOnClickListener { openVaultPickerViewOptions() }
-        findViewById<ImageButton>(R.id.vault_picker_browse_system_button).setOnClickListener { launchExternalDocumentPicker() }
         supportFragmentManager.setFragmentResultListener(
             MediaViewOptionsSheet.REQUEST_VAULT_PICKER,
             this
         ) { _, bundle ->
             onVaultPickerViewOptionsResult(bundle)
         }
-        pickerGrantBtn.setOnClickListener {
-            externalOverlayInFlight = true
-            pickerPermissionLauncher.launch(DevicePermissions.required())
-        }
-        pickerImportBtn.setOnClickListener { importSelectedPickerVideos() }
-        pickerSearchInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                filterPickerVideos(s?.toString().orEmpty())
-            }
-        })
-
-        searchInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                filterGallery(s?.toString().orEmpty())
-            }
-        })
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -406,112 +282,25 @@ class VaultActivity : AppCompatActivity() {
             }
         )
 
-        bindVaultSettingsControls()
         registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
         renderCurrentState(autoTriggerBiometrics = true)
-    }
-
-    private fun enforceNoLearningIme(editText: EditText) {
-        editText.imeOptions = editText.imeOptions or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
     }
 
     private fun isPasswordManagerEnabled(): Boolean =
         VaultRepository.loadEnvelopeOrNull(this)?.passwordManagerEnabled == true
 
-    private fun applyAutofillPolicy(enabled: Boolean) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val mode = if (enabled) View.IMPORTANT_FOR_AUTOFILL_YES else View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
-        if (::setupContainer.isInitialized) setupContainer.importantForAutofill = mode
-        if (::unlockContainer.isInitialized) unlockContainer.importantForAutofill = mode
-        if (::unlockPasswordInput.isInitialized) {
-            unlockPasswordInput.importantForAutofill =
-                if (enabled) View.IMPORTANT_FOR_AUTOFILL_YES else View.IMPORTANT_FOR_AUTOFILL_NO
-            if (enabled) {
-                unlockPasswordInput.setAutofillHints(View.AUTOFILL_HINT_PASSWORD)
-            } else {
-                unlockPasswordInput.setAutofillHints(*emptyArray())
-            }
-        }
-        if (::setupPasswordInput.isInitialized && ::setupConfirmInput.isInitialized) {
-            val fieldMode = if (enabled) View.IMPORTANT_FOR_AUTOFILL_YES else View.IMPORTANT_FOR_AUTOFILL_NO
-            setupPasswordInput.importantForAutofill = fieldMode
-            setupConfirmInput.importantForAutofill = fieldMode
-            if (enabled) {
-                setupPasswordInput.setAutofillHints("newPassword")
-                setupConfirmInput.setAutofillHints("newPassword")
-            } else {
-                setupPasswordInput.setAutofillHints(*emptyArray())
-                setupConfirmInput.setAutofillHints(*emptyArray())
-            }
-        }
-    }
-
-    private fun animateSectionIn(view: View) {
-        view.animate().cancel()
-        view.alpha = 0f
-        view.translationY = 14f * resources.displayMetrics.density
-        view.visibility = View.VISIBLE
-        view.animate()
-            .alpha(1f)
-            .translationY(0f)
-            .setDuration(220L)
-            .setInterpolator(DecelerateInterpolator())
-            .start()
-    }
-
-    private fun animateSectionSlideInFromRight(view: View) {
-        view.animate().cancel()
-        view.alpha = 0f
-        view.translationX = 32f * resources.displayMetrics.density
-        view.visibility = View.VISIBLE
-        view.animate()
-            .alpha(1f)
-            .translationX(0f)
-            .setDuration(230L)
-            .setInterpolator(DecelerateInterpolator())
-            .start()
-    }
-
-    private fun animateSectionSlideOutToRight(view: View) {
-        view.animate().cancel()
-        view.animate()
-            .alpha(0f)
-            .translationX(32f * resources.displayMetrics.density)
-            .setDuration(190L)
-            .setInterpolator(DecelerateInterpolator())
-            .withEndAction {
-                view.visibility = View.GONE
-                view.alpha = 1f
-                view.translationX = 0f
-            }
-            .start()
-    }
-
-    private fun animateShake(view: View) {
-        ObjectAnimator.ofFloat(view, View.TRANSLATION_X, 0f, -16f, 16f, -12f, 12f, -6f, 6f, 0f).apply {
-            duration = 320L
-            start()
-        }
-    }
-
     private fun renderCurrentState(autoTriggerBiometrics: Boolean = false) {
         stopLockoutTicker()
-        applyAutofillPolicy(isPasswordManagerEnabled())
         when {
             !VaultRepository.isInitialized(this) -> {
-                if (setupContainer.visibility != View.VISIBLE) animateSectionIn(setupContainer)
-                unlockContainer.visibility = View.GONE
-                galleryContainer.visibility = View.GONE
-                settingsContainer.visibility = View.GONE
-                pickerContainer.visibility = View.GONE
-                setupErrorText.visibility = View.GONE
+                uiState = uiState.copy(
+                    stage = VaultStage.SETUP,
+                    isInitialized = false,
+                    isUnlocked = false,
+                    setupError = null
+                )
             }
             !VaultSessionManager.isUnlocked.value -> {
-                setupContainer.visibility = View.GONE
-                if (unlockContainer.visibility != View.VISIBLE) animateSectionIn(unlockContainer)
-                galleryContainer.visibility = View.GONE
-                settingsContainer.visibility = View.GONE
-                pickerContainer.visibility = View.GONE
                 configureUnlockScreen(autoTriggerBiometrics)
             }
             else -> {
@@ -522,36 +311,34 @@ class VaultActivity : AppCompatActivity() {
                     smoothExitOnly()
                     return
                 }
-                setupContainer.visibility = View.GONE
-                unlockContainer.visibility = View.GONE
-                if (galleryContainer.visibility != View.VISIBLE) {
-                    adapter.resetEntranceAnimations()
-                    animateSectionIn(galleryContainer)
-                }
+                uiState = uiState.copy(
+                    stage = VaultStage.GALLERY,
+                    isInitialized = true,
+                    isUnlocked = true,
+                    isDecoy = VaultSessionManager.isDecoySession
+                )
                 loadGallery()
             }
         }
     }
 
-    private fun handleCreateVault() {
-        val pw = VaultUiHelpers.readCharsAndClear(setupPasswordInput)
-        val confirm = VaultUiHelpers.readCharsAndClear(setupConfirmInput)
+    private fun handleCreateVault(password: String, confirm: String) {
+        val pw = password.toCharArray()
+        val conf = confirm.toCharArray()
         if (pw.size < 4) {
             pw.fill('\u0000')
-            confirm.fill('\u0000')
-            setupErrorText.setText(R.string.vault_password_too_short)
-            setupErrorText.visibility = View.VISIBLE
+            conf.fill('\u0000')
+            uiState = uiState.copy(setupError = getString(R.string.vault_password_too_short))
             return
         }
-        if (!pw.contentEquals(confirm)) {
+        if (!pw.contentEquals(conf)) {
             pw.fill('\u0000')
-            confirm.fill('\u0000')
-            setupErrorText.setText(R.string.vault_password_mismatch)
-            setupErrorText.visibility = View.VISIBLE
+            conf.fill('\u0000')
+            uiState = uiState.copy(setupError = getString(R.string.vault_password_mismatch))
             return
         }
-        confirm.fill('\u0000')
-        setupErrorText.visibility = View.GONE
+        conf.fill('\u0000')
+        uiState = uiState.copy(setupError = null)
         showBusy(getString(R.string.vault_creating_vault))
         lifecycleScope.launch {
             runCatching {
@@ -569,17 +356,13 @@ class VaultActivity : AppCompatActivity() {
                 }
             }.onFailure { err ->
                 hideBusy()
-                setupErrorText.text = err.message ?: "Error"
-                setupErrorText.visibility = View.VISIBLE
+                uiState = uiState.copy(setupError = err.message ?: "Error")
             }
         }
     }
 
     private fun configureUnlockScreen(autoTriggerBiometrics: Boolean) {
         var env = VaultRepository.loadEnvelopeOrNull(this) ?: return
-        applyAutofillPolicy(env.passwordManagerEnabled)
-        unlockErrorText.visibility = View.GONE
-
         var invalidatedNow = env.biometricInvalidated
         if (env.biometricEnabled) {
             val keyValid = !env.biometricWrappedDekIvB64.isNullOrBlank() &&
@@ -593,14 +376,9 @@ class VaultActivity : AppCompatActivity() {
         }
 
         val now = System.currentTimeMillis()
-        if (env.lockoutUntilMs > now) {
+        val isLockedOut = env.lockoutUntilMs > now
+        if (isLockedOut) {
             startLockoutTicker(env.lockoutUntilMs)
-        } else {
-            unlockButton.isEnabled = true
-            if (invalidatedNow) {
-                unlockErrorText.setText(R.string.vault_biometric_invalidated)
-                unlockErrorText.visibility = View.VISIBLE
-            }
         }
 
         val canBio = !invalidatedNow &&
@@ -609,12 +387,16 @@ class VaultActivity : AppCompatActivity() {
             !env.biometricWrappedDekCtB64.isNullOrBlank() &&
             VaultBiometrics.isSupported(this)
 
-        unlockBioButton.visibility = if (canBio) View.VISIBLE else View.GONE
-        if (canBio) {
-            unlockBioButton.setOnClickListener { triggerBiometricUnlock() }
-            if (autoTriggerBiometrics && env.lockoutUntilMs <= now) {
-                triggerBiometricUnlock()
-            }
+        uiState = uiState.copy(
+            stage = VaultStage.UNLOCK,
+            isInitialized = true,
+            isUnlocked = false,
+            unlockError = if (invalidatedNow) getString(R.string.vault_biometric_invalidated) else null,
+            canBiometricUnlock = canBio
+        )
+
+        if (canBio && autoTriggerBiometrics && !isLockedOut) {
+            triggerBiometricUnlock()
         }
     }
 
@@ -642,10 +424,10 @@ class VaultActivity : AppCompatActivity() {
             onInvalidated = {
                 externalOverlayInFlight = false
                 VaultRepository.clearBiometricEnrollment(this, dueToChange = true)
-                unlockBioButton.visibility = View.GONE
-                unlockErrorText.setText(R.string.vault_biometric_invalidated)
-                unlockErrorText.visibility = View.VISIBLE
-                animateShake(unlockErrorText)
+                uiState = uiState.copy(
+                    canBiometricUnlock = false,
+                    unlockError = getString(R.string.vault_biometric_invalidated)
+                )
             },
             onError = { msg ->
                 externalOverlayInFlight = false
@@ -653,18 +435,19 @@ class VaultActivity : AppCompatActivity() {
                     msg.contains("permanently", ignoreCase = true)
                 ) {
                     VaultRepository.clearBiometricEnrollment(this, dueToChange = true)
-                    unlockBioButton.visibility = View.GONE
-                    unlockErrorText.setText(R.string.vault_biometric_invalidated)
-                    unlockErrorText.visibility = View.VISIBLE
+                    uiState = uiState.copy(
+                        canBiometricUnlock = false,
+                        unlockError = getString(R.string.vault_biometric_invalidated)
+                    )
                 }
             }
         )
     }
 
-    private fun handlePasswordUnlock() {
-        val chars = VaultUiHelpers.readCharsAndClear(unlockPasswordInput)
+    private fun handlePasswordUnlock(password: String) {
+        val chars = password.toCharArray()
         if (chars.isEmpty()) return
-        unlockErrorText.visibility = View.GONE
+        uiState = uiState.copy(unlockError = null)
         showBusy(getString(R.string.vault_unlock_button))
         lifecycleScope.launch {
             val outcome = runCatching {
@@ -686,11 +469,10 @@ class VaultActivity : AppCompatActivity() {
                             ).show()
                             renderCurrentState()
                         } else {
-                            unlockErrorText.text = res.remainingBeforeWipe?.let {
+                            val errText = res.remainingBeforeWipe?.let {
                                 getString(R.string.vault_wrong_password_remaining, it)
                             } ?: getString(R.string.vault_wrong_password)
-                            unlockErrorText.visibility = View.VISIBLE
-                            animateShake(unlockPasswordInput)
+                            uiState = uiState.copy(unlockError = errText)
                             if (res.backoffMs > 0L) {
                                 startLockoutTicker(res.updatedEnvelope.lockoutUntilMs)
                             }
@@ -698,26 +480,22 @@ class VaultActivity : AppCompatActivity() {
                     }
                 }
             }.onFailure { err ->
-                unlockErrorText.text = err.message ?: getString(R.string.vault_wrong_password)
-                unlockErrorText.visibility = View.VISIBLE
+                uiState = uiState.copy(unlockError = err.message ?: getString(R.string.vault_wrong_password))
             }
         }
     }
 
     private fun startLockoutTicker(untilMs: Long) {
         stopLockoutTicker()
-        unlockButton.isEnabled = false
         val runnable = object : Runnable {
             override fun run() {
                 val remMs = untilMs - System.currentTimeMillis()
                 if (remMs <= 0L) {
-                    unlockButton.isEnabled = true
-                    unlockErrorText.visibility = View.GONE
+                    uiState = uiState.copy(lockoutRemainingSeconds = null, unlockError = null)
                     lockoutRunnable = null
                 } else {
                     val secs = ((remMs + 999L) / 1000L).toInt()
-                    unlockErrorText.text = getString(R.string.vault_locked_out, secs)
-                    unlockErrorText.visibility = View.VISIBLE
+                    uiState = uiState.copy(lockoutRemainingSeconds = secs)
                     handler.postDelayed(this, 400L)
                 }
             }
@@ -735,19 +513,22 @@ class VaultActivity : AppCompatActivity() {
         if (!VaultSessionManager.isUnlocked.value) return
         if (isSelectionMode) exitSelectionMode()
         selectedPickerIds.clear()
-        pickerSearchInput.setText("")
-        applyVaultPickerViewSettings(vaultViewSettings)
-        syncPickerSelectionUi()
-        animateSectionSlideInFromRight(pickerContainer)
+        uiState = uiState.copy(
+            stage = VaultStage.PICKER,
+            pickerState = uiState.pickerState.copy(
+                selectedIds = emptySet(),
+                searchQuery = "",
+                hasPermission = DevicePermissions.hasVideo(this),
+                isGridMode = vaultViewSettings.pickerLayoutMode == VaultLayoutMode.GRID,
+                visibleFields = vaultViewSettings.pickerVisibleFields
+            )
+        )
         loadPickerVideos()
     }
 
     private fun closeInAppVideoPicker() {
-        if (!::pickerContainer.isInitialized || pickerContainer.visibility != View.VISIBLE) return
-        hideKeyboard(pickerSearchInput)
         selectedPickerIds.clear()
-        pickerAdapter.updateSelection(emptySet())
-        animateSectionSlideOutToRight(pickerContainer)
+        uiState = uiState.copy(stage = VaultStage.GALLERY)
     }
 
     private fun loadPickerVideos() {
@@ -755,27 +536,32 @@ class VaultActivity : AppCompatActivity() {
         if (!DevicePermissions.hasVideo(this)) {
             allPickerVideos = emptyList()
             visiblePickerVideos = emptyList()
-            pickerAdapter.submitList(emptyList())
-            pickerLoading.visibility = View.GONE
-            pickerEmptyText.setText(R.string.vault_picker_permission_title)
-            pickerGrantBtn.visibility = View.VISIBLE
-            pickerEmptyView.visibility = View.VISIBLE
-            syncPickerSelectionUi()
+            uiState = uiState.copy(
+                pickerState = uiState.pickerState.copy(
+                    hasPermission = false,
+                    isLoading = false,
+                    allVideos = emptyList(),
+                    visibleVideos = emptyList(),
+                    selectedIds = emptySet()
+                )
+            )
             return
         }
-        pickerGrantBtn.visibility = View.GONE
-        pickerEmptyView.visibility = View.GONE
-        pickerLoading.visibility = View.VISIBLE
+        uiState = uiState.copy(
+            pickerState = uiState.pickerState.copy(
+                hasPermission = true,
+                isLoading = true
+            )
+        )
         lifecycleScope.launch {
             val loaded = runCatching {
                 pickerRepo.load(folderPath = null, includeAudio = false, includeVideo = true)
             }.getOrDefault(emptyList())
             if (!VaultSessionManager.isUnlocked.value) return@launch
-            pickerLoading.visibility = View.GONE
             allPickerVideos = loaded
             val validIds = loaded.mapTo(hashSetOf()) { it.mediaId }
             selectedPickerIds.retainAll(validIds)
-            filterPickerVideos(pickerSearchInput.text?.toString().orEmpty())
+            filterPickerVideos(uiState.pickerState.searchQuery)
             if (loaded.isNotEmpty()) {
                 launch(Dispatchers.IO) { runCatching { pickerThumbnails.warmUp(loaded) } }
             }
@@ -800,24 +586,26 @@ class VaultActivity : AppCompatActivity() {
             }
         }
         visiblePickerVideos = filtered
-        pickerAdapter.submitList(filtered)
-        if (!DevicePermissions.hasVideo(this)) {
-            pickerEmptyText.setText(R.string.vault_picker_permission_title)
-            pickerGrantBtn.visibility = View.VISIBLE
-            pickerEmptyView.visibility = View.VISIBLE
-        } else {
-            pickerGrantBtn.visibility = View.GONE
-            pickerEmptyText.setText(R.string.vault_picker_empty)
-            pickerEmptyView.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
-        }
-        syncPickerSelectionUi()
+        uiState = uiState.copy(
+            pickerState = uiState.pickerState.copy(
+                hasPermission = DevicePermissions.hasVideo(this),
+                isLoading = false,
+                allVideos = allPickerVideos,
+                visibleVideos = filtered,
+                selectedIds = selectedPickerIds.toSet()
+            )
+        )
     }
 
     private fun togglePickerSelection(media: DeviceMedia) {
         if (!selectedPickerIds.add(media.mediaId)) {
             selectedPickerIds.remove(media.mediaId)
         }
-        syncPickerSelectionUi()
+        uiState = uiState.copy(
+            pickerState = uiState.pickerState.copy(
+                selectedIds = selectedPickerIds.toSet()
+            )
+        )
     }
 
     private fun togglePickerSelectAll() {
@@ -828,21 +616,11 @@ class VaultActivity : AppCompatActivity() {
         } else {
             selectedPickerIds.addAll(visibleIds)
         }
-        syncPickerSelectionUi()
-    }
-
-    private fun syncPickerSelectionUi() {
-        val count = selectedPickerIds.size
-        pickerTitle.text = if (count > 0) {
-            getString(R.string.vault_selected_count, count)
-        } else {
-            getString(R.string.vault_picker_title)
-        }
-        pickerImportBtn.visibility = if (count > 0) View.VISIBLE else View.GONE
-        if (count > 0) {
-            pickerImportBtn.text = getString(R.string.vault_picker_import_action, count)
-        }
-        pickerAdapter.updateSelection(selectedPickerIds.toSet())
+        uiState = uiState.copy(
+            pickerState = uiState.pickerState.copy(
+                selectedIds = selectedPickerIds.toSet()
+            )
+        )
     }
 
     private fun importSelectedPickerVideos() {
@@ -851,17 +629,9 @@ class VaultActivity : AppCompatActivity() {
         if (selected.isEmpty()) return
         val requests = selected.map { media ->
             VaultImporter.MoveSourceRequest(
-                title = media.title,
-                filePath = media.filePath,
                 contentUri = media.contentUri,
-                originalFileName = media.filePath?.let { File(it).name }
-                    ?: media.displayName.takeIf { it.isNotBlank() },
-                mimeType = media.mimeType,
-                durationMs = media.durationMs,
-                sizeBytes = media.sizeBytes,
-                width = media.width,
-                height = media.height,
-                playbackMediaId = media.mediaId
+                title = media.title,
+                originalFileName = media.title
             )
         }
         showBatchImportDisclosureAndMove(requests, closePickerOnComplete = true)
@@ -870,51 +640,28 @@ class VaultActivity : AppCompatActivity() {
     private fun launchExternalDocumentPicker() {
         if (!VaultSessionManager.isUnlocked.value) return
         externalOverlayInFlight = true
-        runCatching {
+        try {
             pickVideoLauncher.launch(arrayOf("video/*"))
-        }.recoverCatching {
-            pickVideoFallbackLauncher.launch("video/*")
-        }.onFailure { err ->
-            externalOverlayInFlight = false
-            Toast.makeText(this, err.message ?: "Unable to open video picker", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            try {
+                pickVideoFallbackLauncher.launch("video/*")
+            } catch (e: Exception) {
+                externalOverlayInFlight = false
+                Toast.makeText(this, e.message ?: "Failed to open picker", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun handlePickedExternalUris(uris: List<Uri>) {
-        if (uris.isEmpty()) return
-        lifecycleScope.launch {
-            val requests = withContext(Dispatchers.IO) {
-                uris.mapNotNull { uri ->
-                    runCatching {
-                        contentResolver.takePersistableUriPermission(
-                            uri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        )
-                    }
-                    val name = VaultImporter.queryUriDisplayName(this@VaultActivity, uri)
-                        ?: "Selected Video"
-                    VaultImporter.MoveSourceRequest(
-                        title = "",
-                        contentUri = uri,
-                        originalFileName = name
-                    )
-                }
-            }
-            if (isFinishing || isDestroyed || !VaultSessionManager.isUnlocked.value) return@launch
-            if (requests.isEmpty()) {
-                Toast.makeText(
-                    this@VaultActivity,
-                    R.string.vault_picker_unreadable_selection,
-                    Toast.LENGTH_SHORT
-                ).show()
-                return@launch
-            }
-            showBatchImportDisclosureAndMove(
-                requests = requests,
-                closePickerOnComplete = ::pickerContainer.isInitialized &&
-                    pickerContainer.visibility == View.VISIBLE
+        if (!VaultSessionManager.isUnlocked.value || uris.isEmpty()) return
+        val requests = uris.map { uri ->
+            VaultImporter.MoveSourceRequest(
+                contentUri = uri,
+                title = uri.lastPathSegment.orEmpty(),
+                originalFileName = uri.lastPathSegment
             )
         }
+        showBatchImportDisclosureAndMove(requests, closePickerOnComplete = false)
     }
 
     private fun enterSelectionModeWith(item: VaultUiItem) {
@@ -957,13 +704,10 @@ class VaultActivity : AppCompatActivity() {
     private fun syncSelectionUi() {
         val active = isSelectionMode && selectedIds.isNotEmpty()
         isSelectionMode = active
-        normalHeader.visibility = if (active) View.GONE else View.VISIBLE
-        selectionHeader.visibility = if (active) View.VISIBLE else View.GONE
-        addFab.visibility = if (active) View.GONE else View.VISIBLE
-        if (active) {
-            selectionCountText.text = getString(R.string.vault_selected_count, selectedIds.size)
-        }
-        adapter.updateSelection(selectedIds.toSet(), active)
+        uiState = uiState.copy(
+            isSelectionMode = active,
+            selectedIds = selectedIds.toSet()
+        )
     }
 
     private fun loadGallery() {
@@ -977,15 +721,13 @@ class VaultActivity : AppCompatActivity() {
             val loaded = VaultRepository.listItems(this@VaultActivity)
             if (!VaultSessionManager.isUnlocked.value) return@launch
             vaultViewSettings = loadedSettings
-            applyVaultViewSettings(loadedSettings, animate = false)
-            applyVaultPickerViewSettings(loadedSettings)
             allItems = loaded
             val validIds = loaded.mapTo(hashSetOf()) { it.meta.id }
             selectedIds.retainAll(validIds)
             if (isSelectionMode && selectedIds.isEmpty()) {
                 isSelectionMode = false
             }
-            filterGallery(searchInput.text?.toString().orEmpty())
+            filterGallery(uiState.searchQuery)
             syncSelectionUi()
         }
     }
@@ -1003,8 +745,16 @@ class VaultActivity : AppCompatActivity() {
             }
         }
         visibleItems = filtered
-        adapter.submitList(filtered)
-        emptyView.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        uiState = uiState.copy(
+            allItems = allItems,
+            visibleItems = filtered,
+            layoutMode = vaultViewSettings.layoutMode,
+            visibleFields = vaultViewSettings.visibleFields,
+            sortBy = vaultViewSettings.sortBy,
+            sortDescending = vaultViewSettings.sortDescending,
+            selectedIds = selectedIds.toSet(),
+            isSelectionMode = isSelectionMode
+        )
     }
 
     private fun openVaultViewOptions() {
@@ -1016,6 +766,18 @@ class VaultActivity : AppCompatActivity() {
             VaultRepository.loadSettings(this).also { vaultViewSettings = it }
         }
         MediaViewOptionsSheet.newVaultInstance(latest)
+            .show(supportFragmentManager, MediaViewOptionsSheet.TAG)
+    }
+
+    private fun openVaultPickerViewOptions() {
+        if (!VaultSessionManager.isUnlocked.value) return
+        if (supportFragmentManager.findFragmentByTag(MediaViewOptionsSheet.TAG) != null) return
+        val latest = if (VaultSessionManager.isDecoySession) {
+            vaultViewSettings
+        } else {
+            VaultRepository.loadSettings(this).also { vaultViewSettings = it }
+        }
+        MediaViewOptionsSheet.newVaultPickerInstance(latest)
             .show(supportFragmentManager, MediaViewOptionsSheet.TAG)
     }
 
@@ -1044,8 +806,13 @@ class VaultActivity : AppCompatActivity() {
             visibleFields = fields
         )
         vaultViewSettings = updated
-        applyVaultViewSettings(updated, animate = true)
-        filterGallery(searchInput.text?.toString().orEmpty())
+        uiState = uiState.copy(
+            layoutMode = layout,
+            sortBy = sort,
+            sortDescending = descending,
+            visibleFields = fields
+        )
+        filterGallery(uiState.searchQuery)
 
         if (!VaultSessionManager.isDecoySession) {
             lifecycleScope.launch(Dispatchers.IO) {
@@ -1054,61 +821,15 @@ class VaultActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyVaultViewSettings(settings: VaultSettings, animate: Boolean) {
-        val targetGrid = settings.layoutMode == VaultLayoutMode.GRID
-        val fieldsChanged = adapter.visibleFields != settings.visibleFields
-        adapter.visibleFields = settings.visibleFields
-
-        if (isGridMode != targetGrid) {
-            isGridMode = targetGrid
-            val applyLayout = {
-                adapter.isGridMode = isGridMode
-                recyclerView.layoutManager = if (isGridMode) {
-                    GridLayoutManager(this, 2)
-                } else {
-                    LinearLayoutManager(this)
-                }
-                viewToggleBtn.setImageResource(
-                    if (isGridMode) R.drawable.ic_view_grid else R.drawable.baseline_format_list_numbered_24
-                )
-            }
-            if (animate) {
-                viewToggleBtn.animate().rotationBy(180f).setDuration(220L).start()
-                recyclerView.animate()
-                    .alpha(0f)
-                    .setDuration(110L)
-                    .withEndAction {
-                        applyLayout()
-                        recyclerView.animate().alpha(1f).setDuration(180L).start()
-                    }
-                    .start()
-            } else {
-                applyLayout()
-            }
-        } else if (fieldsChanged) {
-            adapter.notifyDataSetChanged()
-        }
-    }
-
-    private fun openVaultPickerViewOptions() {
-        if (!VaultSessionManager.isUnlocked.value) return
-        if (supportFragmentManager.findFragmentByTag(MediaViewOptionsSheet.TAG) != null) return
-        val latest = if (VaultSessionManager.isDecoySession) {
-            vaultViewSettings
-        } else {
-            VaultRepository.loadSettings(this).also { vaultViewSettings = it }
-        }
-        MediaViewOptionsSheet.newVaultPickerInstance(latest)
-            .show(supportFragmentManager, MediaViewOptionsSheet.TAG)
-    }
-
     private fun onVaultPickerViewOptionsResult(bundle: Bundle) {
         val layout = runCatching {
             VaultLayoutMode.valueOf(bundle.getString(MediaViewOptionsSheet.RESULT_PICKER_LAYOUT).orEmpty())
         }.getOrDefault(VaultLayoutMode.GRID)
         val sort = runCatching {
-            VaultPickerSortBy.valueOf(bundle.getString(MediaViewOptionsSheet.RESULT_PICKER_SORT).orEmpty())
-        }.getOrDefault(VaultPickerSortBy.DATE)
+            com.deniscerri.ytdl.vault.VaultPickerSortBy.valueOf(
+                bundle.getString(MediaViewOptionsSheet.RESULT_PICKER_SORT).orEmpty()
+            )
+        }.getOrDefault(com.deniscerri.ytdl.vault.VaultPickerSortBy.DATE)
         val descending = bundle.getBoolean(MediaViewOptionsSheet.RESULT_PICKER_DESCENDING, true)
         val fields = bundle.getStringArrayList(MediaViewOptionsSheet.RESULT_PICKER_FIELDS)
             ?.mapNotNull { runCatching { VaultPickerField.valueOf(it) }.getOrNull() }
@@ -1127,34 +848,18 @@ class VaultActivity : AppCompatActivity() {
             pickerVisibleFields = fields
         )
         vaultViewSettings = updated
-        applyVaultPickerViewSettings(updated)
-        filterPickerVideos(pickerSearchInput.text?.toString().orEmpty())
+        uiState = uiState.copy(
+            pickerState = uiState.pickerState.copy(
+                isGridMode = layout == VaultLayoutMode.GRID,
+                visibleFields = fields
+            )
+        )
+        filterPickerVideos(uiState.pickerState.searchQuery)
 
         if (!VaultSessionManager.isDecoySession) {
             lifecycleScope.launch(Dispatchers.IO) {
                 VaultRepository.updateViewSettings(this@VaultActivity, updated)
             }
-        }
-    }
-
-    private fun applyVaultPickerViewSettings(settings: VaultSettings) {
-        val targetGrid = settings.pickerLayoutMode == VaultLayoutMode.GRID
-        val layoutChanged = pickerAdapter.isGridMode != targetGrid
-        val fieldsChanged = pickerAdapter.visibleFields != settings.pickerVisibleFields
-        pickerAdapter.isGridMode = targetGrid
-        pickerAdapter.visibleFields = settings.pickerVisibleFields
-        pickerViewOptionsBtn.setImageResource(
-            if (targetGrid) R.drawable.ic_view_grid else R.drawable.baseline_format_list_numbered_24
-        )
-        if (layoutChanged) {
-            pickerRecycler.layoutManager = if (targetGrid) {
-                GridLayoutManager(this, 2)
-            } else {
-                LinearLayoutManager(this)
-            }
-            pickerRecycler.adapter = pickerAdapter
-        } else if (fieldsChanged) {
-            pickerAdapter.notifyDataSetChanged()
         }
     }
 
@@ -1164,42 +869,6 @@ class VaultActivity : AppCompatActivity() {
         startActivity(VaultVideoPlayerActivity.createIntent(this, item.meta.id, item.meta.title))
         @Suppress("DEPRECATION")
         overridePendingTransition(R.anim.vault_enter, R.anim.vault_hold)
-    }
-
-    private fun showItemMenu(anchor: View, item: VaultUiItem) {
-        val popup = PopupMenu(this, anchor)
-        popup.menu.add(0, 1, 0, R.string.play)
-        popup.menu.add(0, 2, 1, R.string.vault_rename)
-        popup.menu.add(0, 3, 2, R.string.vault_decrypt)
-        popup.menu.add(0, 4, 3, R.string.vault_decrypt_copy)
-        popup.menu.add(0, 5, 4, R.string.delete)
-        popup.setOnMenuItemClickListener { menuItem ->
-            when (menuItem.itemId) {
-                1 -> openVaultPlayer(item)
-                2 -> showRenameDialog(item)
-                3 -> runRestore(listOf(item.meta.id), deleteFromVaultAfter = true)
-                4 -> runRestore(listOf(item.meta.id), deleteFromVaultAfter = false)
-                5 -> showDeleteConfirmDialog(listOf(item))
-            }
-            true
-        }
-        popup.show()
-    }
-
-    private fun showSelectionMoreMenu(anchor: View) {
-        val uuids = selectedIds.toList()
-        if (uuids.isEmpty()) return
-        val popup = PopupMenu(this, anchor)
-        popup.menu.add(0, 1, 0, R.string.vault_decrypt)
-        popup.menu.add(0, 2, 1, R.string.vault_decrypt_copy)
-        popup.setOnMenuItemClickListener { menuItem ->
-            when (menuItem.itemId) {
-                1 -> runRestore(uuids, deleteFromVaultAfter = true)
-                2 -> runRestore(uuids, deleteFromVaultAfter = false)
-            }
-            true
-        }
-        popup.show()
     }
 
     private fun confirmDeleteSelected() {
@@ -1251,10 +920,9 @@ class VaultActivity : AppCompatActivity() {
                         if (total > 0L) {
                             val pct = ((written * 100L) / total).toInt().coerceIn(0, 100)
                             val prefix = if (count > 1) "${idx + 1}/$count · " else ""
-                            runOnUiThread {
-                                progressLabel.text =
-                                    "${getString(R.string.vault_exporting_progress)} ($prefix$pct%)"
-                            }
+                            uiState = uiState.copy(
+                                busyLabel = "${getString(R.string.vault_exporting_progress)} ($prefix$pct%)"
+                            )
                         }
                     }
                 )
@@ -1357,7 +1025,7 @@ class VaultActivity : AppCompatActivity() {
             for ((index, req) in requests.withIndex()) {
                 if (isFinishing || isDestroyed || !VaultSessionManager.isUnlocked.value) break
                 val prefix = if (batchTotal > 1) "${index + 1}/$batchTotal · " else ""
-                progressLabel.text = "$baseLabel (${prefix}0%)"
+                uiState = uiState.copy(busyLabel = "$baseLabel (${prefix}0%)")
                 val result = runCatching {
                     VaultImporter.moveVideoToVault(
                         context = this@VaultActivity,
@@ -1365,9 +1033,7 @@ class VaultActivity : AppCompatActivity() {
                         onProgress = { written, total ->
                             if (total > 0L) {
                                 val pct = ((written * 100L) / total).toInt().coerceIn(0, 100)
-                                runOnUiThread {
-                                    progressLabel.text = "$baseLabel ($prefix$pct%)"
-                                }
+                                uiState = uiState.copy(busyLabel = "$baseLabel ($prefix$pct%)")
                             }
                         }
                     )
@@ -1438,12 +1104,12 @@ class VaultActivity : AppCompatActivity() {
             val msg = when {
                 totalImported == 0 ->
                     getString(R.string.vault_import_failed, batchLastError ?: "Error")
-                batchFailed > 0 ->
-                    getString(R.string.vault_import_batch_partial, totalImported, batchFailed)
-                batchNeedsManualDelete > 0 ->
-                    getString(R.string.vault_import_batch_needs_delete, totalImported, batchNeedsManualDelete)
-                else ->
+                batchFailed == 0 && batchNeedsManualDelete == 0 ->
                     getString(R.string.vault_import_batch_success, totalImported)
+                batchFailed == 0 ->
+                    getString(R.string.vault_import_batch_needs_delete, batchMovedAndDeleted, batchNeedsManualDelete)
+                else ->
+                    getString(R.string.vault_import_batch_partial, totalImported, batchFailed)
             }
             Toast.makeText(
                 this,
@@ -1463,132 +1129,6 @@ class VaultActivity : AppCompatActivity() {
         }
     }
 
-    private val autoWipeOptions = intArrayOf(0, 5, 10, 20)
-    private var activeAutoWipeThreshold = VaultSettings.DEFAULT_AUTO_WIPE_THRESHOLD
-
-    private fun bindVaultSettingsControls() {
-        settingsBioSwitch.setOnCheckedChangeListener { _, checked ->
-            if (suppressSettingsListeners) return@setOnCheckedChangeListener
-            if (!checked) {
-                VaultRepository.clearBiometricEnrollment(this)
-            } else {
-                val dek = VaultSessionManager.getKeyCopyOrNull()
-                if (dek != null) {
-                    externalOverlayInFlight = true
-                    VaultBiometrics.enrollBiometricDek(
-                        context = this,
-                        title = getString(R.string.vault_setting_biometrics),
-                        subtitle = getString(R.string.vault_biometric_subtitle),
-                        cancelText = getString(R.string.cancel),
-                        dek = dek,
-                        onResult = { res ->
-                            externalOverlayInFlight = false
-                            dek.fill(0)
-                            res.onSuccess { (iv, ct) ->
-                                VaultRepository.finishBiometricEnrollment(this, iv, ct)
-                            }.onFailure {
-                                runOnUiThread {
-                                    suppressSettingsListeners = true
-                                    settingsBioSwitch.isChecked = false
-                                    suppressSettingsListeners = false
-                                }
-                            }
-                        }
-                    )
-                }
-            }
-        }
-
-        settingsPmSwitch.setOnCheckedChangeListener { _, checked ->
-            if (suppressSettingsListeners) return@setOnCheckedChangeListener
-            persistQuickSettings(passwordManagerEnabled = checked)
-            applyAutofillPolicy(checked)
-        }
-
-        settingsKeepOpenSwitch.setOnCheckedChangeListener { _, checked ->
-            if (suppressSettingsListeners) return@setOnCheckedChangeListener
-            persistQuickSettings(keepOpenOnPlayerBack = checked)
-        }
-
-        settingsAutoWipeBtn.setOnClickListener {
-            val idx = autoWipeOptions.indexOf(activeAutoWipeThreshold).let { if (it < 0) 2 else it }
-            activeAutoWipeThreshold = autoWipeOptions[(idx + 1) % autoWipeOptions.size]
-            settingsAutoWipeBtn.text = formatAutoWipeLabel(activeAutoWipeThreshold)
-            persistQuickSettings(autoWipeThreshold = activeAutoWipeThreshold)
-        }
-
-        settingsChangePwBtn.setOnClickListener { showChangePasswordDialog() }
-
-        settingsStealthSwitch.setOnCheckedChangeListener { _, checked ->
-            if (suppressSettingsListeners) return@setOnCheckedChangeListener
-            settingsStealthPinContainer.visibility = if (checked) View.VISIBLE else View.GONE
-            settingsStealthPinLayout.error = null
-            val env = VaultRepository.loadEnvelopeOrNull(this)
-            if (!checked) {
-                persistQuickSettings(stealthMode = false)
-                settingsStealthStatus.setText(R.string.vault_stealth_pin_not_set)
-            } else if (env?.hasStealthPin() == true) {
-                persistQuickSettings(stealthMode = true)
-                settingsStealthStatus.setText(R.string.vault_stealth_pin_active)
-            } else {
-                settingsStealthStatus.setText(R.string.vault_stealth_pin_not_set)
-                settingsStealthPinInput.requestFocus()
-            }
-        }
-
-        settingsStealthSaveBtn.setOnClickListener {
-            val pinChars = VaultUiHelpers.readCharsAndClear(settingsStealthPinInput)
-            if (pinChars.size < 4) {
-                pinChars.fill('\u0000')
-                settingsStealthPinLayout.error = getString(R.string.vault_password_too_short)
-                animateShake(settingsStealthPinLayout)
-                return@setOnClickListener
-            }
-            settingsStealthPinLayout.error = null
-            showBusy(getString(R.string.vault_saving_stealth))
-            lifecycleScope.launch {
-                val cur = VaultRepository.loadSettings(this@VaultActivity)
-                VaultRepository.updateSettings(
-                    context = this@VaultActivity,
-                    newSettings = cur.copy(stealthMode = true),
-                    newStealthPinChars = pinChars
-                )
-                hideBusy()
-                suppressSettingsListeners = true
-                settingsStealthSwitch.isChecked = true
-                suppressSettingsListeners = false
-                settingsStealthStatus.setText(R.string.vault_stealth_pin_active)
-                hideKeyboard(settingsStealthPinInput)
-                Toast.makeText(this@VaultActivity, R.string.vault_stealth_pin_active, Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        settingsStealthPinInput.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                settingsStealthSaveBtn.performClick()
-                true
-            } else {
-                false
-            }
-        }
-
-        settingsDecoyBtn.setOnClickListener { showDecoyPasswordDialog() }
-        settingsClearDecoyBtn.setOnClickListener {
-            showBusy(getString(R.string.vault_removing_decoy))
-            lifecycleScope.launch {
-                VaultRepository.clearDecoyPassword(this@VaultActivity)
-                hideBusy()
-                settingsClearDecoyBtn.visibility = View.GONE
-                settingsDecoyStatus.setText(R.string.vault_setting_decoy_not_set)
-                val mutedColor = MaterialColors.getColor(this@VaultActivity, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.GRAY)
-                settingsDecoyStatus.setTextColor(mutedColor)
-                settingsDecoyBtn.setText(R.string.vault_setting_decoy_password)
-                Toast.makeText(this@VaultActivity, R.string.vault_setting_decoy_not_set, Toast.LENGTH_SHORT).show()
-            }
-        }
-        settingsWipeBtn.setOnClickListener { confirmWipeVault() }
-    }
-
     private fun persistQuickSettings(
         autoWipeThreshold: Int? = null,
         stealthMode: Boolean? = null,
@@ -1606,7 +1146,6 @@ class VaultActivity : AppCompatActivity() {
             biometricsEnabled = biometricsEnabled ?: (env?.biometricEnabled ?: cur.biometricsEnabled),
             passwordManagerEnabled = passwordManagerEnabled ?: cur.passwordManagerEnabled
         )
-        // Only disable stealth or keep existing PIN if stealth PIN already exists in envelope
         if (stealthMode == true && env?.hasStealthPin() == true && !env.stealthEnabled) {
             VaultRepository.updateSettings(this, updated.copy(stealthMode = true))
         } else {
@@ -1620,61 +1159,120 @@ class VaultActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.vault_decoy_restricted, Toast.LENGTH_SHORT).show()
             return
         }
-
-        val currentSettings = VaultRepository.loadSettings(this)
-        val env = VaultRepository.loadEnvelopeOrNull(this) ?: return
-
-        suppressSettingsListeners = true
-        settingsBioSwitch.isEnabled = VaultBiometrics.isSupported(this)
-        settingsBioSwitch.isChecked = env.biometricEnabled
-        settingsPmSwitch.isChecked = currentSettings.passwordManagerEnabled || env.passwordManagerEnabled
-        settingsKeepOpenSwitch.isChecked = currentSettings.keepOpenOnPlayerBack
-        activeAutoWipeThreshold = currentSettings.autoWipeThreshold
-        settingsAutoWipeBtn.text = formatAutoWipeLabel(activeAutoWipeThreshold)
-
-        settingsStealthSwitch.isChecked = env.stealthEnabled
-        settingsStealthPinContainer.visibility = if (env.stealthEnabled) View.VISIBLE else View.GONE
-        settingsStealthPinLayout.error = null
-        settingsStealthPinInput.setText("")
-        settingsStealthStatus.setText(
-            if (env.hasStealthPin()) R.string.vault_stealth_pin_active else R.string.vault_stealth_pin_not_set
-        )
-        val hasDecoy = env.hasDecoy()
-        settingsClearDecoyBtn.visibility = if (hasDecoy) View.VISIBLE else View.GONE
-        settingsDecoyStatus.setText(if (hasDecoy) R.string.vault_setting_decoy_active else R.string.vault_setting_decoy_not_set)
-        val primaryColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.WHITE)
-        val mutedColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.GRAY)
-        settingsDecoyStatus.setTextColor(if (hasDecoy) primaryColor else mutedColor)
-        settingsDecoyBtn.setText(if (hasDecoy) R.string.vault_setting_decoy_change else R.string.vault_setting_decoy_password)
-        suppressSettingsListeners = false
-
-        animateSectionSlideInFromRight(settingsContainer)
+        refreshSettingsState()
+        uiState = uiState.copy(stage = VaultStage.SETTINGS)
     }
 
     private fun closeVaultSettings() {
-        if (settingsContainer.visibility != View.VISIBLE) return
-        hideKeyboard(settingsStealthPinInput)
+        uiState = uiState.copy(stage = VaultStage.GALLERY)
+        loadGallery()
+    }
+
+    private fun refreshSettingsState() {
+        val currentSettings = VaultRepository.loadSettings(this)
         val env = VaultRepository.loadEnvelopeOrNull(this)
-        if (settingsStealthSwitch.isChecked && env?.hasStealthPin() != true) {
-            suppressSettingsListeners = true
-            settingsStealthSwitch.isChecked = false
-            suppressSettingsListeners = false
-            settingsStealthPinContainer.visibility = View.GONE
-        }
-        animateSectionSlideOutToRight(settingsContainer)
+        uiState = uiState.copy(
+            settingsData = VaultSettingsData(
+                biometricEnabled = env?.biometricEnabled == true,
+                biometricAvailable = VaultBiometrics.isSupported(this),
+                biometricInvalidated = env?.biometricInvalidated == true,
+                passwordManagerEnabled = currentSettings.passwordManagerEnabled || env?.passwordManagerEnabled == true,
+                stealthEnabled = env?.stealthEnabled == true,
+                stealthPin = if (env?.hasStealthPin() == true) "••••" else "",
+                decoyConfigured = env?.hasDecoy() == true,
+                autoWipeThreshold = currentSettings.autoWipeThreshold,
+                keepOpenInSession = currentSettings.keepOpenOnPlayerBack
+            )
+        )
     }
 
-    private fun hideKeyboard(view: View) {
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-        imm?.hideSoftInputFromWindow(view.windowToken, 0)
-    }
-
-    private fun formatAutoWipeLabel(threshold: Int): String =
-        if (threshold <= 0) {
-            "${getString(R.string.vault_setting_auto_wipe)}: ${getString(R.string.vault_auto_wipe_off)}"
+    private fun handleToggleBiometric(enable: Boolean) {
+        if (!enable) {
+            VaultRepository.clearBiometricEnrollment(this)
+            refreshSettingsState()
         } else {
-            "${getString(R.string.vault_setting_auto_wipe)}: ${getString(R.string.vault_auto_wipe_attempts, threshold)}"
+            val dek = VaultSessionManager.getKeyCopyOrNull()
+            if (dek != null) {
+                externalOverlayInFlight = true
+                VaultBiometrics.enrollBiometricDek(
+                    context = this,
+                    title = getString(R.string.vault_setting_biometrics),
+                    subtitle = getString(R.string.vault_biometric_subtitle),
+                    cancelText = getString(R.string.cancel),
+                    dek = dek,
+                    onResult = { res ->
+                        externalOverlayInFlight = false
+                        dek.fill(0)
+                        res.onSuccess { (iv, ct) ->
+                            VaultRepository.finishBiometricEnrollment(this, iv, ct)
+                            refreshSettingsState()
+                        }.onFailure {
+                            refreshSettingsState()
+                        }
+                    }
+                )
+            }
         }
+    }
+
+    private fun handleTogglePasswordManager(enable: Boolean) {
+        persistQuickSettings(passwordManagerEnabled = enable)
+        refreshSettingsState()
+    }
+
+    private fun handleToggleKeepOpen(enable: Boolean) {
+        persistQuickSettings(keepOpenOnPlayerBack = enable)
+        refreshSettingsState()
+    }
+
+    private fun promptSelectAutoWipe() {
+        val cur = VaultRepository.loadSettings(this)
+        val idx = autoWipeOptions.indexOf(cur.autoWipeThreshold).let { if (it < 0) 2 else it }
+        val next = autoWipeOptions[(idx + 1) % autoWipeOptions.size]
+        persistQuickSettings(autoWipeThreshold = next)
+        refreshSettingsState()
+    }
+
+    private fun handleToggleStealth(enable: Boolean) {
+        val env = VaultRepository.loadEnvelopeOrNull(this)
+        if (!enable) {
+            persistQuickSettings(stealthMode = false)
+        } else if (env?.hasStealthPin() == true) {
+            persistQuickSettings(stealthMode = true)
+        }
+        refreshSettingsState()
+    }
+
+    private fun handleSaveStealthPin(pin: String) {
+        val pinChars = pin.toCharArray()
+        if (pinChars.size < 4) {
+            pinChars.fill('\u0000')
+            Toast.makeText(this, R.string.vault_password_too_short, Toast.LENGTH_SHORT).show()
+            return
+        }
+        showBusy(getString(R.string.vault_saving_stealth))
+        lifecycleScope.launch {
+            val cur = VaultRepository.loadSettings(this@VaultActivity)
+            VaultRepository.updateSettings(
+                context = this@VaultActivity,
+                newSettings = cur.copy(stealthMode = true),
+                newStealthPinChars = pinChars
+            )
+            hideBusy()
+            refreshSettingsState()
+            Toast.makeText(this@VaultActivity, R.string.vault_stealth_pin_active, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun handleClearDecoy() {
+        showBusy(getString(R.string.vault_removing_decoy))
+        lifecycleScope.launch {
+            VaultRepository.clearDecoyPassword(this@VaultActivity)
+            hideBusy()
+            refreshSettingsState()
+            Toast.makeText(this@VaultActivity, R.string.vault_setting_decoy_not_set, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private fun showChangePasswordDialog() {
         val pmEnabled = isPasswordManagerEnabled()
@@ -1694,9 +1292,9 @@ class VaultActivity : AppCompatActivity() {
                 imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     importantForAutofill = if (pmEnabled) {
-                        View.IMPORTANT_FOR_AUTOFILL_YES
+                        android.view.View.IMPORTANT_FOR_AUTOFILL_YES
                     } else {
-                        View.IMPORTANT_FOR_AUTOFILL_NO
+                        android.view.View.IMPORTANT_FOR_AUTOFILL_NO
                     }
                     if (pmEnabled) {
                         setAutofillHints(autofillHint)
@@ -1708,7 +1306,7 @@ class VaultActivity : AppCompatActivity() {
             return l to e
         }
 
-        val curHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) View.AUTOFILL_HINT_PASSWORD else "password"
+        val curHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) android.view.View.AUTOFILL_HINT_PASSWORD else "password"
         val newHint = "newPassword"
         val (curLayout, curInput) = field(R.string.vault_current_password_hint, curHint)
         val (newLayout, newInput) = field(R.string.vault_new_password_hint, newHint)
@@ -1724,9 +1322,12 @@ class VaultActivity : AppCompatActivity() {
         d.show()
 
         d.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val cur = VaultUiHelpers.readCharsAndClear(curInput)
-            val nw = VaultUiHelpers.readCharsAndClear(newInput)
-            val cf = VaultUiHelpers.readCharsAndClear(confInput)
+            val cur = curInput.text?.toString()?.toCharArray() ?: CharArray(0)
+            val nw = newInput.text?.toString()?.toCharArray() ?: CharArray(0)
+            val cf = confInput.text?.toString()?.toCharArray() ?: CharArray(0)
+            curInput.text?.clear()
+            newInput.text?.clear()
+            confInput.text?.clear()
             if (nw.size < 4) {
                 cur.fill('\u0000'); nw.fill('\u0000'); cf.fill('\u0000')
                 newLayout.error = getString(R.string.vault_password_too_short)
@@ -1779,7 +1380,8 @@ class VaultActivity : AppCompatActivity() {
         d.show()
 
         d.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val chars = VaultUiHelpers.readCharsAndClear(input)
+            val chars = input.text?.toString()?.toCharArray() ?: CharArray(0)
+            input.text?.clear()
             if (chars.size < 4) {
                 chars.fill('\u0000')
                 layout.error = getString(R.string.vault_password_too_short)
@@ -1790,11 +1392,7 @@ class VaultActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 VaultRepository.setDecoyPassword(this@VaultActivity, chars)
                 hideBusy()
-                settingsClearDecoyBtn.visibility = View.VISIBLE
-                settingsDecoyStatus.setText(R.string.vault_setting_decoy_active)
-                val primaryColor = MaterialColors.getColor(this@VaultActivity, com.google.android.material.R.attr.colorPrimary, Color.WHITE)
-                settingsDecoyStatus.setTextColor(primaryColor)
-                settingsDecoyBtn.setText(R.string.vault_setting_decoy_change)
+                refreshSettingsState()
                 Toast.makeText(this@VaultActivity, R.string.vault_setting_decoy_active, Toast.LENGTH_SHORT).show()
             }
         }
@@ -1815,12 +1413,11 @@ class VaultActivity : AppCompatActivity() {
     }
 
     private fun showBusy(text: String) {
-        progressLabel.text = text
-        progressOverlay.visibility = View.VISIBLE
+        uiState = uiState.copy(isBusy = true, busyLabel = text)
     }
 
     private fun hideBusy() {
-        progressOverlay.visibility = View.GONE
+        uiState = uiState.copy(isBusy = false, busyLabel = "")
     }
 
     private fun applyCloseTransition(enterAnim: Int, exitAnim: Int) {
@@ -1833,15 +1430,17 @@ class VaultActivity : AppCompatActivity() {
     }
 
     private fun handleBackAction() {
-        when {
-            ::pickerContainer.isInitialized && pickerContainer.visibility == View.VISIBLE ->
-                closeInAppVideoPicker()
-            ::settingsContainer.isInitialized && settingsContainer.visibility == View.VISIBLE ->
-                closeVaultSettings()
-            isSelectionMode ->
-                exitSelectionMode()
-            else ->
-                smoothLockAndFinish()
+        when (uiState.stage) {
+            VaultStage.PICKER -> closeInAppVideoPicker()
+            VaultStage.SETTINGS -> closeVaultSettings()
+            VaultStage.GALLERY -> {
+                if (uiState.isSelectionMode) {
+                    exitSelectionMode()
+                } else {
+                    smoothLockAndFinish()
+                }
+            }
+            else -> smoothLockAndFinish()
         }
     }
 
@@ -1873,13 +1472,8 @@ class VaultActivity : AppCompatActivity() {
         if (panicExited) return
         panicExited = true
         stopLockoutTicker()
-        if (::blackoutVeil.isInitialized) {
-            blackoutVeil.visibility = View.VISIBLE
-        }
+        uiState = uiState.copy(isBlackout = true)
         allItems = emptyList()
-        if (::adapter.isInitialized) {
-            adapter.submitList(emptyList())
-        }
         VaultSessionManager.lockAndZeroize()
         finishAndRemoveTask()
         applyCloseTransition(0, 0)
@@ -1901,8 +1495,8 @@ class VaultActivity : AppCompatActivity() {
 
     override fun onPause() {
         val allowPmPause = shouldAllowPasswordManagerPause()
-        if (!smoothExitInFlight && !allowPmPause && ::blackoutVeil.isInitialized) {
-            blackoutVeil.visibility = View.VISIBLE
+        if (!smoothExitInFlight && !allowPmPause) {
+            uiState = uiState.copy(isBlackout = true)
         }
         super.onPause()
         if (!internalChildInFlight &&
@@ -1921,21 +1515,14 @@ class VaultActivity : AppCompatActivity() {
         internalChildInFlight = false
         if (panicExited) return
 
-        // If the child VaultVideoPlayerActivity triggered a lock on Back/Home,
-        // close cleanly without revealing unlocked UI or leftover thumbnails.
         if ((returningFromChild || wasUnlockedInSession) && !VaultSessionManager.isUnlocked.value) {
             allItems = emptyList()
-            if (::adapter.isInitialized) {
-                adapter.submitList(emptyList())
-            }
             finishAndRemoveTask()
             applyCloseTransition(R.anim.vault_background_enter, R.anim.vault_exit)
             return
         }
 
-        if (::blackoutVeil.isInitialized) {
-            blackoutVeil.visibility = View.GONE
-        }
+        uiState = uiState.copy(isBlackout = false)
         if (VaultSessionManager.isUnlocked.value) {
             loadGallery()
         }
