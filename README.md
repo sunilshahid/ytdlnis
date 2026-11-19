@@ -24,10 +24,11 @@
 
 <p align="center">
   <a href="https://github.com/sunilshahid/ytdlnis/releases/latest">
-    <img src="https://img.shields.io/github/v/release/sunilshahid/ytdlnis?label=Download%20APK&style=for-the-badge&logo=github&color=2ea44f" alt="Download Latest APK" height="40"/>
+    <img src="https://img.shields.io/github/v/release/sunilshahid/ytdlnis?label=Download%20APK&style=for-the-badge&logo=github&color=2ea44f" alt="Download Latest APK" height="42"/>
   </a>
+  <br><br>
   <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.deniscerri.ytdl.extended%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fsunilshahid%2Fytdlnis%22%2C%22author%22%3A%22sunilshahid%22%2C%22name%22%3A%22YTDLnis%20Extended%22%7D">
-    <img src="screenshots/badge_obtainium.png" alt="Get it on Obtainium" height="40"/>
+    <img src="screenshots/badge_obtainium.png" alt="Get it on Obtainium" height="68"/>
   </a>
 </p>
 
@@ -176,10 +177,11 @@
 
 <p align="center">
   <a href="https://github.com/sunilshahid/ytdlnis/releases/latest">
-    <img src="https://img.shields.io/github/v/release/sunilshahid/ytdlnis?label=Download%20APK&style=for-the-badge&logo=github&color=2ea44f" alt="Download Latest APK" height="40"/>
+    <img src="https://img.shields.io/github/v/release/sunilshahid/ytdlnis?label=Download%20APK&style=for-the-badge&logo=github&color=2ea44f" alt="Download Latest APK" height="42"/>
   </a>
+  <br><br>
   <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.deniscerri.ytdl.extended%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fsunilshahid%2Fytdlnis%22%2C%22author%22%3A%22sunilshahid%22%2C%22name%22%3A%22YTDLnis%20Extended%22%7D">
-    <img src="screenshots/badge_obtainium.png" alt="Get it on Obtainium" height="40"/>
+    <img src="screenshots/badge_obtainium.png" alt="Get it on Obtainium" height="68"/>
   </a>
 </p>
 
