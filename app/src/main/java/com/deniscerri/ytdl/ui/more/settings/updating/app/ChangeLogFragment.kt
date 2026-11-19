@@ -1,64 +1,54 @@
 package com.deniscerri.ytdl.ui.more.settings.updating.app
 
-import android.annotation.SuppressLint
-import android.content.SharedPreferences
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.RelativeLayout
-import androidx.core.view.isVisible
-import androidx.fragment.app.Fragment
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
-import androidx.preference.PreferenceManager
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.deniscerri.ytdl.R
-import com.deniscerri.ytdl.ui.adapter.ChangelogAdapter
+import com.deniscerri.ytdl.database.models.GithubRelease
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
+import com.deniscerri.ytdl.ui.compose.updating.ChangelogScreen
 import com.deniscerri.ytdl.ui.more.settings.SettingsActivity
-import com.deniscerri.ytdl.util.Extensions.enableFastScroll
 import com.deniscerri.ytdl.util.UpdateUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class ChangeLogFragment : Fragment() {
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var listAdapter: ChangelogAdapter
-    private lateinit var noResults : RelativeLayout
-    private lateinit var settingsActivity: SettingsActivity
-    private lateinit var preferences: SharedPreferences
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        settingsActivity = activity as SettingsActivity
-        settingsActivity.changeTopAppbarTitle(getString(R.string.changelog))
-        preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-        return inflater.inflate(R.layout.fragment_changelog, container, false)
+/**
+ * GitHub release changelog hosted by [SettingsActivity] (which owns the app bar, hence no top bar).
+ *
+ * Presentation moved to [ChangelogScreen]; the network call and date/asset handling are unchanged.
+ */
+class ChangeLogFragment : ComposeFragment() {
+
+    private var releases by mutableStateOf<List<GithubRelease>>(emptyList())
+    private var isLoading by mutableStateOf(true)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        (requireActivity() as SettingsActivity).changeTopAppbarTitle(getString(R.string.changelog))
+        loadReleases()
     }
 
-    @SuppressLint("RestrictedApi")
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-        noResults = view.findViewById(R.id.no_results)
+    @Composable
+    override fun Content() {
+        ChangelogScreen(
+            releases = releases,
+            isLoading = isLoading,
+        )
+    }
 
-        listAdapter = ChangelogAdapter(settingsActivity)
-        recyclerView = view.findViewById(R.id.recycler_view)
-        recyclerView.layoutManager = LinearLayoutManager(context)
-        recyclerView.adapter = listAdapter
-        recyclerView.enableFastScroll()
-
+    private fun loadReleases() {
+        isLoading = true
         val updateUtil = UpdateUtil(requireContext())
+
         lifecycleScope.launch {
-            val releases = withContext(Dispatchers.IO) {
+            releases = withContext(Dispatchers.IO) {
                 updateUtil.getGithubReleases()
             }
-            listAdapter.submitList(releases)
-            noResults.isVisible = releases.isEmpty()
-            recyclerView.isVisible = releases.isNotEmpty()
+            isLoading = false
         }
-
     }
 }

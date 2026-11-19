@@ -1,292 +1,167 @@
 package com.deniscerri.ytdl.ui.more.downloadLogs
 
 import android.content.DialogInterface
-import android.graphics.Canvas
-import android.graphics.Color
 import android.os.Bundle
-import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
-import android.widget.RelativeLayout
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ActionMode
-import androidx.fragment.app.Fragment
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.core.os.bundleOf
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.asFlow
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.preference.PreferenceManager
-import androidx.recyclerview.widget.ItemTouchHelper
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.deniscerri.ytdl.MainActivity
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.models.LogItem
 import com.deniscerri.ytdl.database.viewmodel.LogViewModel
-import com.deniscerri.ytdl.ui.adapter.DownloadLogsAdapter
-import com.deniscerri.ytdl.util.Extensions.enableFastScroll
-import com.deniscerri.ytdl.util.Extensions.forceFastScrollMode
-import com.google.android.material.appbar.MaterialToolbar
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
+import com.deniscerri.ytdl.ui.compose.logs.DownloadLogListScreen
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.snackbar.Snackbar
-import it.xabaras.android.recyclerview.swipedecorator.RecyclerViewSwipeDecorator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
+/**
+ * Download-log list (Phase 3).
+ *
+ * The list, swipe-to-delete, empty state and overflow menu are Compose
+ * ([DownloadLogListScreen]); multi-select deliberately keeps the AppCompat `ActionMode` used by the
+ * other download lists so the contextual bar looks and behaves identically across the app.
+ *
+ * Replaces `fragment_download_log_list.xml`, `log_card.xml` and `DownloadLogsAdapter`.
+ */
+class DownloadLogListFragment : ComposeFragment() {
 
-class DownloadLogListFragment : Fragment(), DownloadLogsAdapter.OnItemClickListener {
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var downloadLogAdapter: DownloadLogsAdapter
-    private lateinit var noResults: RelativeLayout
-    private lateinit var items: MutableList<LogItem>
-    private lateinit var topAppBar: MaterialToolbar
     private lateinit var mainActivity: MainActivity
     private lateinit var logViewModel: LogViewModel
-    private lateinit var  selectedObjects: ArrayList<LogItem>
-    private var actionMode : ActionMode? = null
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        mainActivity = activity as MainActivity
-        mainActivity.hideBottomNavigation()
-        items = mutableListOf()
-        selectedObjects = arrayListOf()
-        return inflater.inflate(R.layout.fragment_download_log_list, container, false)
+    private var selectedIds by mutableStateOf<Set<Long>>(emptySet())
+    private var actionMode: ActionMode? = null
+    private var currentItems: List<LogItem> = emptyList()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        logViewModel = ViewModelProvider(this)[LogViewModel::class.java]
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        topAppBar = view.findViewById(R.id.logs_toolbar)
-        topAppBar.setNavigationOnClickListener { mainActivity.onBackPressedDispatcher.onBackPressed() }
-
-        downloadLogAdapter =
-            DownloadLogsAdapter(
-                this,
-                mainActivity
-            )
-        recyclerView = view.findViewById(R.id.logs_recyclerview)
-        recyclerView.layoutManager = LinearLayoutManager(context)
-        recyclerView.enableFastScroll()
-        recyclerView.forceFastScrollMode()
-        recyclerView.adapter = downloadLogAdapter
-        val preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-        if (preferences.getBoolean("swipe_gestures", true)){
-            val itemTouchHelper = ItemTouchHelper(simpleCallback)
-            itemTouchHelper.attachToRecyclerView(recyclerView)
-        }
-
-        noResults = view.findViewById(R.id.no_results)
-        noResults.visibility = View.GONE
-
-        logViewModel = ViewModelProvider(this)[LogViewModel::class.java]
-        logViewModel.items.observe(viewLifecycleOwner) {
-            items = it.toMutableList()
-            if (it.isEmpty()) noResults.visibility = View.VISIBLE
-            else noResults.visibility = View.GONE
-            downloadLogAdapter.submitList(it)
-        }
-
-        initMenu()
+        mainActivity = activity as MainActivity
+        mainActivity.hideBottomNavigation()
     }
 
-    private fun initMenu() {
-        topAppBar.setOnMenuItemClickListener { m: MenuItem ->
-            val itemId = m.itemId
-            if (itemId == R.id.remove_logs) {
-                try{
-                    val deleteDialog = MaterialAlertDialogBuilder(requireContext())
-                    deleteDialog.setTitle(getString(R.string.confirm_delete_history))
-                    deleteDialog.setMessage(getString(R.string.confirm_delete_logs_desc))
-                    deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-                    deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-                        logViewModel.deleteAll()
-                    }
-                    deleteDialog.show()
-                }catch (e: Exception){
-                    Toast.makeText(context, e.message, Toast.LENGTH_LONG).show()
+    @Composable
+    override fun Content() {
+        // `asFlow()` creates a new Flow each call; remembering it keeps `collectAsState` from
+        // resubscribing (and recomposing) on every frame.
+        val flow = remember { logViewModel.items.asFlow() }
+        val logs by flow.collectAsState(initial = emptyList())
+        currentItems = logs
+
+        DownloadLogListScreen(
+            logs = logs,
+            selectedIds = selectedIds,
+            swipeGestures = remember {
+                PreferenceManager.getDefaultSharedPreferences(requireContext())
+                    .getBoolean("swipe_gestures", true)
+            },
+            onBack = { mainActivity.onBackPressedDispatcher.onBackPressed() },
+            onOpen = { item ->
+                findNavController().navigate(
+                    R.id.downloadLogFragment,
+                    bundleOf("logID" to item.id),
+                )
+            },
+            onToggleSelection = ::toggleSelection,
+            onDeleteAll = ::confirmDeleteAll,
+            onDelete = { logViewModel.delete(it) },
+            onUndoDelete = { item ->
+                viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                    logViewModel.insert(item)
                 }
-            }
-            true
-        }
-    }
-
-    override fun onItemClick(itemID: Long) {
-        val bundle = Bundle()
-        bundle.putLong("logID", itemID)
-        findNavController().navigate(
-            R.id.downloadLogFragment,
-            bundle
+            },
         )
     }
 
-    override fun onDeleteClick(item: LogItem) {
-        val deleteDialog = MaterialAlertDialogBuilder(requireContext())
-        deleteDialog.setTitle(getString(R.string.you_are_going_to_delete) + " \"" + item.title + "\"!")
-        deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-        deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-            logViewModel.delete(item)
-
-        }
-        deleteDialog.show()
+    private fun confirmDeleteAll() {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.confirm_delete_history)
+            .setMessage(R.string.confirm_delete_logs_desc)
+            .setNegativeButton(R.string.cancel) { dialog: DialogInterface, _: Int -> dialog.cancel() }
+            .setPositiveButton(R.string.ok) { _: DialogInterface?, _: Int -> logViewModel.deleteAll() }
+            .show()
     }
 
-    override fun onCardSelect(itemID: Long, isChecked: Boolean) {
-        val item = items.find { it.id == itemID }
-        if (isChecked) {
-            selectedObjects.add(item!!)
-            if (actionMode == null){
-                actionMode = (activity as AppCompatActivity?)!!.startSupportActionMode(contextualActionBar)
+    private fun toggleSelection(item: LogItem) {
+        val next = selectedIds.toMutableSet()
+        if (!next.add(item.id)) next.remove(item.id)
+        selectedIds = next
 
-            }else{
-                actionMode!!.title = "${selectedObjects.size} ${getString(R.string.selected)}"
-            }
+        if (next.isEmpty()) {
+            actionMode?.finish()
+            actionMode = null
+            return
         }
-        else {
-            selectedObjects.remove(item)
-            actionMode?.title = "${selectedObjects.size} ${getString(R.string.selected)}"
-            if (selectedObjects.isEmpty()){
-                actionMode?.finish()
-            }
+
+        if (actionMode == null) {
+            actionMode = mainActivity.startSupportActionMode(contextualActionBar)
+        } else {
+            actionMode?.title = "${next.size} ${getString(R.string.selected)}"
         }
     }
 
     private val contextualActionBar = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
             mode!!.menuInflater.inflate(R.menu.logs_menu_context, menu)
-            mode.title = "${selectedObjects.size} ${getString(R.string.selected)}"
+            mode.title = "${selectedIds.size} ${getString(R.string.selected)}"
             return true
         }
 
-        override fun onPrepareActionMode(
-            mode: ActionMode?,
-            menu: Menu?
-        ): Boolean {
-            return false
-        }
+        override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean = false
 
-        override fun onActionItemClicked(
-            mode: ActionMode?,
-            item: MenuItem?
-        ): Boolean {
+        override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
             return when (item!!.itemId) {
                 R.id.delete_results -> {
-                    val deleteDialog = MaterialAlertDialogBuilder(requireContext())
-                    deleteDialog.setTitle(getString(R.string.you_are_going_to_delete_multiple_items))
-                    deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-                    deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-                        for (obj in selectedObjects){
-                            logViewModel.delete(obj)
+                    MaterialAlertDialogBuilder(requireContext())
+                        .setTitle(R.string.you_are_going_to_delete_multiple_items)
+                        .setNegativeButton(R.string.cancel) { dialog: DialogInterface, _: Int -> dialog.cancel() }
+                        .setPositiveButton(R.string.ok) { _: DialogInterface?, _: Int ->
+                            val toDelete = currentItems.filter { it.id in selectedIds }
+                            toDelete.forEach { logViewModel.delete(it) }
+                            selectedIds = emptySet()
+                            actionMode?.finish()
                         }
-                        clearCheckedItems()
-                        actionMode?.finish()
-                    }
-                    deleteDialog.show()
+                        .show()
                     true
                 }
+
                 R.id.select_all -> {
-                    downloadLogAdapter.checkAll(items)
-                    selectedObjects.clear()
-                    items.forEach { selectedObjects.add(it) }
-                    mode?.title = "(${selectedObjects.size}) ${resources.getString(R.string.all_items_selected)}"
+                    selectedIds = currentItems.map { it.id }.toSet()
+                    mode?.title = "(${selectedIds.size}) ${resources.getString(R.string.all_items_selected)}"
                     true
                 }
+
                 R.id.invert_selected -> {
-                    downloadLogAdapter.invertSelected(items)
-                    val invertedList = arrayListOf<LogItem>()
-                    items.forEach {
-                        if (!selectedObjects.contains(it)!!) invertedList.add(it)
-                    }
-                    selectedObjects.clear()
-                    selectedObjects.addAll(invertedList)
-                    actionMode!!.title = "${selectedObjects.size} ${getString(R.string.selected)}"
-                    if (invertedList.isEmpty()) actionMode?.finish()
+                    selectedIds = currentItems.filter { it.id !in selectedIds }.map { it.id }.toSet()
+                    actionMode?.title = "${selectedIds.size} ${getString(R.string.selected)}"
+                    if (selectedIds.isEmpty()) actionMode?.finish()
                     true
                 }
+
                 else -> false
             }
         }
 
         override fun onDestroyActionMode(mode: ActionMode?) {
             actionMode = null
-            clearCheckedItems()
+            selectedIds = emptySet()
         }
     }
-
-    private fun clearCheckedItems(){
-        downloadLogAdapter.clearCheckeditems()
-        selectedObjects.clear()
-    }
-
-
-    private var simpleCallback: ItemTouchHelper.SimpleCallback =
-        object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
-            override fun onMove(recyclerView: RecyclerView,viewHolder: RecyclerView.ViewHolder,target: RecyclerView.ViewHolder
-            ): Boolean {
-                return false
-            }
-
-            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                val position = viewHolder.bindingAdapterPosition
-                when (direction) {
-                    ItemTouchHelper.LEFT -> {
-                        lifecycleScope.launch {
-                            val toDelete = withContext(Dispatchers.IO){
-                                logViewModel.getItemById(items[position].id)
-                            }
-
-                            toDelete?.apply {
-                                logViewModel.delete(this)
-                                Snackbar.make(recyclerView, getString(R.string.you_are_going_to_delete) + ": " + this.title, Snackbar.LENGTH_INDEFINITE)
-                                    .setAction(getString(R.string.undo)) {
-                                        lifecycleScope.launch(Dispatchers.IO){
-                                            logViewModel.insert(this@apply)
-                                        }
-                                    }.show()
-                            }
-                        }
-                    }
-
-                }
-            }
-
-            override fun onChildDraw(
-                c: Canvas,
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder,
-                dX: Float,
-                dY: Float,
-                actionState: Int,
-                isCurrentlyActive: Boolean
-            ) {
-                RecyclerViewSwipeDecorator.Builder(
-                    requireContext(),
-                    c,
-                    recyclerView,
-                    viewHolder,
-                    dX,
-                    dY,
-                    actionState,
-                    isCurrentlyActive
-                )
-                    .addSwipeLeftBackgroundColor(Color.RED)
-                    .addSwipeLeftActionIcon(R.drawable.baseline_delete_24)
-                    .create()
-                    .decorate()
-                super.onChildDraw(
-                    c,
-                    recyclerView,
-                    viewHolder,
-                    dX,
-                    dY,
-                    actionState,
-                    isCurrentlyActive
-                )
-            }
-        }
 }

@@ -1,29 +1,19 @@
 package com.deniscerri.ytdl.ui.more.settings.advanced.generateyoutubepotokens
 
 import android.app.Activity
-import android.content.Context.INPUT_METHOD_SERVICE
 import android.content.DialogInterface
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
-import android.os.Message
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.view.Window
-import android.view.inputmethod.InputMethodManager
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.core.content.edit
-import androidx.core.view.isVisible
-import androidx.core.widget.doOnTextChanged
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.PreferenceManager
 import androidx.work.WorkManager
@@ -32,24 +22,38 @@ import com.deniscerri.ytdl.core.RuntimeManager
 import com.deniscerri.ytdl.database.models.YoutubeGeneratePoTokenItem
 import com.deniscerri.ytdl.database.models.YoutubePoTokenItem
 import com.deniscerri.ytdl.services.BgUtilsPoTokenGeneratorService
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
+import com.deniscerri.ytdl.ui.compose.potoken.BgUtilsSectionState
+import com.deniscerri.ytdl.ui.compose.potoken.GeneratePoTokenUrlSheet
+import com.deniscerri.ytdl.ui.compose.potoken.GenerateYoutubePoTokensScreen
+import com.deniscerri.ytdl.ui.compose.potoken.ManualSectionState
+import com.deniscerri.ytdl.ui.compose.potoken.PolicySectionState
 import com.deniscerri.ytdl.ui.more.settings.SettingsActivity
 import com.deniscerri.ytdl.ui.more.settings.advanced.generateyoutubepotokens.webview.PoTokenWebViewLoginActivity
 import com.deniscerri.ytdl.util.BgUtilsPoTokenGeneratorUtil
 import com.deniscerri.ytdl.util.Extensions.getIDFromYoutubeURL
-import com.deniscerri.ytdl.util.Extensions.isYoutubeURL
 import com.deniscerri.ytdl.util.UiUtil
-import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.button.MaterialButton
+import com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenCoordinator
+import com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenFormatting
+import com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy
+import com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenSource
+import com.deniscerri.ytdl.auth.YouTubeSessionEngine
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.snackbar.Snackbar
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class GenerateYoutubePoTokensFragment : Fragment() {
+/**
+ * Compose port of `fragment_generate_youtube_po_token.xml` (Phase 3).
+ *
+ * Storage keys (`youtube_generated_po_tokens`, `use_bgutils_potoken_generator`,
+ * `bgutils_potoken_method`), the `PoTokenCoordinator` policy and the WebView result contract are
+ * unchanged. Only the screen body moved to Compose.
+ */
+class GenerateYoutubePoTokensFragment : ComposeFragment() {
+
     private lateinit var settingsActivity: SettingsActivity
     private lateinit var preferences: SharedPreferences
     private lateinit var configuration: MutableList<YoutubeGeneratePoTokenItem>
@@ -57,356 +61,52 @@ class GenerateYoutubePoTokensFragment : Fragment() {
 
     private lateinit var webPoTokenResultLauncher: ActivityResultLauncher<Intent>
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
+    private var regenerating by mutableStateOf(false)
+    private var policy by mutableStateOf(PoTokenPolicy.AUTO)
+    private var statusText by mutableStateOf("")
+    private var warningText by mutableStateOf<String?>(null)
+
+    private var bgUtilsEnabled by mutableStateOf(false)
+    private var bgUtilsMethod by mutableStateOf("server")
+    private var denoInstalled = false
+    private var nodeInstalled = false
+
+    private var manualEnabled by mutableStateOf(false)
+    private var webGvs by mutableStateOf("")
+    private var webPlayer by mutableStateOf("")
+    private var webSubs by mutableStateOf("")
+    private var webVisitorData by mutableStateOf("")
+    private var webPlayerClients by mutableStateOf("")
+    private var useVisitorData by mutableStateOf(true)
+    private var showUrlSheet by mutableStateOf(false)
+    private var urlInput by mutableStateOf(SAMPLE_VIDEO_URL)
+    private var webConf: YoutubeGeneratePoTokenItem? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         settingsActivity = activity as SettingsActivity
         settingsActivity.changeTopAppbarTitle(getString(R.string.generate_potokens))
         preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
         workManager = WorkManager.getInstance(requireContext())
-        return inflater.inflate(R.layout.fragment_generate_youtube_po_token, container, false)
-    }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-
-        super.onViewCreated(view, savedInstanceState)
-        configuration = kotlin.runCatching {
+        configuration = runCatching {
             Gson().fromJson(
                 preferences.getString("youtube_generated_po_tokens", "[]")!!.ifEmpty { "[]" },
                 Array<YoutubeGeneratePoTokenItem>::class.java
             ).toMutableList()
         }.getOrDefault(mutableListOf())
 
-        RuntimeManager.getInstance().assertInit()
-        initCoordinatedPolicy(view)
-        initBGUtils()
-        initWeb()
-    }
-
-    private fun initCoordinatedPolicy(view: View) {
-        val statusText = view.findViewById<TextView>(R.id.po_token_status_text) ?: return
-        val warningText = view.findViewById<TextView>(R.id.po_token_warning_text) ?: return
-        val radioGroup = view.findViewById<android.widget.RadioGroup>(R.id.po_token_policy_radiogroup) ?: return
-        val regenerateBtn = view.findViewById<MaterialButton>(R.id.regenerate_coordinated_potoken_btn) ?: return
-
-        val policyRadioIds = mapOf(
-            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.AUTO to R.id.policy_auto_radio,
-            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.SESSION_ONLY to R.id.policy_session_radio,
-            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.ANONYMOUS_ONLY to R.id.policy_anonymous_radio,
-            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.MANUAL_ONLY to R.id.policy_manual_radio
-        )
-
-        fun renderStatus() {
-            val ctx = context ?: return
-            val snapshot = com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenCoordinator.getStatusSnapshot(ctx)
-            val checkedId = policyRadioIds[snapshot.policy] ?: R.id.policy_auto_radio
-            if (radioGroup.checkedRadioButtonId != checkedId) {
-                radioGroup.check(checkedId)
-            }
-            val sourceLabel = when (snapshot.activeSource) {
-                com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenSource.SESSION_WEBVIEW -> getString(R.string.po_token_source_session)
-                com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenSource.ANONYMOUS_WEBVIEW -> getString(R.string.po_token_source_anonymous)
-                else -> getString(R.string.po_token_source_manual)
-            }
-            val sessionLabel = if (snapshot.signedIn) {
-                getString(R.string.po_token_session_signed_in)
-            } else {
-                getString(R.string.po_token_session_signed_out)
-            }
-            val visitorMasked = snapshot.maskedVisitorData
-                ?: com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenFormatting.maskTokenTail(
-                    com.deniscerri.ytdl.auth.YouTubeSessionEngine.getCachedSessionVisitorData(ctx)
-                )
-            val baseStatus = getString(R.string.po_token_status_format, sourceLabel, visitorMasked, sessionLabel)
-            val expirySuffix = snapshot.expiresAtMs?.let { expiresAt ->
-                val remainingMin = ((expiresAt - System.currentTimeMillis()) / 60_000L).coerceAtLeast(0L)
-                "\n" + getString(R.string.po_token_expires_at, remainingMin)
-            } ?: ""
-            statusText.text = baseStatus + expirySuffix
-
-            val showSignedOutWarning = snapshot.policy == com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.SESSION_ONLY && !snapshot.signedIn
-            if (showSignedOutWarning) {
-                warningText.text = getString(R.string.po_token_signed_out_warning)
-                warningText.visibility = View.VISIBLE
-            } else if (!snapshot.message.isNullOrBlank()) {
-                warningText.text = snapshot.message
-                warningText.visibility = View.VISIBLE
-            } else {
-                warningText.visibility = View.GONE
-            }
-        }
-
-        renderStatus()
-
-        radioGroup.setOnCheckedChangeListener { _, checkedId ->
-            val ctx = context ?: return@setOnCheckedChangeListener
-            val chosen = policyRadioIds.entries.firstOrNull { it.value == checkedId }?.key
-                ?: com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenPolicy.AUTO
-            com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenCoordinator.setPolicy(ctx, chosen)
-            renderStatus()
-        }
-
-        regenerateBtn.setOnClickListener {
-            val ctx = context ?: return@setOnClickListener
-            regenerateBtn.isEnabled = false
-            statusText.text = getString(R.string.po_token_regenerating)
-            lifecycleScope.launch {
-                val bundle = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    com.deniscerri.ytdl.util.extractors.newpipe.potoken.PoTokenCoordinator.regenerateNow(ctx)
-                }
-                if (!isAdded) return@launch
-                regenerateBtn.isEnabled = true
-                renderStatus()
-                android.widget.Toast.makeText(
-                    ctx,
-                    if (bundle != null) R.string.po_token_regenerate_success else R.string.po_token_regenerate_failed,
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-    }
-
-    private fun initBGUtils() {
-        val useBgUtils = preferences.getBoolean("use_bgutils_potoken_generator", false)
-        val bgUtilsMethod = preferences.getString("bgutils_potoken_method", "server")
-
-
-        requireView().findViewById<LinearLayout>(R.id.bgutils_potoken_provider_collapsible).isVisible = useBgUtils
-
-        requireView().findViewById<MaterialSwitch>(R.id.bgutils_potoken_provider_switch).apply {
-            this.isChecked = useBgUtils
-            val denoIsInstalled = RuntimeManager.getInstance().denoLocation.isAvailable
-            val nodeIsInstalled = RuntimeManager.getInstance().nodeLocation.isAvailable
-
-            fun updateState() {
-                preferences.edit(commit = true) {
-                    putBoolean("use_bgutils_potoken_generator", this@apply.isChecked)
-                }
-                requireView().findViewById<LinearLayout>(R.id.bgutils_potoken_provider_collapsible).isVisible = this.isChecked
-            }
-
-            this.setOnClickListener {
-                if (!denoIsInstalled) {
-                    this.isChecked = false
-                    updateState()
-                    Snackbar.make(requireActivity().findViewById(android.R.id.content), context.getString(R.string.please_install_package, "Deno"), Snackbar.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                updateState()
-
-                if (!this.isChecked) {
-                    BgUtilsPoTokenGeneratorUtil.stopServer(context)
-                } else {
-                    val builder = MaterialAlertDialogBuilder(context)
-                    builder.setTitle("BgUtils POT Provider")
-                    builder.setMessage(getString(R.string.bgutils_pot_generation_script_info))
-                    builder.setPositiveButton(R.string.ok) { di: DialogInterface?, _: Int ->
-                        di?.dismiss()
-
-                        val builder = MaterialAlertDialogBuilder(context)
-                        builder.setTitle("BgUtils POT Provider")
-                        builder.setMessage(getString(R.string.please_wait))
-                        builder.setCancelable(false)
-
-                        val dialog = builder.create()
-                        dialog.show()
-
-                        lifecycleScope.launch {
-                            val resp = withContext(Dispatchers.IO) {
-                                BgUtilsPoTokenGeneratorUtil.runServer(context) { progress ->
-                                    lifecycleScope.launch {
-                                        withContext(Dispatchers.Main) {
-                                            dialog.setMessage(progress)
-                                        }
-                                    }
-                                }
-                            }
-
-                            resp.onSuccess {
-                                dialog.dismiss()
-                            }
-                            resp.onFailure { error ->
-                                dialog.dismiss()
-                                view?.apply {
-                                    Snackbar.make(this, error.message ?: "", Snackbar.LENGTH_LONG).show()
-                                }
-                            }
-                        }
-
-                    }
-                    builder.setCancelable(false)
-                    builder.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int ->
-                        this.isChecked = false
-                        updateState()
-                        dialogInterface.cancel()
-                    }
-
-                    val dialog = builder.create()
-                    dialog.show()
-                }
-            }
-
-            val scriptRadio = requireView().findViewById<RadioButton>(R.id.bgutils_pot_script_radio)
-            val serverRadio = requireView().findViewById<RadioButton>(R.id.bgutils_pot_server_radio)
-
-            scriptRadio.apply {
-                isChecked = bgUtilsMethod == "generation_script" && nodeIsInstalled
-                alpha = if (nodeIsInstalled) 1f else 0.3f
-
-                setOnCheckedChangeListener { button, bool ->
-                    if (nodeIsInstalled) {
-                        preferences.edit(commit = true) {
-                            putString("bgutils_potoken_method", "generation_script")
-                        }
-                        BgUtilsPoTokenGeneratorUtil.stopServer(context)
-                    } else {
-                        Snackbar.make(requireActivity().findViewById(android.R.id.content), context.getString(R.string.please_install_package, "NodeJS"), Snackbar.LENGTH_SHORT).show()
-                        post {
-                            serverRadio.performClick()
-                        }
-                    }
-                }
-            }
-
-            serverRadio.apply {
-                isChecked = bgUtilsMethod == "server"
-                setOnClickListener {
-                    preferences.edit(commit = true) {
-                        putString("bgutils_potoken_method", "server")
-                    }
-                    lifecycleScope.launch {
-                        withContext(Dispatchers.IO) {
-                            BgUtilsPoTokenGeneratorUtil.runServer(context) {}
-                        }
-                    }
-                }
-            }
-        }
-
-        requireView().findViewById<Button>(R.id.redownload_bgutils).apply {
-            this.setOnClickListener {
-                val builder = MaterialAlertDialogBuilder(context)
-                builder.setTitle("BgUtils POT Provider")
-                builder.setMessage(getString(R.string.downloading_update))
-                builder.setCancelable(false)
-
-                val dialog = builder.create()
-                dialog.show()
-
-                lifecycleScope.launch {
-                    val resp = withContext(Dispatchers.IO) {
-                        BgUtilsPoTokenGeneratorUtil.downloadFiles(context, runServerAfterwards = bgUtilsMethod == "server") { progress ->
-                            lifecycleScope.launch {
-                                withContext(Dispatchers.Main) {
-                                    dialog.setMessage(progress)
-                                }
-                            }
-                        }
-                    }
-
-                    resp.onSuccess {
-                        dialog.dismiss()
-                    }
-                    resp.onFailure { error ->
-                        dialog.dismiss()
-                        view?.apply {
-                            Snackbar.make(this, error.message ?: "", Snackbar.LENGTH_LONG).show()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun initWeb() {
-        val confTmp = configuration.find { it.clients.any { it2 -> it2.contains("web") } }
-        val conf = confTmp ?: YoutubeGeneratePoTokenItem(false, mutableListOf("mweb"), mutableListOf(), "", false)
-
-        val switch = requireView().findViewById<MaterialSwitch>(R.id.manual_potoken_generator_switch)
-        val gvs = requireView().findViewById<TextView>(R.id.content_gvs)
-        val player = requireView().findViewById<TextView>(R.id.content_player)
-        val subs = requireView().findViewById<TextView>(R.id.content_subs)
-        val visitorData = requireView().findViewById<TextView>(R.id.content_visitordata)
-
-        val playerClientDiv = requireView().findViewById<View>(R.id.playerclient_div)
-        val playerClientText = requireView().findViewById<TextView>(R.id.content_playerclient)
-
-        val regenerate =
-            requireView().findViewById<MaterialButton>(R.id.regenerate_webview_potokens)
-        val useVisitorData = requireView().findViewById<MaterialSwitch>(R.id.use_visitor_data)
-
-        switch.isChecked = conf.enabled
-        requireView().findViewById<LinearLayout>(R.id.manual_potoken_generator_collapsible).isVisible = conf.enabled
-        switch.jumpDrawablesToCurrentState()
-        useVisitorData.isEnabled = conf.enabled
-
-        fun setValues(conf: YoutubeGeneratePoTokenItem) {
-            gvs.text = conf.poTokens.find { it.context == "gvs" }?.token ?: ""
-            player.text = conf.poTokens.find { it.context == "player" }?.token ?: ""
-            subs.text = conf.poTokens.find { it.context == "subs" }?.token ?: ""
-            visitorData.text = conf.visitorData
-            playerClientText.text = conf.clients.joinToString(", ")
-        }
-
-        setValues(conf)
-
-        val clicker = View.OnClickListener {
-            UiUtil.copyToClipboard((it as TextView).text.toString(), requireActivity())
-        }
-
-        gvs.setOnClickListener(clicker)
-        player.setOnClickListener(clicker)
-        subs.setOnClickListener(clicker)
-        visitorData.setOnClickListener(clicker)
-
-        playerClientDiv.setOnClickListener {
-            val webClients = requireContext().resources.getStringArray(R.array.web_player_clients)
-
-            val selectedItems = webClients.map {
-                conf.clients.contains(it)
-            }.toBooleanArray()
-
-            MaterialAlertDialogBuilder(requireContext())
-                .setTitle(getString(R.string.player_client))
-                .setMultiChoiceItems(webClients, selectedItems) { _, which, isChecked ->
-                    selectedItems[which] = isChecked
-                }
-                .setPositiveButton(R.string.ok) { _, _ ->
-                    val newValues = webClients
-                        .filterIndexed { index, _ -> selectedItems[index] }
-                        .toMutableSet()
-
-                    if (newValues.isNotEmpty()) {
-                        configuration.remove(conf)
-                        conf.clients.clear()
-                        conf.clients.addAll(newValues)
-                        configuration.add(conf)
-                        preferences.edit().putString(
-                            "youtube_generated_po_tokens",
-                            Gson().toJson(configuration).toString()
-                        ).apply()
-                        setValues(conf)
-                    }
-                }
-                .setNegativeButton(R.string.cancel, null)
-                .show()
-        }
-
         webPoTokenResultLauncher = registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
-                val streamingDataPoTokenResult =
-                    result.data!!.getStringExtra("streaming_potoken") ?: ""
-                val playerRequestPoTokenResult =
-                    result.data!!.getStringExtra("player_potoken") ?: ""
-                val subsRequestPoTokenResult = result.data!!.getStringExtra("subs_potoken") ?: ""
-                val visitorDataResult = result.data!!.getStringExtra("visitor_data") ?: ""
+                val data = result.data ?: return@registerForActivityResult
+                val streamingDataPoTokenResult = data.getStringExtra("streaming_potoken") ?: ""
+                val playerRequestPoTokenResult = data.getStringExtra("player_potoken") ?: ""
+                val subsRequestPoTokenResult = data.getStringExtra("subs_potoken") ?: ""
+                val visitorDataResult = data.getStringExtra("visitor_data") ?: ""
 
-
+                val conf = webConf ?: return@registerForActivityResult
                 configuration.remove(conf)
                 conf.poTokens.clear()
                 conf.poTokens.add(YoutubePoTokenItem("gvs", streamingDataPoTokenResult))
@@ -425,112 +125,408 @@ class GenerateYoutubePoTokensFragment : Fragment() {
             }
         }
 
-        regenerate.setOnClickListener {
-            showBottomSheet()
-        }
-
-        switch.setOnClickListener {
-            requireView().findViewById<LinearLayout>(R.id.manual_potoken_generator_collapsible).isVisible = switch.isChecked
-
-            configuration.remove(conf)
-            conf.enabled = switch.isChecked
-            useVisitorData.isEnabled = switch.isChecked
-            configuration.add(conf)
-            preferences.edit(commit = true) {
-                putString(
-                    "youtube_generated_po_tokens",
-                    Gson().toJson(configuration).toString()
-                )
-            }
-            if (switch.isChecked) {
-                if (conf.poTokens.isEmpty()) {
-                    regenerate.performClick()
-                }
-            }
-        }
-
-        useVisitorData?.apply {
-            this.isChecked = conf.useVisitorData
-            useVisitorData.jumpDrawablesToCurrentState()
-            setOnCheckedChangeListener { _, b ->
-                configuration.remove(conf)
-                conf.useVisitorData = b
-                configuration.add(conf)
-                preferences.edit().putString(
-                    "youtube_generated_po_tokens",
-                    Gson().toJson(configuration).toString()
-                ).apply()
-            }
-        }
-
+        RuntimeManager.getInstance().assertInit()
+        initCoordinatedPolicy()
+        initBGUtils()
+        initWeb()
     }
 
-    private fun showBottomSheet() {
+    @Composable
+    override fun Content() {
+        GenerateYoutubePoTokensScreen(
+            policy = PolicySectionState(
+                statusText = if (regenerating) {
+                    stringResource(R.string.po_token_regenerating)
+                } else {
+                    statusText
+                },
+                warningText = warningText,
+                policy = policy,
+                regenerating = regenerating,
+            ),
+            bgUtils = BgUtilsSectionState(
+                enabled = bgUtilsEnabled,
+                method = bgUtilsMethod,
+                scriptAvailable = nodeInstalled,
+            ),
+            manual = ManualSectionState(
+                enabled = manualEnabled,
+                gvs = webGvs,
+                player = webPlayer,
+                subs = webSubs,
+                visitorData = webVisitorData,
+                playerClients = webPlayerClients,
+                useVisitorData = useVisitorData,
+            ),
+            onPolicyChange = { chosen ->
+                val ctx = context ?: return@GenerateYoutubePoTokensScreen
+                PoTokenCoordinator.setPolicy(ctx, chosen)
+                renderStatus()
+            },
+            onRegenerate = { regenerateCoordinated() },
+            onBgUtilsToggle = { enabled -> updateBgUtilsEnabled(enabled) },
+            onBgUtilsMethodChange = { method -> updateBgUtilsMethod(method) },
+            onRedownloadBgUtils = { redownloadBgUtils() },
+            onManualToggle = { enabled -> updateManualEnabled(enabled) },
+            onCopy = { text -> UiUtil.copyToClipboard(text, requireActivity()) },
+            onPlayerClientsClick = { showPlayerClientsDialog() },
+            onRegenerateWeb = { showGenerateDialog() },
+            onUseVisitorDataChange = { checked -> updateUseVisitorData(checked) },
+        )
+
+        if (showUrlSheet) {
+            GeneratePoTokenUrlSheet(
+                url = urlInput,
+                onUrlChange = { urlInput = it },
+                onRegenerate = {
+                    showUrlSheet = false
+                    launchWebPoToken(noAuth = true)
+                },
+                onDismiss = { showUrlSheet = false },
+            )
+        }
+    }
+
+    // ---------------------------------------------------------------- coordination card
+
+    private fun initCoordinatedPolicy() {
+        renderStatus()
+    }
+
+    private fun renderStatus() {
+        val ctx = context ?: return
+        val snapshot = PoTokenCoordinator.getStatusSnapshot(ctx)
+        policy = snapshot.policy
+
+        val sourceLabel = when (snapshot.activeSource) {
+            PoTokenSource.SESSION_WEBVIEW -> getString(R.string.po_token_source_session)
+            PoTokenSource.ANONYMOUS_WEBVIEW -> getString(R.string.po_token_source_anonymous)
+            else -> getString(R.string.po_token_source_manual)
+        }
+        val sessionLabel = if (snapshot.signedIn) {
+            getString(R.string.po_token_session_signed_in)
+        } else {
+            getString(R.string.po_token_session_signed_out)
+        }
+        val visitorMasked = snapshot.maskedVisitorData
+            ?: PoTokenFormatting.maskTokenTail(
+                YouTubeSessionEngine.getCachedSessionVisitorData(ctx)
+            )
+        val baseStatus = getString(
+            R.string.po_token_status_format,
+            sourceLabel,
+            visitorMasked,
+            sessionLabel
+        )
+        val expirySuffix = snapshot.expiresAtMs?.let { expiresAt ->
+            val remainingMin = ((expiresAt - System.currentTimeMillis()) / 60_000L).coerceAtLeast(0L)
+            "\n" + getString(R.string.po_token_expires_at, remainingMin)
+        } ?: ""
+        statusText = baseStatus + expirySuffix
+
+        warningText = when {
+            snapshot.policy == PoTokenPolicy.SESSION_ONLY && !snapshot.signedIn ->
+                getString(R.string.po_token_signed_out_warning)
+
+            !snapshot.message.isNullOrBlank() -> snapshot.message
+
+            else -> null
+        }
+    }
+
+    private fun regenerateCoordinated() {
+        val ctx = context ?: return
+        regenerating = true
+        statusText = getString(R.string.po_token_regenerating)
         lifecycleScope.launch {
-            val dialog = MaterialAlertDialogBuilder(requireContext())
-            dialog.setTitle(getString(R.string.generate_potokens))
-
-            val text = getString(R.string.potoken_guide)
-            dialog.setMessage(text)
-            dialog.setNegativeButton(getString(R.string.no_auth)) { dialogInterface: DialogInterface, _: Int ->
-
-                val layout = BottomSheetDialog(requireContext())
-                layout.requestWindowFeature(Window.FEATURE_NO_TITLE)
-                layout.setContentView(R.layout.generate_po_token_url_bottom_sheet)
-
-                val editText = layout.findViewById<EditText>(R.id.url_edittext)!!
-                val regenerateBtn = layout.findViewById<MaterialButton>(R.id.getPoTokenBtn)!!
-                val placeHolderURL = "https://youtu.be/aqz-KE-bpKQ" //Big Buck Bunny
-                editText.doOnTextChanged { text, start, before, count ->
-                    regenerateBtn.isEnabled = editText.text.toString().isYoutubeURL()
-                }
-                editText.setText(placeHolderURL)
-                editText.setSelection(editText.text.length)
-
-                regenerateBtn.setOnClickListener {
-                    layout.dismiss()
-
-                    val intent = Intent(requireContext(), PoTokenWebViewLoginActivity::class.java)
-                    intent.putExtra("url", "https://www.youtube.com")
-                    intent.putExtra(
-                        "redirect_url",
-                        "https://www.youtube.com/watch?v=${
-                            editText.text.toString().getIDFromYoutubeURL()
-                        }"
-                    )
-                    intent.putExtra("no_auth", true)
-                    webPoTokenResultLauncher.launch(intent)
-                }
-
-
-                val imm =
-                    requireActivity().getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-                editText.postDelayed({
-                    editText.requestFocus()
-                    imm.showSoftInput(editText, 0)
-                }, 300)
-
-                layout.show()
-                layout.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-                layout.window!!.setLayout(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
+            val bundle = withContext(Dispatchers.IO) {
+                PoTokenCoordinator.regenerateNow(ctx)
             }
+            if (!isAdded) return@launch
+            regenerating = false
+            renderStatus()
+            Toast.makeText(
+                requireContext(),
+                if (bundle != null) {
+                    R.string.po_token_regenerate_success
+                } else {
+                    R.string.po_token_regenerate_failed
+                },
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 
-            dialog.setPositiveButton(getString(R.string.auth)) { dialogInterface: DialogInterface, _: Int ->
-                val intent = Intent(requireContext(), PoTokenWebViewLoginActivity::class.java)
-                intent.putExtra("url", "https://youtube.com/signin")
-                intent.putExtra("no_auth", false)
-                webPoTokenResultLauncher.launch(intent)
+    // ---------------------------------------------------------------- BgUtils card
+
+    private fun initBGUtils() {
+        bgUtilsEnabled = preferences.getBoolean("use_bgutils_potoken_generator", false)
+        bgUtilsMethod = preferences.getString("bgutils_potoken_method", "server") ?: "server"
+        denoInstalled = RuntimeManager.getInstance().denoLocation.isAvailable
+        nodeInstalled = RuntimeManager.getInstance().nodeLocation.isAvailable
+    }
+
+    private fun updateBgUtilsEnabled(enabled: Boolean) {
+        if (enabled && !denoInstalled) {
+            bgUtilsEnabled = false
+            preferences.edit(commit = true) {
+                putBoolean("use_bgutils_potoken_generator", false)
             }
-
-            dialog.setNeutralButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int ->
-                dialogInterface.dismiss()
-            }
-
-            dialog.show()
+            snack(getString(R.string.please_install_package, "Deno"))
+            return
         }
 
+        bgUtilsEnabled = enabled
+        preferences.edit(commit = true) {
+            putBoolean("use_bgutils_potoken_generator", enabled)
+        }
+
+        if (!enabled) {
+            BgUtilsPoTokenGeneratorUtil.stopServer(requireContext())
+            return
+        }
+
+        val builder = MaterialAlertDialogBuilder(requireContext())
+        builder.setTitle("BgUtils POT Provider")
+        builder.setMessage(getString(R.string.bgutils_pot_generation_script_info))
+        builder.setPositiveButton(R.string.ok) { di: DialogInterface?, _: Int ->
+            di?.dismiss()
+            runBgUtilsServerWithProgress()
+        }
+        builder.setCancelable(false)
+        builder.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int ->
+            bgUtilsEnabled = false
+            preferences.edit(commit = true) {
+                putBoolean("use_bgutils_potoken_generator", false)
+            }
+            dialogInterface.cancel()
+        }
+        builder.create().show()
+    }
+
+    private fun runBgUtilsServerWithProgress() {
+        val builder = MaterialAlertDialogBuilder(requireContext())
+        builder.setTitle("BgUtils POT Provider")
+        builder.setMessage(getString(R.string.please_wait))
+        builder.setCancelable(false)
+
+        val dialog = builder.create()
+        dialog.show()
+
+        lifecycleScope.launch {
+            val resp = withContext(Dispatchers.IO) {
+                BgUtilsPoTokenGeneratorUtil.runServer(requireContext()) { progress ->
+                    lifecycleScope.launch {
+                        withContext(Dispatchers.Main) {
+                            dialog.setMessage(progress)
+                        }
+                    }
+                }
+            }
+
+            resp.onSuccess {
+                dialog.dismiss()
+            }
+            resp.onFailure { error ->
+                dialog.dismiss()
+                view?.let {
+                    Snackbar.make(it, error.message ?: "", Snackbar.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun updateBgUtilsMethod(method: String) {
+        if (method == "generation_script") {
+            if (!nodeInstalled) {
+                snack(getString(R.string.please_install_package, "NodeJS"))
+                applyBgUtilsMethod("server")
+                return
+            }
+            applyBgUtilsMethod("generation_script")
+            BgUtilsPoTokenGeneratorUtil.stopServer(requireContext())
+        } else {
+            applyBgUtilsMethod("server")
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    BgUtilsPoTokenGeneratorUtil.runServer(requireContext()) {}
+                }
+            }
+        }
+    }
+
+    private fun applyBgUtilsMethod(method: String) {
+        bgUtilsMethod = method
+        preferences.edit(commit = true) {
+            putString("bgutils_potoken_method", method)
+        }
+    }
+
+    private fun redownloadBgUtils() {
+        val builder = MaterialAlertDialogBuilder(requireContext())
+        builder.setTitle("BgUtils POT Provider")
+        builder.setMessage(getString(R.string.downloading_update))
+        builder.setCancelable(false)
+
+        val dialog = builder.create()
+        dialog.show()
+
+        lifecycleScope.launch {
+            val resp = withContext(Dispatchers.IO) {
+                BgUtilsPoTokenGeneratorUtil.downloadFiles(
+                    requireContext(),
+                    runServerAfterwards = bgUtilsMethod == "server"
+                ) { progress ->
+                    lifecycleScope.launch {
+                        withContext(Dispatchers.Main) {
+                            dialog.setMessage(progress)
+                        }
+                    }
+                }
+            }
+
+            resp.onSuccess {
+                dialog.dismiss()
+            }
+            resp.onFailure { error ->
+                dialog.dismiss()
+                view?.let {
+                    Snackbar.make(it, error.message ?: "", Snackbar.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun snack(message: CharSequence) {
+        Snackbar.make(
+            requireActivity().findViewById(android.R.id.content),
+            message,
+            Snackbar.LENGTH_SHORT
+        ).show()
+    }
+
+    // ---------------------------------------------------------------- manual web generator
+
+    private fun initWeb() {
+        val confTmp = configuration.find { it.clients.any { client -> client.contains("web") } }
+        val conf = confTmp ?: YoutubeGeneratePoTokenItem(
+            false,
+            mutableListOf("mweb"),
+            mutableListOf(),
+            "",
+            false
+        )
+        webConf = conf
+
+        manualEnabled = conf.enabled
+        useVisitorData = conf.useVisitorData
+        setValues(conf)
+    }
+
+    private fun setValues(conf: YoutubeGeneratePoTokenItem) {
+        webGvs = conf.poTokens.find { it.context == "gvs" }?.token ?: ""
+        webPlayer = conf.poTokens.find { it.context == "player" }?.token ?: ""
+        webSubs = conf.poTokens.find { it.context == "subs" }?.token ?: ""
+        webVisitorData = conf.visitorData
+        webPlayerClients = conf.clients.joinToString(", ")
+    }
+
+    private fun updateManualEnabled(enabled: Boolean) {
+        val conf = webConf ?: return
+        manualEnabled = enabled
+
+        configuration.remove(conf)
+        conf.enabled = enabled
+        configuration.add(conf)
+        preferences.edit(commit = true) {
+            putString(
+                "youtube_generated_po_tokens",
+                Gson().toJson(configuration).toString()
+            )
+        }
+
+        if (enabled && conf.poTokens.isEmpty()) {
+            showGenerateDialog()
+        }
+    }
+
+    private fun updateUseVisitorData(checked: Boolean) {
+        val conf = webConf ?: return
+        useVisitorData = checked
+
+        configuration.remove(conf)
+        conf.useVisitorData = checked
+        configuration.add(conf)
+        preferences.edit().putString(
+            "youtube_generated_po_tokens",
+            Gson().toJson(configuration).toString()
+        ).apply()
+    }
+
+    private fun showPlayerClientsDialog() {
+        val conf = webConf ?: return
+        val webClients = requireContext().resources.getStringArray(R.array.web_player_clients)
+        val selectedItems = webClients.map { conf.clients.contains(it) }.toBooleanArray()
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.player_client))
+            .setMultiChoiceItems(webClients, selectedItems) { _, which, isChecked ->
+                selectedItems[which] = isChecked
+            }
+            .setPositiveButton(R.string.ok) { _, _ ->
+                val newValues = webClients
+                    .filterIndexed { index, _ -> selectedItems[index] }
+                    .toMutableSet()
+
+                if (newValues.isNotEmpty()) {
+                    configuration.remove(conf)
+                    conf.clients.clear()
+                    conf.clients.addAll(newValues)
+                    configuration.add(conf)
+                    preferences.edit().putString(
+                        "youtube_generated_po_tokens",
+                        Gson().toJson(configuration).toString()
+                    ).apply()
+                    setValues(conf)
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun showGenerateDialog() {
+        val dialog = MaterialAlertDialogBuilder(requireContext())
+        dialog.setTitle(getString(R.string.generate_potokens))
+        dialog.setMessage(getString(R.string.potoken_guide))
+        dialog.setNegativeButton(getString(R.string.no_auth)) { _: DialogInterface?, _: Int ->
+            urlInput = SAMPLE_VIDEO_URL
+            showUrlSheet = true
+        }
+        dialog.setPositiveButton(getString(R.string.auth)) { _: DialogInterface?, _: Int ->
+            launchWebPoToken(noAuth = false)
+        }
+        dialog.setNeutralButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int ->
+            dialogInterface.dismiss()
+        }
+        dialog.show()
+    }
+
+    private fun launchWebPoToken(noAuth: Boolean) {
+        val intent = Intent(requireContext(), PoTokenWebViewLoginActivity::class.java)
+        if (noAuth) {
+            intent.putExtra("url", "https://www.youtube.com")
+            intent.putExtra(
+                "redirect_url",
+                "https://www.youtube.com/watch?v=${urlInput.getIDFromYoutubeURL()}"
+            )
+        } else {
+            intent.putExtra("url", "https://youtube.com/signin")
+        }
+        intent.putExtra("no_auth", noAuth)
+        webPoTokenResultLauncher.launch(intent)
+    }
+
+    companion object {
+        private const val SAMPLE_VIDEO_URL = "https://youtu.be/aqz-KE-bpKQ" // Big Buck Bunny
     }
 }
