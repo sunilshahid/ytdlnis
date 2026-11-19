@@ -14,9 +14,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -149,7 +149,16 @@ class CookiesFragment : ComposeFragment() {
 
     @Composable
     override fun Content() {
-        val cookies by cookiesViewModel.items.observeAsState(emptyList())
+        var cookies by remember { mutableStateOf<List<CookieItem>>(emptyList()) }
+        DisposableEffect(cookiesViewModel, viewLifecycleOwner) {
+            val observer = androidx.lifecycle.Observer<List<CookieItem>> { list ->
+                cookies = list ?: emptyList()
+            }
+            cookiesViewModel.items.observe(viewLifecycleOwner, observer)
+            onDispose {
+                cookiesViewModel.items.removeObserver(observer)
+            }
+        }
         val coroutineScope = rememberCoroutineScope()
 
         CookiesScreen(

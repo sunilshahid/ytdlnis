@@ -96,7 +96,7 @@ fun ScheduledDownloadScreen(
                 ) {
                     IconButton(onClick = onClearSelection) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_close),
+                            painter = painterResource(R.drawable.baseline_close_24),
                             contentDescription = stringResource(R.string.close),
                         )
                     }
@@ -175,7 +175,7 @@ fun ScheduledDownloadScreen(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_invert_selection),
+                                        painter = painterResource(R.drawable.ic_select_all),
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp),
                                     )
@@ -189,7 +189,7 @@ fun ScheduledDownloadScreen(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_copy_url),
+                                        painter = painterResource(R.drawable.ic_copy),
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp),
                                     )
@@ -245,7 +245,7 @@ fun ScheduledDownloadScreen(
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.delete_all), color = MaterialTheme.colorScheme.error) },
+                            text = { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 headerMenuExpanded = false
                                 onDeleteAll()
@@ -267,7 +267,7 @@ fun ScheduledDownloadScreen(
                             },
                             leadingIcon = {
                                 Icon(
-                                    painter = painterResource(R.drawable.ic_copy_url),
+                                    painter = painterResource(R.drawable.ic_copy),
                                     contentDescription = null,
                                     modifier = Modifier.size(20.dp),
                                 )

@@ -166,7 +166,7 @@ class WelcomeActivity : AppCompatActivity() {
                 val isNextEnabled = if (currentPage == 2) allRequiredGranted else true
 
                 val customSummary = when {
-                    selectedChannel in channelValues -> stringResource(R.string.custom_channels_summary)
+                    selectedChannel in channelValues -> getString(R.string.custom_channels_summary)
                     customChannelLabel.isBlank() -> selectedChannel
                     else -> "$customChannelLabel\n$selectedChannel"
                 }

@@ -94,7 +94,7 @@ fun QueueDownloadScreen(
                 ) {
                     IconButton(onClick = onClearSelection) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_close),
+                            painter = painterResource(R.drawable.baseline_close_24),
                             contentDescription = stringResource(R.string.close),
                         )
                     }
@@ -109,14 +109,14 @@ fun QueueDownloadScreen(
                     IconButton(onClick = onMoveSelectedToTop) {
                         Icon(
                             painter = painterResource(R.drawable.ic_up),
-                            contentDescription = stringResource(R.string.up),
+                            contentDescription = stringResource(R.string.lyrics_move_up),
                         )
                     }
 
                     IconButton(onClick = onMoveSelectedToBottom) {
                         Icon(
                             painter = painterResource(R.drawable.ic_down),
-                            contentDescription = stringResource(R.string.down),
+                            contentDescription = stringResource(R.string.lyrics_move_down),
                         )
                     }
 
@@ -171,7 +171,7 @@ fun QueueDownloadScreen(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_invert_selection),
+                                        painter = painterResource(R.drawable.ic_select_all),
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp),
                                     )
@@ -185,7 +185,7 @@ fun QueueDownloadScreen(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_copy_url),
+                                        painter = painterResource(R.drawable.ic_copy),
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp),
                                     )
@@ -265,7 +265,7 @@ fun QueueDownloadScreen(
                                             onDismissRequest = { itemMenuExpanded = false },
                                         ) {
                                             DropdownMenuItem(
-                                                text = { Text(stringResource(R.string.up)) },
+                                                text = { Text(stringResource(R.string.lyrics_move_up)) },
                                                 onClick = {
                                                     itemMenuExpanded = false
                                                     onMoveToTop(item.id)
@@ -279,7 +279,7 @@ fun QueueDownloadScreen(
                                                 },
                                             )
                                             DropdownMenuItem(
-                                                text = { Text(stringResource(R.string.down)) },
+                                                text = { Text(stringResource(R.string.lyrics_move_down)) },
                                                 onClick = {
                                                     itemMenuExpanded = false
                                                     onMoveToBottom(item.id)

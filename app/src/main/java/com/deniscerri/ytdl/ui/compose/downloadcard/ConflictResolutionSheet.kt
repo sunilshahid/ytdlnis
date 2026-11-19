@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,15 +28,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.models.AlreadyExistsItem
+import com.deniscerri.ytdl.ui.compose.components.PicassoImage
 
 @Composable
 fun ConflictResolutionSheet(
@@ -69,14 +66,14 @@ fun ConflictResolutionSheet(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Default.Warning,
+                    painter = painterResource(R.drawable.baseline_error_24),
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = stringResource(R.string.downloads_already_exist),
+                    text = stringResource(R.string.download_already_exists),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -84,7 +81,7 @@ fun ConflictResolutionSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = stringResource(R.string.some_downloads_already_exist),
+                text = stringResource(R.string.download_already_exists_summary),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -109,13 +106,10 @@ fun ConflictResolutionSheet(
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val thumb = conflict.downloadItem.thumbUrl
+                            val thumb = conflict.downloadItem.thumb
                             if (thumb.isNotBlank()) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(thumb)
-                                        .crossfade(true)
-                                        .build(),
+                                PicassoImage(
+                                    url = thumb,
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -156,14 +150,14 @@ fun ConflictResolutionSheet(
                     onClick = onSkipExisting,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(stringResource(R.string.skip))
+                    Text(stringResource(R.string.cancel))
                 }
 
                 Button(
                     onClick = onDownloadAgain,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(stringResource(R.string.download_again))
+                    Text(stringResource(R.string.download))
                 }
             }
         }

@@ -115,8 +115,10 @@ class LyricsSheetFragment : DialogFragment() {
                         onSearchClick = { showSearchDialog = true },
                         onImportClick = { importLyricsLauncher.launch(arrayOf("*/*")) },
                         onSettingsClick = {
-                            LyricsSettingsDialogFragment.newInstance(lyricsViewRef, renderedDocument)
-                                .show(parentFragmentManager, "lyricsSettings")
+                            lyricsViewRef?.let {
+                                LyricsSettingsDialogFragment.newInstance(it, renderedDocument)
+                                    .show(parentFragmentManager, "lyricsSettings")
+                            }
                         },
                         onLyricsViewCreated = { view ->
                             lyricsViewRef = view

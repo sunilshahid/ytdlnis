@@ -33,16 +33,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.models.ResultItem
+import com.deniscerri.ytdl.ui.compose.components.PicassoImage
 
 @Composable
 fun PlaylistPickerSheet(
@@ -86,7 +84,7 @@ fun PlaylistPickerSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = stringResource(R.string.select_items),
+                    text = stringResource(R.string.select),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -179,12 +177,9 @@ fun PlaylistPickerSheet(
                             modifier = Modifier.width(28.dp)
                         )
 
-                        if (item.thumbnail_url.isNotBlank()) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(item.thumbnail_url)
-                                    .crossfade(true)
-                                    .build(),
+                        if (item.thumb.isNotBlank()) {
+                            PicassoImage(
+                                url = item.thumb,
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier

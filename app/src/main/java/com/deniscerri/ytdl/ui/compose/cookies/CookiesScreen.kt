@@ -112,7 +112,7 @@ fun CookiesScreen(
 
             IconButton(onClick = { menuExpanded = true }) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_more_vert),
+                    painter = painterResource(R.drawable.baseline_more_vert_24),
                     contentDescription = stringResource(R.string.more),
                 )
             }

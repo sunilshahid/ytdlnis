@@ -150,7 +150,7 @@ fun HistoryDownloadScreen(
                 ) {
                     IconButton(onClick = onClearSelection) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_close),
+                            painter = painterResource(R.drawable.baseline_close_24),
                             contentDescription = stringResource(R.string.close),
                         )
                     }
@@ -235,7 +235,7 @@ fun HistoryDownloadScreen(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_invert_selection),
+                                        painter = painterResource(R.drawable.ic_select_all),
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp),
                                     )
@@ -249,21 +249,21 @@ fun HistoryDownloadScreen(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_copy_url),
+                                        painter = painterResource(R.drawable.ic_copy),
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp),
                                     )
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.vault_title)) },
+                                text = { Text(stringResource(R.string.private_vault)) },
                                 onClick = {
                                     selectionMenuExpanded = false
                                     onMoveSelectedToVault()
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_vault),
+                                        painter = painterResource(R.drawable.ic_lock),
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp),
                                     )
@@ -292,7 +292,7 @@ fun HistoryDownloadScreen(
                         )
                     } else {
                         Text(
-                            text = stringResource(R.string.history),
+                            text = stringResource(R.string.search_history),
                             fontWeight = FontWeight.Bold,
                         )
                     }
@@ -304,7 +304,7 @@ fun HistoryDownloadScreen(
                             onSearchQueryChange("")
                         }) {
                             Icon(
-                                painter = painterResource(R.drawable.ic_close),
+                                painter = painterResource(R.drawable.baseline_close_24),
                                 contentDescription = stringResource(R.string.close),
                             )
                         }
@@ -335,8 +335,8 @@ fun HistoryDownloadScreen(
                             }
                         ) {
                             Icon(
-                                painter = painterResource(R.drawable.ic_filter),
-                                contentDescription = stringResource(R.string.filters),
+                                painter = painterResource(R.drawable.baseline_filter_alt_24),
+                                contentDescription = null,
                             )
                         }
                     }
@@ -355,7 +355,7 @@ fun HistoryDownloadScreen(
                             onDismissRequest = { overflowExpanded = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.remove_history)) },
+                                text = { Text(stringResource(R.string.clear_history)) },
                                 onClick = {
                                     overflowExpanded = false
                                     showDeleteAllDialog = true
@@ -369,7 +369,7 @@ fun HistoryDownloadScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.remove_deleted_history)) },
+                                text = { Text(stringResource(R.string.delete)) },
                                 onClick = {
                                     overflowExpanded = false
                                     showDeleteDeletedDialog = true
@@ -404,7 +404,7 @@ fun HistoryDownloadScreen(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_copy_url),
+                                        painter = painterResource(R.drawable.ic_copy),
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp),
                                     )
@@ -512,10 +512,10 @@ fun HistoryDownloadScreen(
             FilterChip(
                 selected = useDownloadCardDesign,
                 onClick = onToggleCardDesign,
-                label = { Text(stringResource(R.string.toggle_view)) },
+                label = { Text("Toggle View") },
                 leadingIcon = {
                     Icon(
-                        painter = painterResource(R.drawable.ic_dashboard),
+                        painter = painterResource(R.drawable.ic_view_grid),
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                     )
@@ -528,8 +528,8 @@ fun HistoryDownloadScreen(
             if (totalCount == 0 && items.itemCount == 0) {
                 EmptyState(
                     iconRes = R.drawable.ic_no_results,
-                    title = stringResource(R.string.no_history_yet),
-                    message = stringResource(R.string.history_empty_desc),
+                    title = stringResource(R.string.history_is_empty),
+                    message = stringResource(R.string.no_downloads_yet),
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(24.dp),

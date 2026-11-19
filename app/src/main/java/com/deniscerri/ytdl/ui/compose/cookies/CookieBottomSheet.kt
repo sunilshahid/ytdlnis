@@ -189,7 +189,7 @@ fun CookieBottomSheet(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.baseline_save_24),
-                            contentDescription = stringResource(R.string.save),
+                            contentDescription = stringResource(R.string.ok),
                         )
                     }
                 } else {

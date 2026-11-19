@@ -40,3 +40,8 @@ fun YtdlnisTheme(
         content = content,
     )
 }
+
+@Composable
+fun YtdlTheme(
+    content: @Composable () -> Unit,
+) = YtdlnisTheme(content = content)

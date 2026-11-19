@@ -714,7 +714,7 @@ private fun WelcomeUpdatesPage(
                 }
 
                 Icon(
-                    painter = painterResource(R.drawable.ic_chevron_right),
+                    painter = painterResource(R.drawable.ic_baseline_keyboard_arrow_right_24),
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

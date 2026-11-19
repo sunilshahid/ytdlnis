@@ -293,7 +293,7 @@ private fun DownloadItemCardContent(
                         IconButton(onClick = onMoveUp, modifier = Modifier.size(28.dp)) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_up),
-                                contentDescription = stringResource(R.string.up),
+                                contentDescription = stringResource(R.string.lyrics_move_up),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp),
                             )
@@ -309,7 +309,7 @@ private fun DownloadItemCardContent(
                         IconButton(onClick = onMoveDown, modifier = Modifier.size(28.dp)) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_down),
-                                contentDescription = stringResource(R.string.down),
+                                contentDescription = stringResource(R.string.lyrics_move_down),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp),
                             )
@@ -337,7 +337,7 @@ private fun DownloadItemCardContent(
                     contentDescription = displayTitle,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
-                    placeholderRes = R.drawable.ic_thumbnail_placeholder,
+                    placeholderRes = R.drawable.ic_video,
                 )
 
                 if (item.duration.isNotEmpty() && item.duration != "-1") {
@@ -419,11 +419,13 @@ private fun DownloadItemCardContent(
                         DownloadType.audio -> R.drawable.ic_music
                         DownloadType.video -> R.drawable.ic_video
                         DownloadType.command -> R.drawable.ic_terminal
+                        else -> R.drawable.ic_music
                     }
                     val typeLabel = when (item.type) {
                         DownloadType.audio -> stringResource(R.string.audio)
                         DownloadType.video -> stringResource(R.string.video)
                         DownloadType.command -> stringResource(R.string.command)
+                        else -> stringResource(R.string.audio)
                     }
 
                     Surface(

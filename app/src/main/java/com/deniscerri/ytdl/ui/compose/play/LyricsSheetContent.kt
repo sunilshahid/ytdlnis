@@ -22,11 +22,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -239,7 +234,7 @@ private fun LyricsTopBar(
     ) {
         IconButton(onClick = onBackClick) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                painter = painterResource(R.drawable.ic_back),
                 contentDescription = stringResource(R.string.back),
                 tint = MaterialTheme.colorScheme.onSurface
             )
@@ -281,7 +276,7 @@ private fun LyricsTopBar(
         Box {
             IconButton(onClick = { onShowMoreMenuChange(true) }) {
                 Icon(
-                    imageVector = Icons.Default.MoreVert,
+                    painter = painterResource(R.drawable.baseline_more_vert_24),
                     contentDescription = stringResource(R.string.more),
                     tint = MaterialTheme.colorScheme.onSurface
                 )
@@ -471,7 +466,7 @@ private fun LyricsPromptOverlay(
                 }
                 else -> {
                     Icon(
-                        imageVector = Icons.Default.Search,
+                        painter = painterResource(R.drawable.ic_search),
                         contentDescription = null,
                         modifier = Modifier.size(56.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
@@ -542,7 +537,7 @@ private fun LyricsOffsetPill(
 
             IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    painter = painterResource(R.drawable.baseline_close_24),
                     contentDescription = stringResource(R.string.cancel),
                     modifier = Modifier.size(18.dp)
                 )

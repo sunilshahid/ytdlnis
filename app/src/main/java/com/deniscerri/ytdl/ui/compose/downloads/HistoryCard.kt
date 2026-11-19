@@ -252,6 +252,7 @@ private fun HistoryStandardCardDesign(
         DownloadType.audio -> if (filePresent) R.drawable.ic_music_downloaded else R.drawable.ic_music
         DownloadType.video -> if (filePresent) R.drawable.ic_video_downloaded else R.drawable.ic_video
         DownloadType.command -> if (filePresent) R.drawable.ic_terminal else R.drawable.baseline_code_off_24
+        else -> if (filePresent) R.drawable.ic_video_downloaded else R.drawable.ic_video
     }
 
     Surface(
@@ -284,7 +285,7 @@ private fun HistoryStandardCardDesign(
                     .graphicsLayer {
                         alpha = if (filePresent) 1f else 0.65f
                     },
-                placeholderRes = R.drawable.ic_thumbnail_placeholder,
+                placeholderRes = R.drawable.ic_video,
             )
 
             // Scrim gradient for text contrast
@@ -489,6 +490,7 @@ private fun HistoryDownloadCardDesign(
         DownloadType.audio -> if (filePresent) R.drawable.ic_music_downloaded else R.drawable.ic_music
         DownloadType.video -> if (filePresent) R.drawable.ic_video_downloaded else R.drawable.ic_video
         DownloadType.command -> if (filePresent) R.drawable.ic_terminal else R.drawable.baseline_code_off_24
+        else -> if (filePresent) R.drawable.ic_video_downloaded else R.drawable.ic_video
     }
 
     Surface(
@@ -537,7 +539,7 @@ private fun HistoryDownloadCardDesign(
                     contentDescription = displayTitle,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
-                    placeholderRes = R.drawable.ic_thumbnail_placeholder,
+                    placeholderRes = R.drawable.ic_video,
                 )
 
                 if (item.duration.isNotEmpty() && item.duration != "-1") {
