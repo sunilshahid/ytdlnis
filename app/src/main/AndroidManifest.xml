@@ -67,7 +67,7 @@
 
         <activity
             android:name=".MainActivity"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustPan">
@@ -416,7 +416,7 @@
             android:enabled="true"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:launchMode="singleTask"
             android:targetActivity=".MainActivity"
             android:windowSoftInputMode="adjustPan"
@@ -440,7 +440,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_dark"
             android:roundIcon="@mipmap/ic_launcher_round_dark"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:launchMode="singleTask"
             android:targetActivity=".MainActivity"
             android:windowSoftInputMode="adjustPan">
@@ -462,7 +462,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_light"
             android:roundIcon="@mipmap/ic_launcher_round_light"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:launchMode="singleTask"
             android:targetActivity=".MainActivity"
             android:windowSoftInputMode="adjustPan">
@@ -484,7 +484,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_blue"
             android:roundIcon="@mipmap/ic_launcher_round_blue"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:launchMode="singleTask"
             android:targetActivity=".MainActivity"
             android:windowSoftInputMode="adjustPan">
@@ -506,7 +506,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_green"
             android:roundIcon="@mipmap/ic_launcher_round_green"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:launchMode="singleTask"
             android:targetActivity=".MainActivity"
             android:windowSoftInputMode="adjustPan">
@@ -525,7 +525,7 @@
 
         <activity
             android:name=".ui.more.cookies.WebViewActivity"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:exported="true"
             android:launchMode="standard"
             android:windowSoftInputMode="adjustResize">
@@ -540,14 +540,14 @@
 
         <activity
             android:name=".ui.more.cookies.YouTubeLoginActivity"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:exported="false"
             android:launchMode="standard"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".ui.more.settings.advanced.generateyoutubepotokens.webview.PoTokenWebViewLoginActivity"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:exported="true"
             android:launchMode="standard"
             android:windowSoftInputMode="adjustResize">
@@ -559,7 +559,7 @@
 
         <activity
             android:name=".ui.play.AudioPlayerActivity"
-            android:configChanges="locale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|locale"
             android:exported="false"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize" />

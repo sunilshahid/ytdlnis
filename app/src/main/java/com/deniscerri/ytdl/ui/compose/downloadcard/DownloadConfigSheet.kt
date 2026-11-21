@@ -1,6 +1,7 @@
 package com.deniscerri.ytdl.ui.compose.downloadcard
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -157,6 +159,15 @@ fun DownloadConfigSheet(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Privacy Row: Incognito & Vault Mode
+        val incognitoCorner by animateDpAsState(
+            targetValue = if (incognito) 24.dp else 10.dp,
+            label = "incognito_corner"
+        )
+        val vaultCorner by animateDpAsState(
+            targetValue = if (vaultMode) 24.dp else 10.dp,
+            label = "vault_corner"
+        )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -165,6 +176,7 @@ fun DownloadConfigSheet(
                 selected = incognito,
                 onClick = onToggleIncognito,
                 label = { Text(stringResource(R.string.incognito)) },
+                shape = RoundedCornerShape(incognitoCorner),
                 leadingIcon = {
                     Icon(
                         painter = painterResource(R.drawable.ic_incognito),
@@ -179,6 +191,7 @@ fun DownloadConfigSheet(
                 selected = vaultMode,
                 onClick = onToggleVault,
                 label = { Text(stringResource(R.string.private_vault)) },
+                shape = RoundedCornerShape(vaultCorner),
                 leadingIcon = {
                     Icon(
                         painter = painterResource(R.drawable.ic_lock),
@@ -236,16 +249,22 @@ fun DownloadConfigSheet(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Action Buttons: Schedule + Download + Cancel
+        // Action Buttons: Schedule (Icon) + Cancel + Download
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedButton(
                 onClick = onScheduleClick,
-                modifier = Modifier.weight(1f)
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(10.dp)
             ) {
-                Text(stringResource(R.string.schedule))
+                Icon(
+                    painter = painterResource(R.drawable.ic_schedule_m3),
+                    contentDescription = stringResource(R.string.schedule),
+                    modifier = Modifier.size(24.dp)
+                )
             }
 
             OutlinedButton(
@@ -306,8 +325,9 @@ private fun AudioOptionsSection(
                     color = MaterialTheme.colorScheme.primary
                 )
                 TextButton(onClick = onPickFormat) {
+                    val format = state.selectedFormat
                     Text(
-                        text = state.selectedFormat?.format_note?.ifBlank { state.selectedFormat?.format_id } ?: "Select Format",
+                        text = format?.let { f -> f.format_note.ifBlank { f.format_id } } ?: "Select Format",
                         style = MaterialTheme.typography.labelMedium
                     )
                 }
@@ -418,8 +438,9 @@ private fun VideoOptionsSection(
                     color = MaterialTheme.colorScheme.primary
                 )
                 TextButton(onClick = onPickFormat) {
+                    val format = state.selectedFormat
                     Text(
-                        text = state.selectedFormat?.format_note?.ifBlank { state.selectedFormat?.format_id } ?: "Select Format",
+                        text = format?.let { f -> f.format_note.ifBlank { f.format_id } } ?: "Select Format",
                         style = MaterialTheme.typography.labelMedium
                     )
                 }

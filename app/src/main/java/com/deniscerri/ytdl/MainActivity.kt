@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
@@ -19,6 +20,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.IntentCompat
+import androidx.core.view.doOnAttach
 import androidx.documentfile.provider.DocumentFile
 import androidx.fragment.app.FragmentContainerView
 import androidx.lifecycle.ViewModelProvider
@@ -87,6 +90,7 @@ class MainActivity : BaseActivity() {
     private var currentDestinationId by mutableStateOf(0)
     private var activeDownloadCount = 0
     private var shellNavTabs by mutableStateOf<List<ShellNavTab>>(emptyList())
+    private var pendingIntent: Intent? = null
 
     lateinit var installLauncher: ActivityResultLauncher<Intent>
         private set
@@ -101,6 +105,7 @@ class MainActivity : BaseActivity() {
         }
         CrashListener(this).registerExceptionHandler()
         ThemeUtil.updateTheme(this)
+        @Suppress("DEPRECATION")
         window.navigationBarColor = SurfaceColors.SURFACE_2.getColor(this)
         context = baseContext
         PlaybackController.init(this)
@@ -126,6 +131,7 @@ class MainActivity : BaseActivity() {
         askPermissions(includeOptional = !preferences.getBoolean(WelcomeActivity.PREF_COMPLETED, false))
 
         NavbarUtil.init(this)
+        currentDestinationId = NavbarUtil.getStartFragmentId(this)
         updateShellTabs()
 
         lifecycleScope.launch {
@@ -160,16 +166,29 @@ class MainActivity : BaseActivity() {
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                val existing = supportFragmentManager.findFragmentById(R.id.frame_layout) as? NavHostFragment
-                                val host = existing ?: NavHostFragment.create(0).also { fragment ->
-                                    supportFragmentManager.beginTransaction()
-                                        .replace(R.id.frame_layout, fragment)
-                                        .setPrimaryNavigationFragment(fragment)
-                                        .commitNow()
+                                doOnAttach {
+                                    post {
+                                        if (isDestroyed || isFinishing) return@post
+                                        val existing = supportFragmentManager.findFragmentById(R.id.frame_layout) as? NavHostFragment
+                                        val host = if (existing != null) {
+                                            supportFragmentManager.beginTransaction()
+                                                .replace(R.id.frame_layout, existing)
+                                                .setPrimaryNavigationFragment(existing)
+                                                .commitNowAllowingStateLoss()
+                                            existing
+                                        } else {
+                                            NavHostFragment.create(0).also { fragment ->
+                                                supportFragmentManager.beginTransaction()
+                                                    .replace(R.id.frame_layout, fragment)
+                                                    .setPrimaryNavigationFragment(fragment)
+                                                    .commitNowAllowingStateLoss()
+                                            }
+                                        }
+                                        navHostFragment = host
+                                        navController = host.navController
+                                        initNavController(savedInstanceState)
+                                    }
                                 }
-                                navHostFragment = host
-                                navController = host.navController
-                                initNavController(savedInstanceState)
                             }
                         }
                     )
@@ -216,6 +235,12 @@ class MainActivity : BaseActivity() {
                 currentDestinationId = destination.id
             }
         }
+
+        pendingIntent?.let {
+            val pending = it
+            pendingIntent = null
+            handleIntents(pending)
+        }
     }
 
     private fun updateShellTabs() {
@@ -233,23 +258,33 @@ class MainActivity : BaseActivity() {
 
     private fun onSelectTab(tabId: Int) {
         if (!::navController.isInitialized) return
-        when (tabId) {
-            R.id.terminalActivity -> {
-                startActivity(Intent(this, TerminalActivity::class.java))
-            }
-            R.id.moreFragment -> {
-                navController.navigate(R.id.moreFragment)
-            }
-            else -> {
-                if (navController.currentDestination?.id != tabId) {
-                    val navOptions = androidx.navigation.NavOptions.Builder()
-                        .setLaunchSingleTop(true)
-                        .setRestoreState(true)
-                        .setPopUpTo(navController.graph.startDestinationId, false, saveState = true)
-                        .build()
-                    navController.navigate(tabId, null, navOptions)
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.hideSoftInputFromWindow(window.decorView.windowToken, 0)
+        try {
+            when (tabId) {
+                R.id.terminalActivity -> {
+                    startActivity(Intent(this, TerminalActivity::class.java))
+                }
+                R.id.moreFragment -> {
+                    navController.navigate(R.id.moreFragment)
+                }
+                else -> {
+                    if (navController.currentDestination?.id != tabId) {
+                        try {
+                            val navOptions = androidx.navigation.NavOptions.Builder()
+                                .setLaunchSingleTop(true)
+                                .setRestoreState(true)
+                                .setPopUpTo(navController.graph.startDestinationId, false, saveState = true)
+                                .build()
+                            navController.navigate(tabId, null, navOptions)
+                        } catch (e: Exception) {
+                            navController.navigate(tabId)
+                        }
+                    }
                 }
             }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to navigate to tab $tabId", e)
         }
     }
 
@@ -283,10 +318,10 @@ class MainActivity : BaseActivity() {
         }
     }
 
-    override fun onSaveInstanceState(savedInstanceState: Bundle) {
-        super.onSaveInstanceState(savedInstanceState)
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
         if (::navController.isInitialized) {
-            savedInstanceState.putBundle("nav_state", navController.saveState())
+            outState.putBundle("nav_state", navController.saveState())
         }
     }
 
@@ -312,9 +347,13 @@ class MainActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         isIncognito = preferences.getBoolean("incognito", false)
+        updateShellTabs()
         if (::navController.isInitialized) {
+            val startId = NavbarUtil.getStartFragmentId(this)
+            val currentId = navController.currentDestination?.id ?: startId
+            currentDestinationId = currentId
             val showingNavbarItems = NavbarUtil.getNavBarItems(this).filter { it.isVisible }.map { it.itemId }
-            if (showingNavbarItems.contains(navController.currentDestination?.id)) {
+            if (showingNavbarItems.contains(currentId)) {
                 showBottomNavigation()
             }
         }
@@ -325,18 +364,18 @@ class MainActivity : BaseActivity() {
         handleIntents(intent)
     }
 
-    private fun handleIntents(intent: Intent) {
-        if (!::navController.isInitialized) return
+    private fun handleIntents(intent: Intent?) {
+        intent ?: return
+        if (!::navController.isInitialized) {
+            pendingIntent = intent
+            return
+        }
         val action = intent.action
         val type = intent.type
         if (Intent.ACTION_SEND == action && type != null) {
             Log.e(TAG, action)
             try {
-                val uri = if (Build.VERSION.SDK_INT >= 33){
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                }else{
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
-                }
+                val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
 
                 var downloadType = DownloadType.valueOf(preferences.getString("preferred_download_type", "video")!!)
                 if (preferences.getBoolean("quick_download", false) || downloadType == DownloadType.command) {

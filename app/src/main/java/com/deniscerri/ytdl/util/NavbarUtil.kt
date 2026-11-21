@@ -31,6 +31,21 @@ object NavbarUtil {
         "More" to R.id.moreFragment
     )
 
+    private val tokenToEntryName = mapOf(
+        "Home" to "homeFragment",
+        "History" to "historyFragment",
+        "Queue" to "downloadQueueMainFragment",
+        "Play" to "playFragment",
+        "More" to "moreFragment",
+        "Terminal" to "terminalActivity",
+        "homeFragment" to "homeFragment",
+        "historyFragment" to "historyFragment",
+        "downloadQueueMainFragment" to "downloadQueueMainFragment",
+        "playFragment" to "playFragment",
+        "moreFragment" to "moreFragment",
+        "terminalActivity" to "terminalActivity"
+    )
+
     /**
      * Order of the old, index-based navigation_bar pref. It is only used by the one-time
      * migration; everything after that stores stable resource entry names.
@@ -48,8 +63,18 @@ object NavbarUtil {
 
     fun getStartFragmentId(context: Context) : Int {
         val pref = settings.getString("start_destination", "")!!
-        if (pref == "") return R.id.homeFragment
-        val targetId = navItems[pref] ?: return R.id.homeFragment
+        if (pref.isBlank()) return R.id.homeFragment
+        val targetId = navItems[pref]
+            ?: navItems[tokenToEntryName[pref]]
+            ?: when (pref) {
+                "homeFragment" -> R.id.homeFragment
+                "historyFragment" -> R.id.historyFragment
+                "downloadQueueMainFragment" -> R.id.downloadQueueMainFragment
+                "playFragment" -> R.id.playFragment
+                "moreFragment" -> R.id.moreFragment
+                "terminalActivity" -> R.id.terminalActivity
+                else -> R.id.homeFragment
+            }
         val navBarHasPref = getNavBarItems(context).any { it.itemId == targetId && it.isVisible }
         return if (navBarHasPref) targetId else R.id.homeFragment
     }
@@ -63,7 +88,16 @@ object NavbarUtil {
     }
 
     fun setStartFragment(itemId: Int) {
-        settings.edit().putString("start_destination", navItems.filter { it.value == itemId }.keys.first()).apply()
+        val name = when (itemId) {
+            R.id.homeFragment -> "homeFragment"
+            R.id.historyFragment -> "historyFragment"
+            R.id.downloadQueueMainFragment -> "downloadQueueMainFragment"
+            R.id.playFragment -> "playFragment"
+            R.id.moreFragment -> "moreFragment"
+            R.id.terminalActivity -> "terminalActivity"
+            else -> "homeFragment"
+        }
+        settings.edit().putString("start_destination", name).apply()
     }
 
     fun getNavBarItems(context: Context): List<MenuItem> {
@@ -84,8 +118,9 @@ object NavbarUtil {
         val used = mutableSetOf<String>()
 
         for (token in prefTokens) {
-            val hidden = token.startsWith("-")
-            val name = token.removePrefix("-")
+            val clean = token.removePrefix("-")
+            val name = tokenToEntryName[clean] ?: clean
+            val hidden = if (name == "playFragment") false else token.startsWith("-")
             val item = byName[name] ?: continue
             if (used.add(name)) {
                 item.isVisible = !hidden
@@ -102,6 +137,31 @@ object NavbarUtil {
                 result.add(item)
             }
         }
+
+        // Ensure play tab is placed before more tab
+        val playItemIndex = result.indexOfFirst { it.itemId == R.id.playFragment }
+        val moreItemIndex = result.indexOfFirst { it.itemId == R.id.moreFragment }
+        if (playItemIndex >= 0 && moreItemIndex >= 0 && playItemIndex > moreItemIndex) {
+            val playItem = result.removeAt(playItemIndex)
+            val newMoreIndex = result.indexOfFirst { it.itemId == R.id.moreFragment }
+            if (newMoreIndex >= 0) {
+                result.add(newMoreIndex, playItem)
+            } else {
+                result.add(playItem)
+            }
+        }
+
+        // Fallback: If all items ended up hidden, restore the default 5 tabs
+        if (result.none { it.isVisible }) {
+            val defaultVisible = setOf("homeFragment", "historyFragment", "downloadQueueMainFragment", "playFragment", "moreFragment")
+            result.forEach { item ->
+                val name = context.resources.getResourceEntryName(item.itemId)
+                if (defaultVisible.contains(name)) {
+                    item.isVisible = true
+                }
+            }
+        }
+
         return result
     }
 
@@ -113,9 +173,8 @@ object NavbarUtil {
     }
 
     /**
-     * Converts the old index-based value ("0,1,2,3,-4") into stable resource entry names.
-     * The newly added Play tab is appended hidden so existing users keep their exact bar and can
-     * enable it from the navigation settings.
+     * Converts the old index-based value ("0,1,2,3,-4") or alias strings ("Home,History,Queue,More")
+     * into stable resource entry names.
      */
     private fun migrateNavBarPrefsIfNeeded(context: Context) {
         val raw = settings.getString("navigation_bar", null) ?: return
@@ -131,11 +190,32 @@ object NavbarUtil {
                 migrated.add(if (token.startsWith("-")) "-$name" else name)
             }
         } else {
-            migrated.addAll(tokens)
+            tokens.forEach { token ->
+                val clean = token.removePrefix("-")
+                val entryName = tokenToEntryName[clean] ?: clean
+                // Ensure playFragment is visible by default as requested
+                val hidden = if (entryName == "playFragment") false else token.startsWith("-")
+                migrated.add(if (hidden) "-$entryName" else entryName)
+            }
         }
 
-        if (migrated.none { it.removePrefix("-") == "playFragment" }) {
-            migrated.add("-playFragment")
+        val playIdx = migrated.indexOfFirst { it.removePrefix("-") == "playFragment" }
+        val moreIdx = migrated.indexOfFirst { it.removePrefix("-") == "moreFragment" }
+        if (playIdx >= 0 && moreIdx >= 0 && playIdx > moreIdx) {
+            val playItem = migrated.removeAt(playIdx)
+            val newMoreIdx = migrated.indexOfFirst { it.removePrefix("-") == "moreFragment" }
+            if (newMoreIdx >= 0) {
+                migrated.add(newMoreIdx, playItem)
+            } else {
+                migrated.add(playItem)
+            }
+        } else if (playIdx == -1) {
+            val insertIdx = migrated.indexOfFirst { it.removePrefix("-") == "moreFragment" }
+            if (insertIdx >= 0) {
+                migrated.add(insertIdx, "playFragment")
+            } else {
+                migrated.add("playFragment")
+            }
         }
         val newValue = migrated.joinToString(",")
         if (newValue != raw) {
@@ -148,12 +228,12 @@ object NavbarUtil {
         p.menu.add(Menu.NONE, R.id.homeFragment, 0, R.string.home).setIcon(R.drawable.ic_home)
         p.menu.add(Menu.NONE, R.id.historyFragment, 1, R.string.downloads).setIcon(R.drawable.ic_downloads)
         p.menu.add(Menu.NONE, R.id.downloadQueueMainFragment, 2, R.string.queue).setIcon(R.drawable.baseline_downloading_24)
-        p.menu.add(Menu.NONE, R.id.moreFragment, 3, R.string.more).setIcon(R.drawable.ic_more)
-        p.menu.add(Menu.NONE, R.id.terminalActivity, 4, R.string.terminal).apply {
+        p.menu.add(Menu.NONE, R.id.playFragment, 3, R.string.play).setIcon(R.drawable.ic_lyrics_play)
+        p.menu.add(Menu.NONE, R.id.moreFragment, 4, R.string.more).setIcon(R.drawable.ic_more)
+        p.menu.add(Menu.NONE, R.id.terminalActivity, 5, R.string.terminal).apply {
             setIcon(R.drawable.ic_terminal)
             isVisible = false
         }
-        p.menu.add(Menu.NONE, R.id.playFragment, 5, R.string.play).setIcon(R.drawable.ic_lyrics_play)
         return p
     }
 
@@ -167,7 +247,27 @@ object NavbarUtil {
     }
 
     fun getShellNavTabs(context: Context): List<com.deniscerri.ytdl.ui.compose.shell.ShellNavTab> {
-        val navBarItems = getNavBarItems(context).filter { it.isVisible }
+        val navBarItems = getNavBarItems(context).filter { it.isVisible }.toMutableList()
+        val playIdx = navBarItems.indexOfFirst { it.itemId == R.id.playFragment }
+        val moreIdx = navBarItems.indexOfFirst { it.itemId == R.id.moreFragment }
+        if (playIdx >= 0 && moreIdx >= 0 && playIdx > moreIdx) {
+            val playItem = navBarItems.removeAt(playIdx)
+            val newMoreIdx = navBarItems.indexOfFirst { it.itemId == R.id.moreFragment }
+            if (newMoreIdx >= 0) {
+                navBarItems.add(newMoreIdx, playItem)
+            } else {
+                navBarItems.add(playItem)
+            }
+        }
+        if (navBarItems.isEmpty()) {
+            return listOf(
+                com.deniscerri.ytdl.ui.compose.shell.ShellNavTab(R.id.homeFragment, R.string.home, R.drawable.ic_home),
+                com.deniscerri.ytdl.ui.compose.shell.ShellNavTab(R.id.historyFragment, R.string.downloads, R.drawable.ic_downloads),
+                com.deniscerri.ytdl.ui.compose.shell.ShellNavTab(R.id.downloadQueueMainFragment, R.string.queue, R.drawable.baseline_downloading_24),
+                com.deniscerri.ytdl.ui.compose.shell.ShellNavTab(R.id.playFragment, R.string.play, R.drawable.ic_lyrics_play),
+                com.deniscerri.ytdl.ui.compose.shell.ShellNavTab(R.id.moreFragment, R.string.more, R.drawable.ic_more),
+            )
+        }
         return navBarItems.take(5).map { item ->
             val iconRes = when (item.itemId) {
                 R.id.homeFragment -> R.drawable.ic_home

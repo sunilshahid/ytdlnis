@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import com.deniscerri.ytdl.ui.compose.theme.YtdlnisTheme
@@ -42,6 +44,7 @@ fun MainShellScreen(
 ) {
     val configuration = LocalConfiguration.current
     val isWideScreen = configuration.screenWidthDp >= 600
+    val movableContent = remember(content) { movableContentOf { content() } }
 
     YtdlnisTheme {
         if (isWideScreen) {
@@ -69,7 +72,7 @@ fun MainShellScreen(
                     )
 
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        content()
+                        movableContent()
                     }
 
                     MiniPlayer(
@@ -114,7 +117,7 @@ fun MainShellScreen(
                         .fillMaxSize()
                         .padding(innerPadding)
                 ) {
-                    content()
+                    movableContent()
                 }
             }
         }

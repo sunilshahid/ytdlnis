@@ -1,6 +1,9 @@
+@file:Suppress("DEPRECATION")
+
 package com.deniscerri.ytdl.ui.compose.home
 
 import android.util.Patterns
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,12 +24,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBar
@@ -35,11 +43,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.deniscerri.ytdl.R
@@ -50,10 +69,13 @@ import com.deniscerri.ytdl.ui.compose.components.YtdlChip
 /**
  * Screen composable for the Home tab (Phase 4a & 4b).
  *
- * Implements M3 SearchBar, search suggestions, provider chips, paged result cards,
- * playlist filter chips, multi-selection mode, and floating action buttons.
+ * Implements:
+ * - Expressive Header: "YTD.Ex" (YTD. in red, Ex in light green)
+ * - M3 SearchBar with leading search lens and trailing provider dropdown (more_vert)
+ * - Search suggestions, provider chips, paged result cards,
+ * - Playlist filter chips, multi-selection mode, and floating action buttons.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HomeScreen(
     state: HomeUiState,
@@ -79,6 +101,19 @@ fun HomeScreen(
     onInvertSelectionClick: () -> Unit = {},
     onDeleteSelectedClick: () -> Unit = {},
 ) {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    BackHandler(enabled = state.isSearchActive || state.isSelectionMode) {
+        if (state.isSelectionMode) {
+            onCloseSelectionMode()
+        } else if (state.isSearchActive) {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            onSearchActiveChange(false)
+        }
+    }
+
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
@@ -199,8 +234,50 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(paddingValues),
         ) {
-            // M3 Search Bar
+            // 1. App Header / Logo: YTDLnis.Ex (YTDL in red, nis in onSurface, .Ex in light green)
+            if (!state.isSelectionMode && !state.isSearchActive) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, top = 16.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = buildAnnotatedString {
+                            withStyle(
+                                SpanStyle(
+                                    color = Color(0xFFE53935),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            ) {
+                                append("YTDL")
+                            }
+                            withStyle(
+                                SpanStyle(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            ) {
+                                append("nis")
+                            }
+                            withStyle(
+                                SpanStyle(
+                                    color = Color(0xFF81C784),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            ) {
+                                append(".Ex")
+                            }
+                        },
+                        fontSize = 32.sp,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+
+            // 2. M3 Search Bar
             if (!state.isSelectionMode) {
+                var showProviderMenu by remember { mutableStateOf(false) }
                 val isUrl = Patterns.WEB_URL.matcher(state.searchQuery).matches()
 
                 SearchBar(
@@ -208,15 +285,38 @@ fun HomeScreen(
                         SearchBarDefaults.InputField(
                             query = state.searchQuery,
                             onQueryChange = onSearchQueryChange,
-                            onSearch = { onSearch(it) },
+                            onSearch = { query ->
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
+                                onSearchActiveChange(false)
+                                onSearch(query)
+                            },
                             expanded = state.isSearchActive,
                             onExpandedChange = onSearchActiveChange,
-                            placeholder = { Text(stringResource(R.string.search_hint)) },
-                            leadingIcon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_search),
-                                    contentDescription = null,
+                            placeholder = {
+                                Text(
+                                    stringResource(R.string.search_hint),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    fontSize = 16.sp
                                 )
+                            },
+                            leadingIcon = {
+                                IconButton(
+                                    onClick = {
+                                        if (state.searchQuery.isNotBlank()) {
+                                            keyboardController?.hide()
+                                            focusManager.clearFocus()
+                                            onSearchActiveChange(false)
+                                            onSearch(state.searchQuery)
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_search),
+                                        contentDescription = stringResource(R.string.search),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             },
                             trailingIcon = {
                                 if (state.searchQuery.isNotEmpty()) {
@@ -226,15 +326,43 @@ fun HomeScreen(
                                             contentDescription = stringResource(R.string.clear),
                                         )
                                     }
+                                } else {
+                                    Box {
+                                        IconButton(onClick = { showProviderMenu = true }) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.baseline_more_vert_24),
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        DropdownMenu(
+                                            expanded = showProviderMenu,
+                                            onDismissRequest = { showProviderMenu = false }
+                                        ) {
+                                            state.providers.forEach { provider ->
+                                                DropdownMenuItem(
+                                                    text = { Text(provider.name) },
+                                                    onClick = {
+                                                        onProviderSelected(provider.value)
+                                                        showProviderMenu = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             },
                         )
                     },
                     expanded = state.isSearchActive,
                     onExpandedChange = onSearchActiveChange,
+                    shape = if (state.isSearchActive) SearchBarDefaults.fullScreenShape else RoundedCornerShape(28.dp),
+                    colors = SearchBarDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = if (state.isSearchActive) 0.dp else 16.dp, vertical = 8.dp),
+                        .padding(horizontal = if (state.isSearchActive) 0.dp else 16.dp, vertical = 6.dp),
                 ) {
                     // Providers row (only when search is active and not a URL)
                     if (!isUrl && state.providers.isNotEmpty()) {
@@ -251,7 +379,12 @@ fun HomeScreen(
                         itemsIndexed(state.suggestions, key = { index, suggestion -> "${suggestion.type}_${suggestion.text}_$index" }) { _, suggestion ->
                             SearchSuggestionRow(
                                 item = suggestion,
-                                onClick = onSuggestionClick,
+                                onClick = { query ->
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus()
+                                    onSearchActiveChange(false)
+                                    onSuggestionClick(query)
+                                },
                                 onLongClick = onSuggestionLongClick,
                                 onAppendToSearch = onSearchQueryChange,
                             )
@@ -260,16 +393,7 @@ fun HomeScreen(
                 }
             }
 
-            // Loading indicator
-            if (state.isLoading) {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                )
-            }
-
-            // Playlist Filter Chips (if multiple playlists detected)
+            // 4. Playlist Filter Chips (if multiple playlists detected)
             if (state.playlistFilters.isNotEmpty() && !state.isSearchActive) {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -292,24 +416,25 @@ fun HomeScreen(
                 }
             }
 
-            // Results Section
+            // 5. Results Section
             if (state.isLoading && state.results.isEmpty()) {
-                // Shimmer cards while fetching
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
+                // Centered Material 3 loading indicator (no ghost shimmer cards)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 120.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    items(5) {
-                        ResultCardShimmer()
-                    }
+                    ContainedLoadingIndicator()
                 }
-            } else if (state.results.isEmpty() && !state.isLoading && !state.isSearchActive) {
+            } else if (state.results.isEmpty() && !state.isLoading && !state.isSearchActive && state.searchQuery.isNotBlank()) {
+                // Show EmptyState only if user searched and no results were found
                 EmptyState(
                     title = stringResource(R.string.no_results),
                     iconRes = R.drawable.ic_search,
                     modifier = Modifier.fillMaxSize(),
                 )
-            } else if (!state.isSearchActive) {
+            } else if (!state.isSearchActive && state.results.isNotEmpty()) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
