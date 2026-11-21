@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.deniscerri.ytdl.ui.compose.downloads
 
 import androidx.compose.animation.animateColorAsState

@@ -259,6 +259,131 @@ object PlaybackArtworkLoader {
     }
 
     /**
+     * Resolves and loads artwork for any URI (content://, file://, or absolute path),
+     * with low-quality persistent disk caching (256px WebP) for fast list rendering,
+     * and high-resolution real-time decoding when fullQuality = true.
+     */
+    suspend fun loadUriBitmap(context: Context, uriString: String, fullQuality: Boolean = false): Bitmap? {
+        if (uriString.isBlank()) return null
+        val cacheKey = if (fullQuality) "$uriString|full" else uriString
+        cache.get(cacheKey)?.let { return it }
+
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val safeKey = uriString.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+            val diskThumb = java.io.File(java.io.File(context.cacheDir, "art_thumbs"), "$safeKey.webp")
+
+            // 1. Check low-quality disk cache if not fullQuality
+            if (!fullQuality && diskThumb.exists() && diskThumb.length() > 0L) {
+                runCatching { BitmapFactory.decodeFile(diskThumb.absolutePath) }.getOrNull()?.let {
+                    cache.put(cacheKey, it)
+                    return@withContext it
+                }
+            }
+
+            // 2. Decode from media
+            val targetSize = if (fullQuality) 1440 else THUMBNAIL_SIZE
+            val uri = runCatching { Uri.parse(uriString) }.getOrNull()
+            val path = if (uri != null) localPathOf(context, uri).ifBlank { uri.path ?: uriString } else uriString
+
+            // Fast path: ffmpeg disk cache
+            if (!fullQuality && path.isNotBlank()) {
+                val cached = FrameExtractor.cachedFor(context, FrameExtractor.VIDEO_VARIANT, path, THUMBNAIL_SIZE)
+                    ?: FrameExtractor.cachedFor(context, FrameExtractor.AUDIO_VARIANT, path, THUMBNAIL_SIZE)
+                if (cached != null) {
+                    cache.put(cacheKey, cached)
+                    return@withContext cached
+                }
+            }
+
+            // Android Q+ contentResolver thumbnail
+            var bitmap: Bitmap? = null
+            if (uri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !isFileScheme(uri) && uri.scheme == "content") {
+                bitmap = runCatching {
+                    context.contentResolver.loadThumbnail(uri, Size(targetSize, targetSize), null)
+                }.getOrNull()
+            }
+
+            // MediaMetadataRetriever
+            if (bitmap == null) {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    when {
+                        uri != null && isFileScheme(uri) -> retriever.setDataSource(uri.path ?: path)
+                        path.startsWith("/") -> retriever.setDataSource(path)
+                        uri != null -> retriever.setDataSource(context, uri)
+                        else -> retriever.setDataSource(path)
+                    }
+                    val embedded = runCatching { retriever.embeddedPicture }.getOrNull()
+                    bitmap = if (embedded != null) {
+                        if (fullQuality) {
+                            BitmapFactory.decodeByteArray(embedded, 0, embedded.size)
+                        } else {
+                            decodeSampled(embedded, targetSize)
+                        }
+                    } else {
+                        if (fullQuality) {
+                            retriever.getFrameAtTime(0L)
+                        } else {
+                            videoFrame(retriever, targetSize)
+                        }
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    runCatching { retriever.release() }
+                }
+            }
+
+            // Fallback to FrameExtractor
+            if (bitmap == null && path.isNotBlank()) {
+                bitmap = FrameExtractor.frameFor(context, path, targetSize)
+                    ?: FrameExtractor.coverFor(context, path, targetSize)
+            }
+
+            // If still null and it might be an image file on disk directly
+            if (bitmap == null && path.isNotBlank()) {
+                val file = java.io.File(path)
+                if (file.exists() && file.isFile) {
+                    bitmap = if (fullQuality) {
+                        runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+                    } else {
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(file.absolutePath, bounds)
+                        var sample = 1
+                        while ((bounds.outHeight / sample) >= targetSize && (bounds.outWidth / sample) >= targetSize) {
+                            sample *= 2
+                        }
+                        runCatching {
+                            BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+                        }.getOrNull()
+                    }
+                }
+            }
+
+            // Cache low-quality thumbnail on disk
+            if (bitmap != null && !fullQuality) {
+                runCatching {
+                    diskThumb.parentFile?.mkdirs()
+                    val tmp = java.io.File(diskThumb.parentFile, "${diskThumb.name}.tmp")
+                    tmp.outputStream().use { out ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 85, out)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            bitmap.compress(Bitmap.CompressFormat.WEBP, 85, out)
+                        }
+                    }
+                    tmp.renameTo(diskThumb)
+                }
+            }
+
+            if (bitmap != null) {
+                cache.put(cacheKey, bitmap)
+            }
+            bitmap
+        }
+    }
+
+    /**
      * Blocking lookup of the ffmpeg-cached artwork file for a local item. Stat-only: never
      * spawns ffmpeg. Used to seed the media notification before playback starts; returns a
      * `file://` URI string or null.

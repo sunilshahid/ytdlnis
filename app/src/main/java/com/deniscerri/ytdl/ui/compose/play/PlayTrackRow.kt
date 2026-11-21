@@ -117,6 +117,7 @@ fun PlayTrackRow(
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
+                        placeholderRes = if (isVideo) R.drawable.ic_video else R.drawable.ic_music
                     )
                 } else {
                     Icon(

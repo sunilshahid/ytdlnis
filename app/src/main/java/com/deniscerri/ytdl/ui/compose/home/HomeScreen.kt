@@ -5,8 +5,12 @@ package com.deniscerri.ytdl.ui.compose.home
 import android.util.Patterns
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -418,14 +422,16 @@ fun HomeScreen(
 
             // 5. Results Section
             if (state.isLoading && state.results.isEmpty()) {
-                // Centered Material 3 loading indicator (no ghost shimmer cards)
+                // Centered large Material 3 loading indicator (no ghost shimmer cards)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(bottom = 120.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    ContainedLoadingIndicator()
+                    ContainedLoadingIndicator(
+                        modifier = Modifier.size(72.dp)
+                    )
                 }
             } else if (state.results.isEmpty() && !state.isLoading && !state.isSearchActive && state.searchQuery.isNotBlank()) {
                 // Show EmptyState only if user searched and no results were found
@@ -434,13 +440,27 @@ fun HomeScreen(
                     iconRes = R.drawable.ic_search,
                     modifier = Modifier.fillMaxSize(),
                 )
-            } else if (!state.isSearchActive && state.results.isNotEmpty()) {
+            }
+
+            AnimatedVisibility(
+                visible = !state.isSearchActive && state.results.isNotEmpty(),
+                enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                        slideInVertically(
+                            initialOffsetY = { it / 4 },
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ),
+                exit = fadeOut(animationSpec = tween(150))
+            ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
                 ) {
                     itemsIndexed(state.results, key = { index, item -> "${item.id}_${item.url}_$index" }) { _, item ->
                         ResultCard(
+                            modifier = Modifier.animateItem(),
                             item = item,
                             isSelected = state.selectedItemIds.contains(item.id),
                             isSelectionMode = state.isSelectionMode,

@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -347,7 +348,8 @@ private fun LibraryContent(
             contentPadding = PaddingValues(8.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(items, key = { it.mediaId }) { item ->
+            items(items.size, key = { index -> "${items[index].mediaId}_$index" }) { index ->
+                val item = items[index]
                 PlayTrackGridItem(
                     title = item.title,
                     subtitle = item.artist,
@@ -403,7 +405,7 @@ private fun LibraryContent(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                     ) {
-                        items(recentItems, key = { "recent_${it.mediaId}" }) { item ->
+                        itemsIndexed(recentItems, key = { index, item -> "recent_${item.mediaId}_$index" }) { _, item ->
                             Box(modifier = Modifier.width(130.dp)) {
                                 PlayTrackGridItem(
                                     title = item.title,
@@ -432,7 +434,7 @@ private fun LibraryContent(
                 )
             }
 
-            items(items, key = { it.mediaId }) { item ->
+            itemsIndexed(items, key = { index, item -> "${item.mediaId}_$index" }) { _, item ->
                 PlayTrackRow(
                     title = item.title,
                     subtitle = item.artist,
@@ -527,11 +529,11 @@ private fun DeviceContent(
                 contentPadding = PaddingValues(vertical = 8.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(media, key = { it.storeId }) { item ->
+                itemsIndexed(media, key = { index, item -> "${item.storeId}_$index" }) { _, item ->
                     PlayTrackRow(
                         title = item.title,
                         subtitle = item.artist ?: item.album,
-                        artworkUri = item.albumArtUri?.toString() ?: item.contentUri.toString(),
+                        artworkUri = item.albumArtUri?.toString() ?: item.filePath ?: item.contentUri.toString(),
                         durationText = item.durationMs.toStringTimeStamp(),
                         isVideo = item.type == com.deniscerri.ytdl.playback.model.PlaybackType.VIDEO,
                         isPlaying = currentPlayingId == item.mediaId,
