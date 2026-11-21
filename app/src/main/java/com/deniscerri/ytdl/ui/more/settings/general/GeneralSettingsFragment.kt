@@ -1,52 +1,73 @@
 package com.deniscerri.ytdl.ui.more.settings.general
 
-import android.annotation.SuppressLint
-import android.content.Context
-import android.content.SharedPreferences
 import android.os.Bundle
-import android.os.PowerManager
-import androidx.navigation.fragment.findNavController
-import androidx.preference.Preference
+import androidx.compose.runtime.Composable
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.R
-import com.deniscerri.ytdl.ui.more.settings.BaseSettingsFragment
-import com.deniscerri.ytdl.ui.more.settings.SettingsRegistry
-import com.deniscerri.ytdl.ui.play.device.DeviceFilesPrefs
-import com.deniscerri.ytdl.util.ThemeUtil
-import com.deniscerri.ytdl.util.UiUtil
+import com.deniscerri.ytdl.database.viewmodel.ResultViewModel
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
+import com.deniscerri.ytdl.ui.compose.settings.GeneralSettingsScreen
+import com.deniscerri.ytdl.ui.more.settings.SettingsActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-class GeneralSettingsFragment : BaseSettingsFragment() {
-    override val title: Int = R.string.general
-    private lateinit var preferences: SharedPreferences
-    @SuppressLint("BatteryLife")
-    override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-        val preferenceXMLRes = R.xml.general_preferences
-        setPreferencesFromResource(preferenceXMLRes, rootKey)
-        SettingsRegistry.bindFragment(this, preferenceXMLRes)
-        preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-        val editor = preferences.edit()
+class GeneralSettingsFragment : ComposeFragment() {
 
-        findPreference<Preference>("reset_preferences")?.setOnPreferenceClickListener {
-            UiUtil.showGenericConfirmDialog(requireContext(), getString(R.string.reset), getString(R.string.reset_preferences_in_screen)) {
-                resetPreferences(editor, preferenceXMLRes)
-                DeviceFilesPrefs.reset(requireContext())
-                DeviceFilesPrefs.clearFolder(requireContext())
-                ThemeUtil.updateThemes()
-                findNavController().currentDestination?.id?.apply {
-                    findNavController().popBackStack(this,true)
-                    findNavController().navigate(this)
-                }
-            }
-            true
-        }
+    private lateinit var resultViewModel: ResultViewModel
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        resultViewModel = ViewModelProvider(this)[ResultViewModel::class.java]
     }
 
     override fun onResume() {
-        val packageName: String = requireContext().packageName
-        val pm = requireContext().applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (pm.isIgnoringBatteryOptimizations(packageName)) {
-            findPreference<Preference>("ignore_battery")?.isVisible = false
-        }
         super.onResume()
+        (activity as? SettingsActivity)?.changeTopAppbarTitle(getString(R.string.general))
+    }
+
+    @Composable
+    override fun Content() {
+        GeneralSettingsScreen(
+            onOpenNavBarOptions = null,
+            onReset = { resetPreferences() }
+        )
+    }
+
+    private fun resetPreferences() {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        val editor = prefs.edit()
+        listOf(
+            "history_quick_action",
+            "locale",
+            "navigation_bar",
+            "label_visibility",
+            "search_engine",
+            "check_clipboard_home",
+            "search_suggestions",
+            "swipe_gesture",
+            "swipe_gestures_download_card",
+            "show_terminal",
+            "show_quick_download_share",
+            "show_count_downloads",
+            "write_ytdlp_terminal",
+            "recommendations_home",
+            "custom_home_recommendation_url",
+            "api_key",
+            "youtube_data_fetching_extractor",
+            "formats_source",
+            "use_itemurl_instead_playlisturl"
+        ).forEach { editor.remove(it) }
+        editor.apply()
+        com.deniscerri.ytdl.util.DefaultPreferences.resetGeneral(requireContext())
+
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                resultViewModel.deleteAll()
+            }
+            requireActivity().recreate()
+        }
     }
 }

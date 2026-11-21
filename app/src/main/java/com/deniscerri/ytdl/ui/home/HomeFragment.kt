@@ -458,7 +458,7 @@ class HomeFragment : ComposeFragment(),
             is ResultViewModel.AvailableUpdate.Package -> UiUtil.showNewReleaseUpdateDialog(
                 update.release, update.item, activity, activity,
                 activity.findViewById(R.id.frame_layout),
-                activity.findViewById(R.id.bottomNavigationView),
+                activity.window.decorView,
                 activity.installLauncher,
             ) { result ->
                 result.onSuccess {
@@ -470,7 +470,7 @@ class HomeFragment : ComposeFragment(),
                         f.message ?: "",
                         Snackbar.LENGTH_LONG,
                     ).apply {
-                        anchorView = activity.findViewById(R.id.bottomNavigationView)
+                        anchorView = activity.window.decorView
                         show()
                     }
                 }

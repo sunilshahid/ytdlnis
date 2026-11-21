@@ -119,8 +119,19 @@ class DownloadLogListFragment : ComposeFragment() {
 
     private val contextualActionBar = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
-            mode!!.menuInflater.inflate(R.menu.logs_menu_context, menu)
-            mode.title = "${selectedIds.size} ${getString(R.string.selected)}"
+            menu?.apply {
+                add(Menu.NONE, R.id.delete_results, 0, R.string.remove_results).apply {
+                    setIcon(R.drawable.baseline_delete_24)
+                    setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                }
+                add(Menu.NONE, R.id.select_all, 1, R.string.select_all).apply {
+                    setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+                }
+                add(Menu.NONE, R.id.invert_selected, 2, R.string.invert_selected).apply {
+                    setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+                }
+            }
+            mode?.title = "${selectedIds.size} ${getString(R.string.selected)}"
             return true
         }
 

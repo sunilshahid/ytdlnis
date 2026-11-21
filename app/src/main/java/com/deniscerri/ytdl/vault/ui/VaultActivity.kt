@@ -172,7 +172,7 @@ class VaultActivity : AppCompatActivity() {
         externalOverlayInFlight = savedInstanceState?.getBoolean(KEY_EXTERNAL_OVERLAY_IN_FLIGHT) == true
 
         @Suppress("DEPRECATION")
-        overridePendingTransition(R.anim.vault_enter, R.anim.vault_hold)
+        overridePendingTransition(0, 0)
 
         setupOnlyMode = intent.getBooleanExtra(EXTRA_SETUP_ONLY, false)
 
@@ -868,7 +868,7 @@ class VaultActivity : AppCompatActivity() {
         internalChildInFlight = true
         startActivity(VaultVideoPlayerActivity.createIntent(this, item.meta.id, item.meta.title))
         @Suppress("DEPRECATION")
-        overridePendingTransition(R.anim.vault_enter, R.anim.vault_hold)
+        overridePendingTransition(0, 0)
     }
 
     private fun confirmDeleteSelected() {
@@ -1450,7 +1450,7 @@ class VaultActivity : AppCompatActivity() {
         panicExited = true
         stopLockoutTicker()
         finish()
-        applyCloseTransition(R.anim.vault_background_enter, R.anim.vault_exit)
+        applyCloseTransition(0, 0)
     }
 
     private fun smoothLockAndFinish() {
@@ -1465,7 +1465,7 @@ class VaultActivity : AppCompatActivity() {
         } else {
             finishAndRemoveTask()
         }
-        applyCloseTransition(R.anim.vault_background_enter, R.anim.vault_exit)
+        applyCloseTransition(0, 0)
     }
 
     private fun panicLockAndFinish() {
@@ -1518,7 +1518,7 @@ class VaultActivity : AppCompatActivity() {
         if ((returningFromChild || wasUnlockedInSession) && !VaultSessionManager.isUnlocked.value) {
             allItems = emptyList()
             finishAndRemoveTask()
-            applyCloseTransition(R.anim.vault_background_enter, R.anim.vault_exit)
+            applyCloseTransition(0, 0)
             return
         }
 

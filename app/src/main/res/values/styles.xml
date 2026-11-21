@@ -6,7 +6,6 @@
         <item name="android:colorBackgroundCacheHint">@null</item>
         <item name="android:windowAnimationStyle">@null</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="preferenceTheme">@style/PreferenceTheme</item>
     </style>
 
     <style name="Divider">
@@ -67,14 +66,6 @@
         <item name="cornerSize">32dp</item>
     </style>
 
-    <style name="Preference.SwitchPreferenceCompat.Material3" parent="@style/Preference.SwitchPreferenceCompat.Material">
-        <item name="android:layout">@layout/preference_material</item>
-        <item name="widgetLayout">@layout/preferece_material_switch</item>
-        <item name="allowDividerAbove">false</item>
-        <item name="allowDividerBelow">false</item>
-        <item name="iconSpaceReserved">false</item>
-    </style>
-
     <style name="snackBarStyle" parent="@style/Widget.Material3.Snackbar">
         <item name="shapeAppearance">@style/ShapeAppearance.Material3.Corner.ExtraLarge</item>
         <item name="android:paddingStart">20dp</item>
@@ -87,64 +78,13 @@
         <item name="android:windowIsFloating">false</item>
     </style>
 
-    <style name="PreferenceTheme" parent="PreferenceThemeOverlay">
-        <item name="singleLineTitle">false</item>
-        <item name="android:divider">@null</item>
-        <item name="android:dividerHeight">0dp</item>
-        <item name="preferenceStyle">@style/AppPreferenceMaterial</item>
-        <item name="preferenceCategoryStyle">@style/AppPreferenceCategoryMaterial</item>
-        <item name="switchPreferenceCompatStyle">@style/Preference.SwitchPreferenceCompat.Material3</item>
-        <item name="dialogPreferenceStyle">@style/AppPreferenceDialogMaterial</item>
-        <item name="checkBoxPreferenceStyle">@style/AppPreferenceCheckBoxMaterial</item>
-        <item name="editTextPreferenceStyle">@style/AppPreferenceEditTextMaterial</item>
-    </style>
-
-    <style name="AppPreferenceMaterial" parent="@style/Preference.Material">
-        <item name="android:layout">@layout/preference_material</item>
-        <item name="allowDividerAbove">false</item>
-        <item name="allowDividerBelow">false</item>
-        <item name="singleLineTitle">false</item>
-        <item name="iconSpaceReserved">false</item>
-    </style>
-
-    <style name="AppPreferenceCategoryMaterial" parent="@style/Preference.Category.Material">
-        <item name="android:layout">@layout/preference_category_material</item>
-        <item name="allowDividerAbove">false</item>
-        <item name="allowDividerBelow">false</item>
-        <item name="iconSpaceReserved">false</item>
-    </style>
-
-    <style name="AppPreferenceDialogMaterial" parent="@style/Preference.DialogPreference.Material">
-        <item name="android:layout">@layout/preference_material</item>
-        <item name="allowDividerAbove">false</item>
-        <item name="allowDividerBelow">false</item>
-        <item name="singleLineTitle">false</item>
-        <item name="iconSpaceReserved">false</item>
-    </style>
-
-    <style name="AppPreferenceCheckBoxMaterial" parent="@style/Preference.CheckBoxPreference.Material">
-        <item name="android:layout">@layout/preference_material</item>
-        <item name="allowDividerAbove">false</item>
-        <item name="allowDividerBelow">false</item>
-        <item name="singleLineTitle">false</item>
-        <item name="iconSpaceReserved">false</item>
-    </style>
-
-    <style name="AppPreferenceEditTextMaterial" parent="@style/Preference.DialogPreference.EditTextPreference.Material">
-        <item name="android:layout">@layout/preference_material</item>
-        <item name="allowDividerAbove">false</item>
-        <item name="allowDividerBelow">false</item>
-        <item name="singleLineTitle">false</item>
-        <item name="iconSpaceReserved">false</item>
-    </style>
-
     <style name="MyZeroSizeTextAppearance">
         <item name="android:textSize">0sp</item>
     </style>
 
     <style name="LyricsFullScreenAnimation">
-        <item name="android:windowEnterAnimation">@anim/nav_slide_in_right</item>
-        <item name="android:windowExitAnimation">@anim/nav_slide_out_right</item>
+        <item name="android:windowEnterAnimation">@android:anim/slide_in_left</item>
+        <item name="android:windowExitAnimation">@android:anim/slide_out_right</item>
     </style>
 
     <style name="FullScreenLyricsTheme" parent="Theme.Material3.DayNight.NoActionBar">

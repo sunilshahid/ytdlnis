@@ -92,19 +92,9 @@ class App : Application() {
         val SPL = 1
         val sp = PreferenceManager.getDefaultSharedPreferences(this)
         if (sp.getInt("spl", 0) != SPL) {
-            PreferenceManager.setDefaultValues(this, R.xml.root_preferences, true)
-            PreferenceManager.setDefaultValues(this, R.xml.downloading_preferences, true)
-            PreferenceManager.setDefaultValues(this, R.xml.general_preferences, true)
-            PreferenceManager.setDefaultValues(this, R.xml.player_preferences, true)
-            PreferenceManager.setDefaultValues(this, R.xml.processing_preferences, true)
-            PreferenceManager.setDefaultValues(this, R.xml.folders_preference, true)
-            PreferenceManager.setDefaultValues(this, R.xml.updating_preferences, true)
-            PreferenceManager.setDefaultValues(this, R.xml.ytdlp_update_preferences, true)
-            PreferenceManager.setDefaultValues(this, R.xml.app_update_preferences, true)
-            PreferenceManager.setDefaultValues(this, R.xml.advanced_preferences, true)
+            com.deniscerri.ytdl.util.DefaultPreferences.apply(this, force = false)
             sp.edit().putInt("spl", SPL).apply()
         }
-
     }
 
     private fun createNotificationChannels() {

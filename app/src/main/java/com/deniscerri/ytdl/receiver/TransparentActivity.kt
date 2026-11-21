@@ -37,7 +37,7 @@ class TransparentActivity : BaseActivity() {
             val params = window.attributes
             params.alpha = 0f
             window.attributes = params
-            setContentView(R.layout.activity_share)
+            setContentView(android.view.View(this))
 
         }else{
             window.run {
@@ -53,7 +53,7 @@ class TransparentActivity : BaseActivity() {
                 }
             }
 
-            setContentView(R.layout.activity_share)
+            setContentView(android.view.View(this))
         }
 
         when(intent.getStringExtra("action")){

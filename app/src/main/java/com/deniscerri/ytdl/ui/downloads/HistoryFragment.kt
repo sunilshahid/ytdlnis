@@ -84,9 +84,7 @@ class HistoryFragment : ComposeFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val mainActivity = activity as? MainActivity
-        val bottomNav = mainActivity?.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNavigationView)
-        val hasNavTab = bottomNav?.menu?.findItem(R.id.historyFragment)?.isVisible == true
-        val isInNavBar = hasNavTab || NavbarUtil.getNavBarItems(requireActivity()).any { n -> n.itemId == R.id.historyFragment && n.isVisible }
+        val isInNavBar = NavbarUtil.getNavBarItems(requireActivity()).any { n -> n.itemId == R.id.historyFragment && n.isVisible }
         if (!isInNavBar) {
             mainActivity?.hideBottomNavigation()
         }

@@ -68,8 +68,7 @@ object NavbarUtil {
 
     fun getNavBarItems(context: Context): List<MenuItem> {
         migrateNavBarPrefsIfNeeded(context)
-        val p = PopupMenu(context, null)
-        MenuInflater(context).inflate(R.menu.bottom_nav_menu, p.menu)
+        val p = buildDefaultPopupMenu(context)
         val allItems = mutableListOf<MenuItem>()
         p.menu.forEach { allItems.add(it) }
 
@@ -144,14 +143,56 @@ object NavbarUtil {
         }
     }
 
-    private fun getDefaultNavBarItems(context: Context): List<MenuItem> {
+    private fun buildDefaultPopupMenu(context: Context): PopupMenu {
         val p = PopupMenu(context, null)
-        MenuInflater(context).inflate(R.menu.bottom_nav_menu, p.menu)
+        p.menu.add(Menu.NONE, R.id.homeFragment, 0, R.string.home).setIcon(R.drawable.ic_home)
+        p.menu.add(Menu.NONE, R.id.historyFragment, 1, R.string.downloads).setIcon(R.drawable.ic_downloads)
+        p.menu.add(Menu.NONE, R.id.downloadQueueMainFragment, 2, R.string.queue).setIcon(R.drawable.baseline_downloading_24)
+        p.menu.add(Menu.NONE, R.id.moreFragment, 3, R.string.more).setIcon(R.drawable.ic_more)
+        p.menu.add(Menu.NONE, R.id.terminalActivity, 4, R.string.terminal).apply {
+            setIcon(R.drawable.ic_terminal)
+            isVisible = false
+        }
+        p.menu.add(Menu.NONE, R.id.playFragment, 5, R.string.play).setIcon(R.drawable.ic_lyrics_play)
+        return p
+    }
+
+    private fun getDefaultNavBarItems(context: Context): List<MenuItem> {
+        val p = buildDefaultPopupMenu(context)
         val navBarItems = mutableListOf<MenuItem>()
         p.menu.forEach {
             navBarItems.add(it)
         }
         return navBarItems
+    }
+
+    fun getShellNavTabs(context: Context): List<com.deniscerri.ytdl.ui.compose.shell.ShellNavTab> {
+        val navBarItems = getNavBarItems(context).filter { it.isVisible }
+        return navBarItems.take(5).map { item ->
+            val iconRes = when (item.itemId) {
+                R.id.homeFragment -> R.drawable.ic_home
+                R.id.historyFragment -> R.drawable.ic_downloads
+                R.id.downloadQueueMainFragment -> R.drawable.baseline_downloading_24
+                R.id.moreFragment -> R.drawable.ic_more
+                R.id.terminalActivity -> R.drawable.ic_terminal
+                R.id.playFragment -> R.drawable.ic_lyrics_play
+                else -> R.drawable.ic_home
+            }
+            val labelRes = when (item.itemId) {
+                R.id.homeFragment -> R.string.home
+                R.id.historyFragment -> R.string.downloads
+                R.id.downloadQueueMainFragment -> R.string.queue
+                R.id.moreFragment -> R.string.more
+                R.id.terminalActivity -> R.string.terminal
+                R.id.playFragment -> R.string.play
+                else -> R.string.app_name
+            }
+            com.deniscerri.ytdl.ui.compose.shell.ShellNavTab(
+                id = item.itemId,
+                labelRes = labelRes,
+                iconRes = iconRes
+            )
+        }
     }
 
     fun NavigationBarView.setLabelVisibility() {

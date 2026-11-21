@@ -169,6 +169,10 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
         return repository.getItem(id)
     }
 
+    fun getAllByIDs(ids: List<Long>) : List<HistoryItem> {
+        return repository.getAllByIDs(ids)
+    }
+
     fun insert(item: HistoryItem) = viewModelScope.launch(Dispatchers.IO){
         repository.insert(item)
     }

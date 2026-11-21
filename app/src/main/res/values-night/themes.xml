@@ -9,14 +9,7 @@
         <item name="windowActionModeOverlay">true</item>
         <item name="actionBarTheme">@style/ThemeOverlay.Material3.Dark.ActionBar</item>
         <item name="android:windowLightNavigationBar" tools:ignore="NewApi">false</item>
-        <item name="switchPreferenceCompatStyle">@style/Preference.SwitchPreferenceCompat.Material3</item>
-        <item name="preferenceStyle">@style/AppPreferenceMaterial</item>
-        <item name="preferenceCategoryStyle">@style/AppPreferenceCategoryMaterial</item>
-        <item name="dialogPreferenceStyle">@style/AppPreferenceDialogMaterial</item>
-        <item name="checkBoxPreferenceStyle">@style/AppPreferenceCheckBoxMaterial</item>
-        <item name="editTextPreferenceStyle">@style/AppPreferenceEditTextMaterial</item>
         <item name="snackbarStyle">@style/snackBarStyle</item>
-        <item name="preferenceTheme">@style/PreferenceTheme</item>
         <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
     </style>
 

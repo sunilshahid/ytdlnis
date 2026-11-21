@@ -1,8 +1,6 @@
 package com.deniscerri.ytdl.ui.more.terminal
 
 import android.os.Bundle
-import android.view.MenuItem
-import android.view.View
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -40,25 +38,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.os.bundleOf
-import androidx.core.view.forEach
-import androidx.core.view.get
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.findNavController
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.viewmodel.TerminalViewModel
 import com.deniscerri.ytdl.ui.compose.components.EmptyState
+import com.deniscerri.ytdl.ui.compose.components.YtdlScaffold
 import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
-import com.google.android.material.appbar.MaterialToolbar
 
 /**
- * Terminal session list (Phase 3).
+ * Terminal session list (Phase 3 & Phase 9).
  *
- * The toolbar belongs to [TerminalActivity] (`activity_terminal.xml`), so only the list half of the
- * screen is Compose. Navigation and the "new session" menu action are unchanged.
- *
- * Replaces `fragment_terminal_session_list.xml`, `terminal_session_card.xml` and
- * `TerminalSessionsAdapter`.
+ * Self-contained ComposeFragment using [YtdlScaffold], decoupled from activity_terminal.xml.
  */
 class TerminalSessionListFragment : ComposeFragment() {
 
@@ -69,93 +61,103 @@ class TerminalSessionListFragment : ComposeFragment() {
         terminalViewModel = ViewModelProvider(requireActivity())[TerminalViewModel::class.java]
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        // Activity-owned toolbar: same contract as the View implementation.
-        val topAppBar = requireActivity().findViewById<MaterialToolbar>(R.id.custom_command_toolbar)
-        topAppBar.setNavigationOnClickListener { requireActivity().finish() }
-        topAppBar.menu.forEach { it.isVisible = false }
-        topAppBar.menu.get(0).isVisible = true
-        topAppBar.setOnMenuItemClickListener { m: MenuItem ->
-            if (m.itemId == R.id.add) {
-                findNavController().navigate(
-                    R.id.terminalFragment,
-                    bundleOf("new" to true),
-                    NavOptions.Builder().setPopUpTo(R.id.terminalFragment, true).build(),
-                )
-            }
-            true
-        }
-    }
-
     @Composable
     override fun Content() {
-        // `isBound` and `sessionBinder` are Compose state inside TerminalViewModel, so the list is
-        // recomposed as soon as the service binds. The session map itself is not observable; the
-        // version counter refreshes the snapshot after a termination (same behaviour as the
-        // ListAdapter implementation, which also re-read the map manually).
-        val isBound = terminalViewModel.isBound
-        var version by remember { mutableIntStateOf(0) }
-        val sessions: List<String> = remember(isBound, version) {
-            if (isBound) {
-                terminalViewModel.sessionBinder?.getService()?.sessionList?.keys?.toList().orEmpty()
-            } else {
-                emptyList()
-            }
-        }
-
-        val deleteSession: (String) -> Unit = { id ->
-            terminalViewModel.sessionBinder?.terminateSession(id)
-            version++
-            val remaining = terminalViewModel.sessionBinder?.getService()?.sessionList?.keys?.toList()
-            if (remaining.isNullOrEmpty()) {
-                requireActivity().onBackPressedDispatcher.onBackPressed()
-            }
-        }
-
-        val columns = LocalContext.current.resources.getInteger(R.integer.grid_size)
-
-        Box(Modifier.fillMaxSize()) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 10.dp),
-            ) {
-                items(sessions, key = { it }) { session ->
-                    SessionCard(
-                        name = session,
-                        onOpen = {
-                            findNavController().navigate(
-                                R.id.terminalFragment,
-                                bundleOf("id" to session),
-                            )
-                        },
-                        onDelete = { deleteSession(session) },
+        YtdlScaffold(
+            title = stringResource(R.string.terminal),
+            onBack = { requireActivity().finish() },
+            actions = {
+                IconButton(onClick = {
+                    findNavController().navigate(
+                        R.id.terminalFragment,
+                        bundleOf("new" to true),
+                        NavOptions.Builder().setPopUpTo(R.id.terminalFragment, true).build(),
+                    )
+                }) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_plus),
+                        contentDescription = stringResource(R.string.add),
                     )
                 }
             }
+        ) { padding ->
+            TerminalSessionListContent(
+                terminalViewModel = terminalViewModel,
+                onOpen = { session ->
+                    findNavController().navigate(
+                        R.id.terminalFragment,
+                        bundleOf("id" to session),
+                    )
+                },
+                onBackPressed = {
+                    requireActivity().onBackPressedDispatcher.onBackPressed()
+                },
+                modifier = Modifier.padding(padding)
+            )
+        }
+    }
+}
 
-            // `no_results` was only ever shown once the service was bound, never on first frame.
-            if (isBound && sessions.isEmpty()) {
-                EmptyState(
-                    title = stringResource(R.string.no_results),
-                    iconRes = R.drawable.ic_no_results,
-                    modifier = Modifier.align(Alignment.Center),
+@Composable
+fun TerminalSessionListContent(
+    terminalViewModel: TerminalViewModel,
+    onOpen: (String) -> Unit,
+    onBackPressed: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isBound = terminalViewModel.isBound
+    var version by remember { mutableIntStateOf(0) }
+    val sessions: List<String> = remember(isBound, version) {
+        if (isBound) {
+            terminalViewModel.sessionBinder?.getService()?.sessionList?.keys?.toList().orEmpty()
+        } else {
+            emptyList()
+        }
+    }
+
+    val deleteSession: (String) -> Unit = { id ->
+        terminalViewModel.sessionBinder?.terminateSession(id)
+        version++
+        val remaining = terminalViewModel.sessionBinder?.getService()?.sessionList?.keys?.toList()
+        if (remaining.isNullOrEmpty()) {
+            onBackPressed()
+        }
+    }
+
+    val columns = LocalContext.current.resources.getInteger(R.integer.grid_size)
+
+    Box(modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 10.dp),
+        ) {
+            items(sessions, key = { it }) { session ->
+                SessionCard(
+                    name = session,
+                    onOpen = { onOpen(session) },
+                    onDelete = { deleteSession(session) },
                 )
             }
+        }
+
+        if (isBound && sessions.isEmpty()) {
+            EmptyState(
+                title = stringResource(R.string.no_results),
+                iconRes = R.drawable.ic_no_results,
+                modifier = Modifier.align(Alignment.Center),
+            )
         }
     }
 }
 
 /** 1:1 with `terminal_session_card.xml`: 50 dp, 20 dp corners, surfaceContainerLow, 10 dp margins. */
 @Composable
-private fun SessionCard(
+fun SessionCard(
     name: String,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    // Preserves the existing `View.popup()` bind animation (0.75 → 1, 300 ms, ease-out quint).
     var appeared by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (appeared) 1f else 0.75f,

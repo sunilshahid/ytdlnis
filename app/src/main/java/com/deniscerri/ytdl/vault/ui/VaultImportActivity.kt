@@ -103,7 +103,7 @@ class VaultImportActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         @Suppress("DEPRECATION")
-        overridePendingTransition(R.anim.vault_enter, R.anim.vault_hold)
+        overridePendingTransition(0, 0)
 
         val composeView = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)

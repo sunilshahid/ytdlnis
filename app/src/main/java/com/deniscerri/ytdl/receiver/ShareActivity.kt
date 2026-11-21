@@ -56,7 +56,6 @@ class ShareActivity : BaseActivity() {
     private lateinit var cookieViewModel: CookieViewModel
     private lateinit var downloadCardViewModel: DownloadCardViewModel
     private lateinit var sharedPreferences: SharedPreferences
-    private lateinit var navController: NavController
     private var quickDownload by Delegates.notNull<Boolean>()
 
     private lateinit var wm: WindowManager
@@ -83,21 +82,10 @@ class ShareActivity : BaseActivity() {
             )
             wm = getSystemService(WINDOW_SERVICE) as WindowManager
 
-            val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
-            myView = inflater.inflate(R.layout.activity_share, null)
+            myView = View(this)
             window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             wm.addView(myView, params)
-
-            // window.addFlags(
-            //     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            //             or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-            //             or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            // )
-            //
-            // val params = window.attributes
-            // params.alpha = 0f
-            // window.attributes = params
-            setContentView(R.layout.activity_share)
+            setContentView(myView)
 
         }else{
             window.run {
@@ -113,7 +101,7 @@ class ShareActivity : BaseActivity() {
                 }
             }
 
-            setContentView(R.layout.activity_share)
+            setContentView(View(this))
         }
 
         context = baseContext
@@ -136,25 +124,13 @@ class ShareActivity : BaseActivity() {
     private fun handleIntents(intent: Intent) {
         askPermissions()
 
-        val navHostFragment = supportFragmentManager.findFragmentById(R.id.frame_layout) as NavHostFragment
-        navController = navHostFragment.findNavController()
-        navController.addOnDestinationChangedListener(object: NavController.OnDestinationChangedListener{
-            @SuppressLint("RestrictedApi")
-            override fun onDestinationChanged(
-                controller: NavController,
-                destination: NavDestination,
-                arguments: Bundle?
-            ) {
-                navController.removeOnDestinationChangedListener(this)
-                CoroutineScope(SupervisorJob()).launch {
-                    navController.currentBackStack.collectLatest {
-                        if (it.isEmpty()){
-                            this@ShareActivity.finish()
-                        }
-                    }
+        supportFragmentManager.registerFragmentLifecycleCallbacks(object : androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
+            override fun onFragmentDestroyed(fm: androidx.fragment.app.FragmentManager, f: androidx.fragment.app.Fragment) {
+                if (f is com.deniscerri.ytdl.ui.downloadcard.DownloadBottomSheetDialog && !isFinishing) {
+                    this@ShareActivity.finish()
                 }
             }
-        })
+        }, false)
 
         val action = intent.action
         Log.e("aa", intent.toString())
@@ -200,7 +176,10 @@ class ShareActivity : BaseActivity() {
                     downloadCardViewModel.setDownloadItem(null)
                     val bundle = Bundle()
                     bundle.putSerializable("type", downloadType)
-                    navController.setGraph(R.navigation.share_nav_graph, bundle)
+                    val dialog = com.deniscerri.ytdl.ui.downloadcard.DownloadBottomSheetDialog().apply {
+                        arguments = bundle
+                    }
+                    dialog.show(supportFragmentManager, "DownloadBottomSheetDialog")
                 }else{
                     Toast.makeText(this@ShareActivity, "${getString(R.string.downloading)} $inputQuery", Toast.LENGTH_SHORT).show()
 

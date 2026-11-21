@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.CheckBox
 import androidx.appcompat.app.AlertDialog
+import com.deniscerri.ytdl.ui.compose.dialogs.TerminateAppDialogFragment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,10 +87,10 @@ class MoreFragment : ComposeFragment() {
     override fun Content() {
         val slideNavOptions = remember {
             NavOptions.Builder()
-                .setEnterAnim(R.anim.nav_slide_in_right)
-                .setExitAnim(R.anim.nav_slide_out_left)
-                .setPopEnterAnim(R.anim.nav_slide_in_left)
-                .setPopExitAnim(R.anim.nav_slide_out_right)
+                .setEnterAnim(0)
+                .setExitAnim(0)
+                .setPopEnterAnim(0)
+                .setPopExitAnim(0)
                 .build()
         }
 
@@ -140,33 +141,14 @@ class MoreFragment : ComposeFragment() {
             return
         }
 
-        var doNotShowAgainFinalState = !shouldAskToTerminate
-
-        lateinit var dialog: AlertDialog
-        val terminateDialog = MaterialAlertDialogBuilder(requireContext())
-        terminateDialog.setTitle(getString(R.string.kill_app))
-        val dialogView = layoutInflater.inflate(R.layout.dialog_terminate_app, null)
-        val checkbox = dialogView.findViewById<CheckBox>(R.id.doNotShowAgain)
-        terminateDialog.setView(dialogView)
-
-        checkbox.isChecked = doNotShowAgainFinalState
-        checkbox.setOnCheckedChangeListener { _, isChecked ->
-            doNotShowAgainFinalState = isChecked
-        }
-
-        terminateDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface, _ ->
-            dialogInterface.cancel()
-        }
-
-        terminateDialog.setPositiveButton(getString(R.string.ok), null)
-        dialog = terminateDialog.show()
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            dialog.setCanceledOnTouchOutside(false)
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false
-            mainSharedPreferencesEditor.putBoolean("ask_terminate_app", !doNotShowAgainFinalState).commit()
-            terminateApp()
-        }
+        TerminateAppDialogFragment.newInstance(
+            title = getString(R.string.kill_app),
+            initialDoNotShowAgain = !shouldAskToTerminate,
+            onConfirm = { doNotShowAgain ->
+                mainSharedPreferencesEditor.putBoolean("ask_terminate_app", !doNotShowAgain).commit()
+                terminateApp()
+            },
+        ).show(childFragmentManager, TerminateAppDialogFragment.TAG)
     }
 
     fun terminateApp() {

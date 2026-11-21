@@ -6,88 +6,64 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.inputmethod.InputMethodManager
-import androidx.lifecycle.Lifecycle
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
-import androidx.navigation.NavArgument
-import androidx.navigation.NavGraph
-import androidx.navigation.NavType
-import androidx.navigation.fragment.NavHostFragment
-import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.viewmodel.TerminalViewModel
 import com.deniscerri.ytdl.ui.BaseActivity
+import com.deniscerri.ytdl.ui.compose.theme.YtdlnisTheme
 import com.deniscerri.ytdl.util.FileUtil
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlin.properties.Delegates
-
 
 class TerminalActivity : BaseActivity() {
     lateinit var terminalViewModel: TerminalViewModel
-    private lateinit var navHostFragment: NavHostFragment
-    private lateinit var graph: NavGraph
+    val pendingShare = mutableStateOf<String?>(null)
 
     @SuppressLint("SetTextI18n")
     public override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_terminal)
         terminalViewModel = ViewModelProvider(this)[TerminalViewModel::class.java]
-        handleIntent(intent)
+        val initialShare = extractShareText(intent)
+        pendingShare.value = initialShare
+
+        setContent {
+            YtdlnisTheme {
+                TerminalActivityScreen(
+                    terminalViewModel = terminalViewModel,
+                    activity = this,
+                    initialShareText = pendingShare.value,
+                    onFinish = { finish() }
+                )
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleIntent(intent)
+        val text = extractShareText(intent)
+        if (!text.isNullOrBlank()) {
+            pendingShare.value = text
+        }
     }
 
-    private fun handleIntent(intent: Intent) {
+    private fun extractShareText(intent: Intent): String? {
         val action = intent.action
         val type = intent.type
         Log.e(TAG, "$action $type")
-        var text : String? = null
         if (action == Intent.ACTION_SEND && type != null) {
             Log.e(TAG, action)
-            text = if (intent.getStringExtra(Intent.EXTRA_TEXT) == null){
-                val uri = if (Build.VERSION.SDK_INT >= 33){
+            return if (intent.getStringExtra(Intent.EXTRA_TEXT) == null) {
+                val uri = if (Build.VERSION.SDK_INT >= 33) {
                     intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                }else{
+                } else {
+                    @Suppress("DEPRECATION")
                     intent.getParcelableExtra(Intent.EXTRA_STREAM)
                 }
                 "-a \"${FileUtil.formatPath(uri?.path ?: "")}\""
-            }else{
+            } else {
                 intent.getStringExtra(Intent.EXTRA_TEXT)
             }
         }
-        navHostFragment = supportFragmentManager.findFragmentById(R.id.frame_layout) as NavHostFragment
-        graph = navHostFragment.navController.navInflater.inflate(R.navigation.terminal_graph)
-
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                terminalViewModel.isBoundState.collect { isBound ->
-                    if (isBound) {
-                        val bundle = Bundle()
-                        val count = terminalViewModel.sessionBinder?.getService()?.sessionList?.keys?.count() ?: 0
-                        if (count == 0){
-                            bundle.putString("share", text ?: "")
-                            graph.setStartDestination(R.id.terminalFragment)
-                            graph.findNode(graph.startDestinationId)?.addArgument("share", NavArgument.Builder()
-                                .setType(NavType.StringType)
-                                .setDefaultValue(text ?: "")
-                                .build()
-                            )
-                        }
-                        navHostFragment.navController.setGraph(graph, bundle)
-                    }
-                }
-            }
-        }
-    }
-
-    companion object {
-        private const val TAG = "TerminalActivity"
+        return null
     }
 
     override fun onStart() {
@@ -98,5 +74,9 @@ class TerminalActivity : BaseActivity() {
     override fun onStop() {
         super.onStop()
         terminalViewModel.unbindService(this)
+    }
+
+    companion object {
+        private const val TAG = "TerminalActivity"
     }
 }

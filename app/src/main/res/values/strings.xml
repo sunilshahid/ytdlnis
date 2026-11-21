@@ -1126,4 +1126,35 @@
     <string name="subtitles_apply_embedded_styles">Apply embedded styles</string>
     <string name="subtitles_import_failed">Failed to load subtitle file</string>
     <string name="subtitles_imported_success">Loaded subtitle: %1$s</string>
+
+    <!-- Compose migration: labels referenced by the new Compose screens -->
+    <string name="save">Save</string>
+    <string name="preview">Preview</string>
+    <string name="empty">Empty</string>
+    <string name="on">on</string>
+    <string name="time">Time</string>
+    <string name="hours">Hours</string>
+    <string name="paste">Paste</string>
+    <string name="templates">Templates</string>
+    <string name="no_templates">No templates</string>
+    <string name="extra_commands">Extra commands</string>
+    <string name="edit_shortcuts">Edit shortcuts</string>
+    <string name="use_as_extra_command">Use as extra command</string>
+    <string name="use_as_extra_command_data_fetching">Use as extra command (data fetching)</string>
+    <string name="download_type">Download type</string>
+    <string name="download_multiple">Download multiple</string>
+    <string name="deselect_all">Deselect all</string>
+    <string name="format_details">Format details</string>
+    <string name="custom_ytdlp_source">Custom yt-dlp source</string>
+    <string name="cut_video">Cut video</string>
+    <string name="start_time">Start time</string>
+    <string name="end_time">End time</string>
+    <string name="start_date">Start date</string>
+    <string name="day_of_month">Day of month</string>
+    <string name="save_lrc">Save .lrc</string>
+    <string name="lyrics_empty">No lyrics available</string>
+    <string name="no_updates">No updates available</string>
+    <string name="active_downloads_warning_title">Active downloads</string>
+    <string name="active_downloads_warning">Some downloads are still running. They may be affected by this action.</string>
+    <string name="textformat">Text format</string>
 </resources>

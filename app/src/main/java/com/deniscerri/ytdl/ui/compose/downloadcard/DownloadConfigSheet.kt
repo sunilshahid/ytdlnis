@@ -23,7 +23,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -31,7 +30,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,6 +52,7 @@ import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.enums.DownloadType
 import com.deniscerri.ytdl.database.models.Format
 import com.deniscerri.ytdl.ui.compose.components.PicassoImage
+import com.deniscerri.ytdl.util.FileUtil
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -65,7 +64,14 @@ fun DownloadConfigSheet(
     onDownloadTypeChange: (DownloadType) -> Unit,
     onToggleIncognito: () -> Unit,
     onToggleVault: () -> Unit,
+    onPickFormat: () -> Unit = {},
+    onPickCut: () -> Unit = {},
+    onPickCrop: () -> Unit = {},
+    onPickExtraCommands: () -> Unit = {},
+    onPickSubtitles: () -> Unit = {},
+    onScheduleClick: () -> Unit = {},
     onDownloadClick: () -> Unit,
+    onSaveForLaterClick: () -> Unit = {},
     onDismiss: () -> Unit,
     onOpenUrlClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -189,13 +195,29 @@ fun DownloadConfigSheet(
         // Type-specific options
         when (state.downloadType) {
             DownloadType.audio -> {
-                AudioOptionsSection(state = state, onEvent = onEvent)
+                AudioOptionsSection(
+                    state = state,
+                    onEvent = onEvent,
+                    onPickFormat = onPickFormat,
+                    onPickExtraCommands = onPickExtraCommands
+                )
             }
             DownloadType.video -> {
-                VideoOptionsSection(state = state, onEvent = onEvent)
+                VideoOptionsSection(
+                    state = state,
+                    onEvent = onEvent,
+                    onPickFormat = onPickFormat,
+                    onPickCrop = onPickCrop,
+                    onPickExtraCommands = onPickExtraCommands,
+                    onPickSubtitles = onPickSubtitles
+                )
             }
             DownloadType.command -> {
-                CommandOptionsSection(state = state, onEvent = onEvent)
+                CommandOptionsSection(
+                    state = state,
+                    onEvent = onEvent,
+                    onPickExtraCommands = onPickExtraCommands
+                )
             }
             else -> {}
         }
@@ -206,16 +228,26 @@ fun DownloadConfigSheet(
         CutRangeSection(
             cutStart = state.cutStart,
             cutEnd = state.cutEnd,
-            onRangeChanged = { start, end -> onEvent(DownloadConfigEvent.SetCutRange(start, end)) }
+            mergeCuts = state.mergeCuts,
+            onRangeChanged = { start, end -> onEvent(DownloadConfigEvent.SetCutRange(start, end)) },
+            onToggleMergeCuts = { onEvent(DownloadConfigEvent.ToggleMergeCuts(it)) },
+            onOpenCutPlayer = onPickCut
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Action Buttons: Download + URL + Cancel
+        // Action Buttons: Schedule + Download + Cancel
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            OutlinedButton(
+                onClick = onScheduleClick,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(stringResource(R.string.schedule))
+            }
+
             OutlinedButton(
                 onClick = onDismiss,
                 modifier = Modifier.weight(1f)
@@ -253,20 +285,35 @@ fun DownloadConfigSheet(
 @Composable
 private fun AudioOptionsSection(
     state: DownloadConfigState,
-    onEvent: (DownloadConfigEvent) -> Unit
+    onEvent: (DownloadConfigEvent) -> Unit,
+    onPickFormat: () -> Unit,
+    onPickExtraCommands: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = stringResource(R.string.audio),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.audio),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                TextButton(onClick = onPickFormat) {
+                    Text(
+                        text = state.selectedFormat?.format_note?.ifBlank { state.selectedFormat?.format_id } ?: "Select Format",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Container / Format selection
             Text(text = "Container", style = MaterialTheme.typography.bodySmall)
@@ -308,15 +355,38 @@ private fun AudioOptionsSection(
 
             // Toggles
             ConfigSwitchRow(
+                title = "Embed Lyrics",
+                checked = state.embedLyrics,
+                onCheckedChange = { onEvent(DownloadConfigEvent.ToggleEmbedLyrics(it)) }
+            )
+            ConfigSwitchRow(
                 title = "Embed Thumbnail",
                 checked = state.embedThumbnail,
                 onCheckedChange = { onEvent(DownloadConfigEvent.ToggleEmbedThumbnail(it)) }
+            )
+            ConfigSwitchRow(
+                title = "Crop Thumbnail",
+                checked = state.cropThumbnail,
+                onCheckedChange = { onEvent(DownloadConfigEvent.ToggleCropThumbnail(it)) }
+            )
+            ConfigSwitchRow(
+                title = "Split by Chapters",
+                checked = state.splitByChapters,
+                onCheckedChange = { onEvent(DownloadConfigEvent.ToggleSplitByChapters(it)) }
             )
             ConfigSwitchRow(
                 title = "SponsorBlock",
                 checked = state.sponsorBlock,
                 onCheckedChange = { onEvent(DownloadConfigEvent.ToggleSponsorBlock(it)) }
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onPickExtraCommands,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (state.extraCommands.isNotBlank()) "Extra Commands: ${state.extraCommands}" else stringResource(R.string.extra_commands))
+            }
         }
     }
 }
@@ -325,20 +395,37 @@ private fun AudioOptionsSection(
 @Composable
 private fun VideoOptionsSection(
     state: DownloadConfigState,
-    onEvent: (DownloadConfigEvent) -> Unit
+    onEvent: (DownloadConfigEvent) -> Unit,
+    onPickFormat: () -> Unit,
+    onPickCrop: () -> Unit,
+    onPickExtraCommands: () -> Unit,
+    onPickSubtitles: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = stringResource(R.string.video),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.video),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                TextButton(onClick = onPickFormat) {
+                    Text(
+                        text = state.selectedFormat?.format_note?.ifBlank { state.selectedFormat?.format_id } ?: "Select Format",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Container selection
             Text(text = "Container", style = MaterialTheme.typography.bodySmall)
@@ -359,12 +446,33 @@ private fun VideoOptionsSection(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Toggles
-            ConfigSwitchRow(
-                title = "Embed Subtitles",
-                checked = state.embedSubtitles,
-                onCheckedChange = { onEvent(DownloadConfigEvent.ToggleEmbedSubtitles(it)) }
-            )
+            // Subtitles
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(text = "Embed Subtitles", style = MaterialTheme.typography.bodyMedium)
+                    if (state.subtitleLanguages.isNotBlank()) {
+                        Text(
+                            text = "Lang: ${state.subtitleLanguages}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onPickSubtitles) {
+                        Text("Languages")
+                    }
+                    Switch(
+                        checked = state.embedSubtitles,
+                        onCheckedChange = { onEvent(DownloadConfigEvent.ToggleEmbedSubtitles(it)) }
+                    )
+                }
+            }
+
             ConfigSwitchRow(
                 title = "Embed Chapters",
                 checked = state.embedChapters,
@@ -376,10 +484,49 @@ private fun VideoOptionsSection(
                 onCheckedChange = { onEvent(DownloadConfigEvent.ToggleEmbedThumbnail(it)) }
             )
             ConfigSwitchRow(
+                title = "Recode Video",
+                checked = state.recodeVideo,
+                onCheckedChange = { onEvent(DownloadConfigEvent.ToggleRecodeVideo(it)) }
+            )
+            ConfigSwitchRow(
+                title = "Compatibility Mode",
+                checked = state.compatibilityMode,
+                onCheckedChange = { onEvent(DownloadConfigEvent.ToggleCompatibilityMode(it)) }
+            )
+            ConfigSwitchRow(
+                title = "Also Download As Audio",
+                checked = state.alsoDownloadAsAudio,
+                onCheckedChange = { onEvent(DownloadConfigEvent.ToggleAlsoDownloadAsAudio(it)) }
+            )
+            ConfigSwitchRow(
+                title = "Remove Audio",
+                checked = state.removeAudio,
+                onCheckedChange = { onEvent(DownloadConfigEvent.ToggleRemoveAudio(it)) }
+            )
+            ConfigSwitchRow(
                 title = "SponsorBlock",
                 checked = state.sponsorBlock,
                 onCheckedChange = { onEvent(DownloadConfigEvent.ToggleSponsorBlock(it)) }
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onPickCrop,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (state.cropValues.isNotBlank()) "Cropped" else stringResource(R.string.crop))
+                }
+                OutlinedButton(
+                    onClick = onPickExtraCommands,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(stringResource(R.string.extra_commands))
+                }
+            }
         }
     }
 }
@@ -387,7 +534,8 @@ private fun VideoOptionsSection(
 @Composable
 private fun CommandOptionsSection(
     state: DownloadConfigState,
-    onEvent: (DownloadConfigEvent) -> Unit
+    onEvent: (DownloadConfigEvent) -> Unit,
+    onPickExtraCommands: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -405,10 +553,18 @@ private fun CommandOptionsSection(
             OutlinedTextField(
                 value = state.customCommand,
                 onValueChange = { onEvent(DownloadConfigEvent.SetCustomCommand(it)) },
-                label = { Text("Custom Command Options") },
+                label = { Text("Command Template / Options") },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onPickExtraCommands,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.extra_commands))
+            }
         }
     }
 }
@@ -438,7 +594,10 @@ private fun ConfigSwitchRow(
 private fun CutRangeSection(
     cutStart: String,
     cutEnd: String,
-    onRangeChanged: (start: String, end: String) -> Unit
+    mergeCuts: Boolean,
+    onRangeChanged: (start: String, end: String) -> Unit,
+    onToggleMergeCuts: (Boolean) -> Unit,
+    onOpenCutPlayer: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(cutStart.isNotBlank() || cutEnd.isNotBlank()) }
 
@@ -496,6 +655,28 @@ private fun CutRangeSection(
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = stringResource(R.string.merge_cuts), style = MaterialTheme.typography.bodyMedium)
+                        Switch(
+                            checked = mergeCuts,
+                            onCheckedChange = onToggleMergeCuts
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onOpenCutPlayer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Cut Player")
                     }
                 }
             }

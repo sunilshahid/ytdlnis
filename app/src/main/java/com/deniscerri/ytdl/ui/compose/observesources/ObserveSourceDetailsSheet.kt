@@ -133,7 +133,7 @@ fun ObserveSourceDetailsSheet(
             ) {
                 val statusText = when (status) {
                     Extensions.ObserveSourceDisplayStatus.ACTIVE ->
-                        "${item.scheduleSummary(context)} · ${nextRunDate(item)}"
+                        "${item.scheduleSummary(context)} Ã‚Â· ${nextRunDate(item)}"
 
                     Extensions.ObserveSourceDisplayStatus.PAUSED -> stringResource(R.string.paused)
                     Extensions.ObserveSourceDisplayStatus.FINISHED ->

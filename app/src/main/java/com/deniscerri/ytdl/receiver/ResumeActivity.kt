@@ -18,6 +18,10 @@ import com.deniscerri.ytdl.ui.BaseActivity
 import com.deniscerri.ytdl.util.NotificationUtil
 import com.deniscerri.ytdl.util.ThemeUtil
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import com.deniscerri.ytdl.ui.compose.dialogs.PleaseWaitContent
+import com.deniscerri.ytdl.ui.compose.theme.YtdlnisTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,7 +53,7 @@ class ResumeActivity : BaseActivity() {
             }
         }
 
-        setContentView(R.layout.activity_share)
+        setContentView(android.view.View(this))
         this.setFinishOnTouchOutside(false)
         context = baseContext
         downloadViewModel = ViewModelProvider(this)[DownloadViewModel::class.java]
@@ -68,7 +72,18 @@ class ResumeActivity : BaseActivity() {
             try {
                 val loadingBottomSheet = BottomSheetDialog(this)
                 loadingBottomSheet.requestWindowFeature(Window.FEATURE_NO_TITLE)
-                loadingBottomSheet.setContentView(R.layout.please_wait_bottom_sheet)
+                val composeView = ComposeView(this).apply {
+                    setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+                    setContent {
+                        YtdlnisTheme {
+                            PleaseWaitContent(onCancel = {
+                                loadingBottomSheet.dismiss()
+                                finishAffinity()
+                            })
+                        }
+                    }
+                }
+                loadingBottomSheet.setContentView(composeView)
 
                 loadingBottomSheet.setOnShowListener {
                     NotificationUtil(this).cancelDownloadNotification(NotificationUtil.DOWNLOAD_RESUME_NOTIFICATION_ID + id)

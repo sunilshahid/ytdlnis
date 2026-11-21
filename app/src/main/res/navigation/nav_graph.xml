@@ -54,9 +54,6 @@
         android:id="@+id/moreFragment"
         android:name="com.deniscerri.ytdl.ui.more.MoreFragment"
         android:label="More" >
-       <action
-            android:id="@+id/action_moreFragment_to_settingsActivity2"
-            app:destination="@id/activitySettings" />
         <action
             android:id="@+id/action_moreFragment_to_cookiesFragment"
             app:destination="@id/cookiesFragment" />
@@ -82,8 +79,7 @@
     <activity
         android:id="@+id/terminalActivity"
         android:name="com.deniscerri.ytdl.ui.more.terminal.TerminalActivity"
-        android:label="activity_terminal"
-        tools:layout="@layout/fragment_terminal" />
+        android:label="@string/terminal" />
     <fragment
         android:id="@+id/cookiesFragment"
         android:name="com.deniscerri.ytdl.ui.more.cookies.CookiesFragment"
@@ -91,12 +87,10 @@
     <fragment
         android:id="@+id/commandTemplatesFragment"
         android:name="com.deniscerri.ytdl.ui.more.CommandTemplatesFragment"
-        tools:layout="@layout/fragment_command_templates"
         android:label="CommandTemplatesFragment" />
     <fragment
         android:id="@+id/downloadQueueMainFragment"
         android:name="com.deniscerri.ytdl.ui.downloads.DownloadQueueMainFragment"
-        tools:layout="@layout/fragment_download_queue_main_screen"
         android:label="DownloadQueueMainFragment" >
         <action
             android:id="@+id/action_downloadQueueMainFragment_to_downloadLogFragment"
@@ -210,8 +204,7 @@
     <fragment
         android:id="@+id/playFragment"
         android:name="com.deniscerri.ytdl.ui.play.PlayFragment"
-        android:label="@string/play"
-        tools:layout="@layout/fragment_play">
+        android:label="@string/play">
         <action
             android:id="@+id/action_playFragment_to_downloadBottomSheetDialog"
             app:destination="@id/downloadBottomSheetDialog" />

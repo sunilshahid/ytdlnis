@@ -8,13 +8,16 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.ProgressBar
 import android.widget.Toast
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.auth.YouTubeSessionEngine
 import com.deniscerri.ytdl.ui.BaseActivity
-import com.google.android.material.appbar.MaterialToolbar
+import com.deniscerri.ytdl.ui.compose.cookies.YoutubeLoginScreen
 import kotlinx.coroutines.launch
 
 /**
@@ -28,43 +31,46 @@ import kotlinx.coroutines.launch
  */
 class YouTubeLoginActivity : BaseActivity() {
     private lateinit var webView: WebView
-    private lateinit var progressBar: ProgressBar
+    private var isLoading by mutableStateOf(false)
     private var completingLogin = false
     private var requestedSigninCompletion = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_youtube_login)
 
-        val toolbar = findViewById<MaterialToolbar>(R.id.youtube_login_toolbar)
-        progressBar = findViewById(R.id.youtube_login_progress)
+        initWebView(savedInstanceState)
 
-        toolbar.setNavigationOnClickListener {
-            if (!completingLogin) {
-                setResult(RESULT_CANCELED)
-                finish()
-            }
+        setContent {
+            YoutubeLoginScreen(
+                isLoading = isLoading,
+                onBackClick = {
+                    if (!completingLogin) {
+                        setResult(RESULT_CANCELED)
+                        finish()
+                    }
+                },
+                onDoneClick = {
+                    finishWithCurrentSession()
+                },
+                webViewFactory = { webView }
+            )
         }
-        toolbar.setOnMenuItemClickListener { item ->
-            if (item.itemId == R.id.youtube_login_done) {
-                finishWithCurrentSession()
-                true
-            } else {
-                false
-            }
-        }
+    }
 
-        webView = findViewById(R.id.youtube_login_webview)
-        webView.settings.apply {
-            javaScriptEnabled = true
-            javaScriptCanOpenWindowsAutomatically = true
-            domStorageEnabled = true
-            databaseEnabled = true
-            cacheMode = WebSettings.LOAD_DEFAULT
-            userAgentString = YouTubeSessionEngine.resolveUserAgent(this@YouTubeLoginActivity)
-            mediaPlaybackRequiresUserGesture = true
-            setSupportMultipleWindows(false)
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun initWebView(savedInstanceState: Bundle?) {
+        webView = WebView(this).apply {
+            settings.apply {
+                javaScriptEnabled = true
+                javaScriptCanOpenWindowsAutomatically = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                cacheMode = WebSettings.LOAD_DEFAULT
+                userAgentString = YouTubeSessionEngine.resolveUserAgent(this@YouTubeLoginActivity)
+                mediaPlaybackRequiresUserGesture = true
+                setSupportMultipleWindows(false)
+            }
         }
 
         val cookieManager = CookieManager.getInstance()
@@ -94,7 +100,7 @@ class YouTubeLoginActivity : BaseActivity() {
                     YouTubeSessionEngine.hasGoogleSession()
                 ) {
                     requestedSigninCompletion = true
-                    progressBar.visibility = View.VISIBLE
+                    isLoading = true
                     view.loadUrl(YouTubeSessionEngine.YOUTUBE_SIGNIN_COMPLETION_URL)
                 }
             }
@@ -117,7 +123,7 @@ class YouTubeLoginActivity : BaseActivity() {
         // missing (or pressed Done too early). Try the sign-in hand-off once before giving up.
         if (!requestedSigninCompletion && YouTubeSessionEngine.hasGoogleSession()) {
             requestedSigninCompletion = true
-            progressBar.visibility = View.VISIBLE
+            isLoading = true
             Toast.makeText(this, R.string.youtube_finishing_sign_in, Toast.LENGTH_SHORT).show()
             webView.loadUrl(YouTubeSessionEngine.YOUTUBE_SIGNIN_COMPLETION_URL)
             return
@@ -132,7 +138,7 @@ class YouTubeLoginActivity : BaseActivity() {
         if (completingLogin) return
         completingLogin = true
 
-        progressBar.visibility = View.VISIBLE
+        isLoading = true
         webView.visibility = View.INVISIBLE
 
         lifecycleScope.launch {

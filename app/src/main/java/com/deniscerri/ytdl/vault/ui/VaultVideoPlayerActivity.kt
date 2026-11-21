@@ -14,6 +14,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.LayoutInflater
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -28,6 +29,11 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -44,7 +50,9 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.playback.PlaybackController
-import com.deniscerri.ytdl.ui.play.BrightnessMeterDrawable
+import com.deniscerri.ytdl.ui.compose.theme.YtdlnisTheme
+import com.deniscerri.ytdl.ui.compose.vault.VaultPlayerScreen
+import com.deniscerri.ytdl.ui.compose.vault.VaultPlayerUiState
 import com.deniscerri.ytdl.util.Extensions.toStringTimeStamp
 import com.deniscerri.ytdl.util.VideoPlayerUtil
 import com.deniscerri.ytdl.vault.VaultRepository
@@ -69,19 +77,8 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
 
     private var player: ExoPlayer? = null
     private lateinit var playerView: PlayerView
-    private lateinit var loadingOverlay: View
-    private lateinit var blackoutVeil: View
+    private var uiState by mutableStateOf(VaultPlayerUiState())
 
-    private var levelIndicatorView: View? = null
-    private var levelIcon: ImageView? = null
-    private var levelProgress: ProgressBar? = null
-    private var levelText: TextView? = null
-    private var brightnessMeterDrawable: BrightnessMeterDrawable? = null
-
-    private lateinit var speedBoostContainer: View
-    private lateinit var speedBoostTicksRow: View
-    private lateinit var speedBoostLabel: TextView
-    private var lockedUnlockBtn: ImageButton? = null
 
     private var screenControlsLocked = false
     private var isMuted = false
@@ -121,25 +118,13 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
 
     private val speeds = floatArrayOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f, 4.0f)
     private val boostSpeeds = floatArrayOf(0.25f, 0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 4.0f)
-    private val boostSpeedViewIds = intArrayOf(
-        R.id.vault_speed_opt_0_25,
-        R.id.vault_speed_opt_0_5,
-        R.id.vault_speed_opt_1_0,
-        R.id.vault_speed_opt_1_5,
-        R.id.vault_speed_opt_2_0,
-        R.id.vault_speed_opt_2_5,
-        R.id.vault_speed_opt_3_0,
-        R.id.vault_speed_opt_4_0
-    )
 
     private val speedBoostRunnable = Runnable { startSpeedBoost() }
     private val collapseSpeedBarRunnable = Runnable {
-        if (::speedBoostTicksRow.isInitialized) {
-            speedBoostTicksRow.visibility = View.GONE
-        }
+        uiState = uiState.copy(showBoostTicks = false)
     }
     private val hideLevelIndicatorRunnable = Runnable {
-        levelIndicatorView?.visibility = View.GONE
+        uiState = uiState.copy(levelVisible = false)
     }
 
     private val scaleGestureDetector by lazy {
@@ -220,37 +205,25 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
             VaultRepository.loadSettings(this).keepOpenOnPlayerBack
         }.getOrDefault(false)
 
-        setContentView(R.layout.activity_vault_player)
+        val composeView = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                YtdlnisTheme {
+                    VaultPlayerScreen(
+                        state = uiState,
+                        player = player,
+                        onPlayerReady = { pv ->
+                            initPlayerView(pv, title)
+                        },
+                        onUnlockClick = {
+                            setLocked(false)
+                        }
+                    )
+                }
+            }
+        }
+        setContentView(composeView)
         setupImmersiveMode()
-
-        playerView = findViewById(R.id.vault_player_view)
-        loadingOverlay = findViewById(R.id.vault_video_loading)
-        blackoutVeil = findViewById(R.id.vault_player_blackout_veil)
-
-        levelIndicatorView = findViewById(R.id.vault_level_indicator)
-        levelIcon = findViewById(R.id.vault_level_icon)
-        levelProgress = findViewById(R.id.vault_level_progress)
-        levelText = findViewById(R.id.vault_level_text)
-
-        speedBoostContainer = findViewById(R.id.vault_player_speed_boost_container)
-        speedBoostTicksRow = findViewById(R.id.vault_player_speed_boost_ticks_row)
-        speedBoostLabel = findViewById(R.id.vault_player_speed_boost_label)
-        lockedUnlockBtn = findViewById(R.id.vault_player_unlock_controls)
-
-        playerView.setShutterBackgroundColor(Color.TRANSPARENT)
-        playerView.setControllerShowTimeoutMs(3500)
-
-        bindCustomControls(title)
-
-        playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
-            val visible = visibility == View.VISIBLE
-            playerView.findViewById<View>(R.id.video_top_bar)?.visibility =
-                if (visible) View.VISIBLE else View.GONE
-            playerView.findViewById<View>(androidx.media3.ui.R.id.exo_bottom_bar)?.visibility =
-                if (visible) View.VISIBLE else View.GONE
-        })
-
-        playerView.setOnTouchListener { _, event -> handleTouch(event) }
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -268,6 +241,33 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
         registerReceiver(securityReceiver, filter)
 
         initPlayer(uuid)
+    }
+
+    private fun initPlayerView(pv: PlayerView, title: String) {
+        playerView = pv
+        if (playerView.findViewById<View>(R.id.vault_player_back) == null) {
+            val vaultControls = LayoutInflater.from(this).inflate(R.layout.exo_vault_player_control_view, playerView, false)
+            playerView.addView(vaultControls)
+        }
+        playerView.setShutterBackgroundColor(Color.TRANSPARENT)
+        playerView.setControllerShowTimeoutMs(3500)
+        player?.let { p ->
+            playerView.player = p
+            playerView.resizeMode = resizeMode
+            playerView.findViewById<View>(androidx.media3.ui.R.id.exo_shutter)?.visibility = View.GONE
+        }
+
+        bindCustomControls(title)
+
+        playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
+            val visible = visibility == View.VISIBLE
+            playerView.findViewById<View>(R.id.video_top_bar)?.visibility =
+                if (visible) View.VISIBLE else View.GONE
+            playerView.findViewById<View>(androidx.media3.ui.R.id.exo_bottom_bar)?.visibility =
+                if (visible) View.VISIBLE else View.GONE
+        })
+
+        playerView.setOnTouchListener { _, event -> handleTouch(event) }
     }
 
     private fun bindCustomControls(title: String) {
@@ -293,9 +293,6 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
 
         playerView.findViewById<ImageButton>(R.id.vault_player_screen_lock)?.setOnClickListener {
             setLocked(!screenControlsLocked)
-        }
-        lockedUnlockBtn?.setOnClickListener {
-            setLocked(false)
         }
 
         playerView.findViewById<ImageButton>(R.id.vault_player_rewind)?.setOnClickListener {
@@ -357,37 +354,41 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
         player = built
         VaultSessionManager.registerPlayer(built)
 
-        playerView.player = built
-        playerView.resizeMode = resizeMode
-        playerView.setShutterBackgroundColor(Color.TRANSPARENT)
-        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_shutter)?.visibility = View.GONE
+        if (::playerView.isInitialized) {
+            playerView.player = built
+            playerView.resizeMode = resizeMode
+            playerView.setShutterBackgroundColor(Color.TRANSPARENT)
+            playerView.findViewById<View>(androidx.media3.ui.R.id.exo_shutter)?.visibility = View.GONE
+        }
 
         built.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                playerView.keepScreenOn = isPlaying
-                updatePlayPauseIcon()
+                if (::playerView.isInitialized) {
+                    playerView.keepScreenOn = isPlaying
+                    updatePlayPauseIcon()
+                }
                 if (isPlaying) {
                     renderedFirstFrame = true
-                    loadingOverlay.isVisible = false
+                    uiState = uiState.copy(isLoading = false)
                 }
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     renderedFirstFrame = true
-                    loadingOverlay.isVisible = false
+                    uiState = uiState.copy(isLoading = false)
                 }
             }
 
             override fun onRenderedFirstFrame() {
                 renderedFirstFrame = true
-                loadingOverlay.isVisible = false
+                uiState = uiState.copy(isLoading = false)
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
                     renderedFirstFrame = true
-                    loadingOverlay.isVisible = false
+                    uiState = uiState.copy(isLoading = false)
                 }
             }
 
@@ -438,16 +439,18 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
 
     private fun setLocked(locked: Boolean) {
         screenControlsLocked = locked
-        playerView.useController = !locked
-        lockedUnlockBtn?.isVisible = locked
-        playerView.findViewById<ImageButton>(R.id.vault_player_screen_lock)?.setImageResource(
-            if (locked) R.drawable.ic_lock else R.drawable.ic_unlock
-        )
-        if (locked) {
-            playerView.hideController()
-        } else {
-            playerView.showController()
+        if (::playerView.isInitialized) {
+            playerView.useController = !locked
+            playerView.findViewById<ImageButton>(R.id.vault_player_screen_lock)?.setImageResource(
+                if (locked) R.drawable.ic_lock else R.drawable.ic_unlock
+            )
+            if (locked) {
+                playerView.hideController()
+            } else {
+                playerView.showController()
+            }
         }
+        uiState = uiState.copy(isLocked = locked)
         showUnifiedFeedback(
             iconRes = if (locked) R.drawable.ic_lock else R.drawable.ic_unlock,
             text = getString(if (locked) R.string.lock_controls else R.string.unlock_controls)
@@ -520,7 +523,7 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
                         val newSpeed = boostSpeeds[currentBoostIndex]
                         player?.playbackParameters = PlaybackParameters(newSpeed, 1.0f)
                         updateSpeedBoostUi(newSpeed)
-                        speedBoostTicksRow.visibility = View.VISIBLE
+                        uiState = uiState.copy(showBoostTicks = true)
                         handler.removeCallbacks(collapseSpeedBarRunnable)
                         handler.postDelayed(collapseSpeedBarRunnable, 1500L)
                         runCatching {
@@ -679,14 +682,13 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
 
     private fun showBrightnessFeedback(percent: Int) {
         if (isSpeedBoostActive || panicLocked) return
-        val iconView = levelIcon ?: return
-        val meter = brightnessMeterDrawable
-            ?: BrightnessMeterDrawable(iconView.context).also { brightnessMeterDrawable = it }
-        if (iconView.drawable !== meter) {
-            iconView.setImageDrawable(meter)
+        val iconRes = when {
+            percent <= 25 -> R.drawable.ic_brightness_low
+            percent <= 50 -> R.drawable.ic_brightness_medium
+            percent <= 75 -> R.drawable.ic_brightness_high
+            else -> R.drawable.ic_brightness_full
         }
-        meter.setPercent(percent, animate = true)
-        showUnifiedFeedback(iconRes = null, text = "$percent%", progress = percent)
+        showUnifiedFeedback(iconRes = iconRes, text = "$percent%", progress = percent)
     }
 
     private fun showUnifiedFeedback(
@@ -696,16 +698,12 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
         timeoutMs: Long = 1500L
     ) {
         if (isSpeedBoostActive || panicLocked) return
-        iconRes?.let { levelIcon?.setImageResource(it) }
-        levelText?.text = text
-        if (progress != null) {
-            levelProgress?.visibility = View.VISIBLE
-            levelProgress?.max = 100
-            levelProgress?.progress = progress
-        } else {
-            levelProgress?.visibility = View.GONE
-        }
-        levelIndicatorView?.visibility = View.VISIBLE
+        uiState = uiState.copy(
+            levelVisible = true,
+            levelIconRes = iconRes ?: R.drawable.ic_volume_up,
+            levelText = text,
+            levelProgress = progress
+        )
         handler.removeCallbacks(hideLevelIndicatorRunnable)
         handler.postDelayed(hideLevelIndicatorRunnable, timeoutMs)
     }
@@ -714,26 +712,18 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
         val p = player ?: return
         if (screenControlsLocked || panicLocked) return
         isSpeedBoostActive = true
-        levelIndicatorView?.visibility = View.GONE
         originalPlaybackSpeed = p.playbackParameters.speed.takeIf { it > 0f } ?: speeds[speedIndex]
         currentBoostIndex = 4 // Default 2.0x
         val speed = boostSpeeds[currentBoostIndex]
         p.playbackParameters = PlaybackParameters(speed, 1.0f)
 
-        speedBoostTicksRow.visibility = View.VISIBLE
-        speedBoostContainer.animate().cancel()
-        speedBoostContainer.alpha = 0f
-        speedBoostContainer.scaleX = 0.94f
-        speedBoostContainer.scaleY = 0.94f
-        speedBoostContainer.visibility = View.VISIBLE
-        speedBoostContainer.animate()
-            .alpha(1f)
-            .scaleX(1f)
-            .scaleY(1f)
-            .setDuration(150L)
-            .setInterpolator(DecelerateInterpolator())
-            .start()
-        updateSpeedBoostUi(speed)
+        uiState = uiState.copy(
+            speedBoostVisible = true,
+            showBoostTicks = true,
+            currentBoostIndex = currentBoostIndex,
+            speedBoostLabel = "${formatSpeedLabel(speed)} Speed Playing",
+            levelVisible = false
+        )
 
         handler.removeCallbacks(collapseSpeedBarRunnable)
         handler.postDelayed(collapseSpeedBarRunnable, 1500L)
@@ -750,28 +740,17 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
         player?.playbackParameters = PlaybackParameters(originalPlaybackSpeed, 1.0f)
         playerView.findViewById<TextView>(R.id.vault_player_speed)?.text =
             formatPillSpeed(originalPlaybackSpeed)
-        speedBoostContainer.animate().cancel()
-        speedBoostContainer.animate()
-            .alpha(0f)
-            .setDuration(140L)
-            .withEndAction {
-                speedBoostContainer.visibility = View.GONE
-                speedBoostContainer.alpha = 1f
-            }
-            .start()
+        uiState = uiState.copy(speedBoostVisible = false)
         runCatching {
             playerView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         }
     }
 
     private fun updateSpeedBoostUi(speed: Float) {
-        speedBoostLabel.text = "${formatSpeedLabel(speed)} Speed Playing"
-        boostSpeedViewIds.forEachIndexed { idx, viewId ->
-            val tv = findViewById<TextView>(viewId) ?: return@forEachIndexed
-            val selected = idx == currentBoostIndex
-            tv.setTextColor(if (selected) Color.parseColor("#2196F3") else Color.parseColor("#B3FFFFFF"))
-            tv.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
-        }
+        uiState = uiState.copy(
+            currentBoostIndex = currentBoostIndex,
+            speedBoostLabel = "${formatSpeedLabel(speed)} Speed Playing"
+        )
     }
 
     private fun formatSpeedLabel(speed: Float): String {
@@ -819,7 +798,7 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
             exitingToGallery = true
             releasePlayerOnly()
             finish()
-            applyCloseTransition(R.anim.vault_background_enter, R.anim.vault_exit)
+            applyCloseTransition(0, 0)
         } else {
             panicLocked = true
             cancelAnimationsImmediate()
@@ -827,7 +806,7 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
             releasePlayerOnly()
             VaultSessionManager.lockAndZeroize()
             finishAndRemoveTask()
-            applyCloseTransition(R.anim.vault_background_enter, R.anim.vault_exit)
+            applyCloseTransition(0, 0)
         }
     }
 
@@ -839,13 +818,12 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
     }
 
     private fun cancelAnimationsImmediate() {
-        if (::speedBoostContainer.isInitialized) speedBoostContainer.animate().cancel()
     }
 
     override fun onPause() {
         cancelAnimationsImmediate()
-        if (!smoothExitInFlight && !exitingToGallery && ::blackoutVeil.isInitialized) {
-            blackoutVeil.visibility = View.VISIBLE
+        if (!smoothExitInFlight && !exitingToGallery) {
+            uiState = uiState.copy(isBlackout = true)
         }
         if (::playerView.isInitialized && !smoothExitInFlight) {
             playerView.player = null
@@ -885,9 +863,7 @@ class VaultVideoPlayerActivity : AppCompatActivity() {
         if (panicLocked) return
         panicLocked = true
         cancelAnimationsImmediate()
-        if (::blackoutVeil.isInitialized) {
-            blackoutVeil.visibility = View.VISIBLE
-        }
+        uiState = uiState.copy(isBlackout = true)
         handler.removeCallbacksAndMessages(null)
         releasePlayerOnly()
         VaultSessionManager.lockAndZeroize()

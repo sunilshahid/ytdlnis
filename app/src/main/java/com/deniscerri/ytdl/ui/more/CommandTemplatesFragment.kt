@@ -1,36 +1,26 @@
 package com.deniscerri.ytdl.ui.more
 
-import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.DialogInterface
 import android.content.SharedPreferences
-import android.graphics.Canvas
-import android.graphics.Color
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.text.InputType
-import android.util.DisplayMetrics
-import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
-import android.view.Window
-import android.widget.RelativeLayout
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ActionMode
-import androidx.appcompat.widget.SearchView
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.Fragment
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.asFlow
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.PreferenceManager
-import androidx.recyclerview.widget.ItemTouchHelper
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.deniscerri.ytdl.MainActivity
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.DBManager.SORTING
@@ -38,421 +28,282 @@ import com.deniscerri.ytdl.database.models.CommandTemplate
 import com.deniscerri.ytdl.database.models.CommandTemplateExport
 import com.deniscerri.ytdl.database.repository.CommandTemplateRepository.CommandTemplateSortType
 import com.deniscerri.ytdl.database.viewmodel.CommandTemplateViewModel
-import com.deniscerri.ytdl.ui.adapter.TemplatesAdapter
+import com.deniscerri.ytdl.ui.compose.commands.CommandTemplatesScreen
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
 import com.deniscerri.ytdl.util.UiUtil
-import com.google.android.material.appbar.AppBarLayout
-import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.snackbar.Snackbar
-import it.xabaras.android.recyclerview.swipedecorator.RecyclerViewSwipeDecorator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+/**
+ * Command templates screen (Phase 3).
+ *
+ * Hosts [CommandTemplatesScreen] inside [ComposeFragment]. Multi-select keeps the AppCompat
+ * [ActionMode] so the contextual bar remains consistent with the other lists.
+ *
+ * Replaces `fragment_command_templates.xml`, `command_templates_sort_sheet.xml` and `TemplatesAdapter`.
+ */
+class CommandTemplatesFragment : ComposeFragment() {
 
-class CommandTemplatesFragment : Fragment(), TemplatesAdapter.OnItemClickListener {
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var templatesAdapter: TemplatesAdapter
-    private lateinit var topAppBar: MaterialToolbar
-    private lateinit var commandTemplateViewModel: CommandTemplateViewModel
-    private lateinit var templatesList: List<CommandTemplate>
-    private lateinit var noResults: RelativeLayout
     private lateinit var mainActivity: MainActivity
-    private lateinit var sortChip: Chip
-    private lateinit var  selectedObjects: ArrayList<CommandTemplate>
+    private lateinit var commandTemplateViewModel: CommandTemplateViewModel
     private lateinit var preferences: SharedPreferences
-    private var actionMode : ActionMode? = null
+
+    private var selectedIds by mutableStateOf<Set<Long>>(emptySet())
+    private var actionMode: ActionMode? = null
+    private var currentItems: List<CommandTemplate> = emptyList()
     private val jsonFormat = Json { prettyPrint = true }
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        mainActivity = activity as MainActivity
-        selectedObjects = arrayListOf()
-        return inflater.inflate(R.layout.fragment_command_templates, container, false)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        commandTemplateViewModel = ViewModelProvider(requireActivity())[CommandTemplateViewModel::class.java]
     }
 
-    @SuppressLint("RestrictedApi")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        templatesList = listOf()
-
-        topAppBar = view.findViewById(R.id.logs_toolbar)
-        topAppBar.setNavigationOnClickListener { mainActivity.onBackPressedDispatcher.onBackPressed() }
-        noResults = view.findViewById(R.id.no_results)
-        sortChip = view.findViewById(R.id.sortChip)
-
-        templatesAdapter =
-            TemplatesAdapter(
-                this,
-                mainActivity
-            )
-        recyclerView = view.findViewById(R.id.template_recyclerview)
-        recyclerView.layoutManager = LinearLayoutManager(context)
-        recyclerView.adapter = templatesAdapter
-        preferences =  PreferenceManager.getDefaultSharedPreferences(requireContext())
-        if (preferences.getStringSet("swipe_gesture", requireContext().resources.getStringArray(R.array.swipe_gestures_values).toSet())!!.toList().contains("templates")){
-            val itemTouchHelper = ItemTouchHelper(simpleCallback)
-            itemTouchHelper.attachToRecyclerView(recyclerView)
-        }
-
-
-        commandTemplateViewModel = ViewModelProvider(requireActivity())[CommandTemplateViewModel::class.java]
-        commandTemplateViewModel.allItems.observe(viewLifecycleOwner) {
-            if (it.isEmpty()) noResults.visibility = View.VISIBLE
-            else noResults.visibility = View.GONE
-        }
-
-        commandTemplateViewModel.getFilteredList().observe(viewLifecycleOwner) {
-            templatesAdapter.submitList(it)
-            templatesList = it
-            scrollToTop()
-        }
-
-        commandTemplateViewModel.sortOrder.observe(viewLifecycleOwner){
-            if (it != null){
-                when(it){
-                    SORTING.ASC -> sortChip.chipIcon = ContextCompat.getDrawable(requireContext(), R.drawable.ic_up)
-                    SORTING.DESC -> sortChip.chipIcon = ContextCompat.getDrawable(requireContext(), R.drawable.ic_down)
-                }
-            }
-        }
-
-        commandTemplateViewModel.sortType.observe(viewLifecycleOwner){
-            if(it != null){
-                when(it){
-                    CommandTemplateSortType.DATE -> sortChip.text = getString(R.string.date_added)
-                    CommandTemplateSortType.TITLE -> sortChip.text = getString(R.string.title)
-                    CommandTemplateSortType.LENGTH -> sortChip.text = getString(R.string.length)
-                }
-            }
-        }
-
-        initMenu()
-        initChips()
+        mainActivity = activity as MainActivity
     }
 
-    private fun initMenu() {
-        val onActionExpandListener: MenuItem.OnActionExpandListener =
-            object : MenuItem.OnActionExpandListener {
-                override fun onMenuItemActionExpand(menuItem: MenuItem): Boolean {
-                    return true
-                }
+    @Composable
+    override fun Content() {
+        val templatesFlow = remember { commandTemplateViewModel.getFilteredList().asFlow() }
+        val templates by templatesFlow.collectAsState(initial = emptyList())
+        currentItems = templates
 
-                override fun onMenuItemActionCollapse(menuItem: MenuItem): Boolean {
-                    return true
-                }
-            }
-        topAppBar.menu.findItem(R.id.search_command)
-            .setOnActionExpandListener(onActionExpandListener)
-        val searchView = topAppBar.menu.findItem(R.id.search_command).actionView as SearchView?
-        searchView!!.inputType = InputType.TYPE_CLASS_TEXT
-        searchView.queryHint = getString(R.string.search_command_hint)
-        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String): Boolean {
-                topAppBar.menu.findItem(R.id.search_command).collapseActionView()
+        val allItemsFlow = remember { commandTemplateViewModel.allItems.asFlow() }
+        val allItems by allItemsFlow.collectAsState(initial = emptyList())
+
+        val sortTypeFlow = remember { commandTemplateViewModel.sortType.asFlow() }
+        val sortType by sortTypeFlow.collectAsState(initial = CommandTemplateSortType.DATE)
+
+        val sortOrderFlow = remember { commandTemplateViewModel.sortOrder.asFlow() }
+        val sortOrder by sortOrderFlow.collectAsState(initial = SORTING.DESC)
+
+        val snackbarHostState = remember { SnackbarHostState() }
+
+        val swipeGestures = remember {
+            val defaultGestures = resources.getStringArray(R.array.swipe_gestures_values).toSet()
+            val userGestures = preferences.getStringSet("swipe_gesture", defaultGestures) ?: defaultGestures
+            userGestures.contains("templates")
+        }
+
+        CommandTemplatesScreen(
+            templates = templates,
+            isTableEmpty = allItems.isEmpty(),
+            selectedIds = selectedIds,
+            sortType = sortType ?: CommandTemplateSortType.DATE,
+            sortOrder = sortOrder ?: SORTING.DESC,
+            swipeGestures = swipeGestures,
+            snackbarHostState = snackbarHostState,
+            onBack = {
+                mainActivity.onBackPressedDispatcher.onBackPressed()
+            },
+            onSearchQueryChanged = { query ->
                 commandTemplateViewModel.setQueryFilter(query)
-                return true
-            }
-
-            override fun onQueryTextChange(newText: String): Boolean {
-                commandTemplateViewModel.setQueryFilter(newText)
-                return true
-            }
-        })
-        topAppBar.setOnClickListener { scrollToTop() }
-
-        topAppBar.setOnMenuItemClickListener { m: MenuItem ->
-            when(m.itemId){
-                R.id.export_clipboard -> {
-                    lifecycleScope.launch{
-                        withContext(Dispatchers.IO){
-                            commandTemplateViewModel.exportToClipboard()
-                        }
-                        Snackbar.make(recyclerView, getString(R.string.copied_to_clipboard), Snackbar.LENGTH_LONG).show()
-                    }
+            },
+            onNewTemplate = {
+                UiUtil.showCommandTemplateCreationOrUpdatingSheet(
+                    null,
+                    mainActivity,
+                    this,
+                    commandTemplateViewModel,
+                    {},
+                    {},
+                )
+            },
+            onOpenShortcuts = {
+                UiUtil.showShortcutsSheet(mainActivity, this, commandTemplateViewModel)
+            },
+            onSortTypeSelected = { type ->
+                commandTemplateViewModel.setSorting(type)
+            },
+            onOpenTemplate = { template ->
+                UiUtil.showCommandTemplateCreationOrUpdatingSheet(
+                    template,
+                    mainActivity,
+                    this,
+                    commandTemplateViewModel,
+                    {},
+                    {},
+                )
+            },
+            onToggleSelection = ::toggleSelection,
+            onDeleteTemplate = { template ->
+                UiUtil.showGenericDeleteDialog(requireContext(), template.title) {
+                    commandTemplateViewModel.delete(template)
                 }
-                R.id.import_clipboard -> {
-                    lifecycleScope.launch{
-                        withContext(Dispatchers.IO){
-                            val count = commandTemplateViewModel.importFromClipboard()
-                            mainActivity.runOnUiThread{
-                                Snackbar.make(recyclerView, "${getString(R.string.items_imported)} (${count})", Snackbar.LENGTH_LONG).show()
-                            }
-                        }
-
+            },
+            onExportToClipboard = {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    withContext(Dispatchers.IO) {
+                        commandTemplateViewModel.exportToClipboard()
                     }
+                    snackbarHostState.showSnackbar(getString(R.string.copied_to_clipboard))
                 }
-            }
-            true
-        }
-    }
-
-    private fun initChips() {
-        val sorting = view?.findViewById<Chip>(R.id.sortChip)
-        sorting?.setOnClickListener {
-            val sortSheet = BottomSheetDialog(requireContext())
-            sortSheet.requestWindowFeature(Window.FEATURE_NO_TITLE)
-            sortSheet.setContentView(R.layout.command_templates_sort_sheet)
-
-            val date = sortSheet.findViewById<TextView>(R.id.date)
-            val title = sortSheet.findViewById<TextView>(R.id.title)
-            val length = sortSheet.findViewById<TextView>(R.id.length)
-
-            val sortOptions = listOf(date!!, title!!, length!!)
-            sortOptions.forEach { it.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty,0,0,0) }
-            when(commandTemplateViewModel.sortType.value!!) {
-                CommandTemplateSortType.DATE -> changeSortIcon(date, commandTemplateViewModel.sortOrder.value!!)
-                CommandTemplateSortType.TITLE -> changeSortIcon(title, commandTemplateViewModel.sortOrder.value!!)
-                CommandTemplateSortType.LENGTH -> changeSortIcon(length, commandTemplateViewModel.sortOrder.value!!)
-            }
-
-            date.setOnClickListener {
-                sortOptions.forEach { it.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty,0,0,0) }
-                commandTemplateViewModel.setSorting(CommandTemplateSortType.DATE)
-                changeSortIcon(date, commandTemplateViewModel.sortOrder.value!!)
-            }
-            title.setOnClickListener {
-                sortOptions.forEach { it.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty,0,0,0) }
-                commandTemplateViewModel.setSorting(CommandTemplateSortType.TITLE)
-                changeSortIcon(title, commandTemplateViewModel.sortOrder.value!!)
-            }
-            length.setOnClickListener {
-                sortOptions.forEach { it.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.empty,0,0,0) }
-                commandTemplateViewModel.setSorting(CommandTemplateSortType.LENGTH)
-                changeSortIcon(length, commandTemplateViewModel.sortOrder.value!!)
-            }
-            val displayMetrics = DisplayMetrics()
-            requireActivity().windowManager.defaultDisplay.getMetrics(displayMetrics)
-            sortSheet.behavior.peekHeight = displayMetrics.heightPixels
-            sortSheet.show()
-        }
-
-        val new = view?.findViewById<Chip>(R.id.newTemplate)
-        new?.setOnClickListener {
-            UiUtil.showCommandTemplateCreationOrUpdatingSheet(null,mainActivity, this, commandTemplateViewModel, {}, {})
-        }
-        val shortcuts = view?.findViewById<Chip>(R.id.shortcuts)
-        shortcuts?.setOnClickListener {
-            UiUtil.showShortcutsSheet(mainActivity,this, commandTemplateViewModel)
-        }
-    }
-
-    private fun changeSortIcon(item: TextView, order: SORTING){
-        when(order){
-            SORTING.DESC ->{
-                item.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_down, 0,0,0)
-            }
-            SORTING.ASC ->                 {
-                item.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_up, 0,0,0)
-            }
-        }
-    }
-
-    private fun scrollToTop() {
-        recyclerView.scrollToPosition(0)
-        Handler(Looper.getMainLooper()).post {
-            (topAppBar.parent as AppBarLayout).setExpanded(
-                true,
-                true
-            )
-        }
-    }
-
-    @SuppressLint("NotifyDataSetChanged")
-    override fun onItemClick(commandTemplate: CommandTemplate, index: Int) {
-        UiUtil.showCommandTemplateCreationOrUpdatingSheet(commandTemplate,mainActivity, this, commandTemplateViewModel, newTemplate = {
-            templatesAdapter.notifyDataSetChanged()
-        }, {})
-
-    }
-
-    override fun onSelected(commandTemplate: CommandTemplate) {
-    }
-
-    override fun onCardSelect(itemID: Long, isChecked: Boolean) {
-        lifecycleScope.launch {
-            val item = templatesList.find { it.id == itemID }
-            if (actionMode == null) actionMode = (getActivity() as AppCompatActivity?)!!.startSupportActionMode(contextualActionBar)
-            actionMode?.apply {
-                if (isChecked) selectedObjects.add(item!!)
-                else selectedObjects.remove(item!!)
-
-                if (selectedObjects.size == 0){
-                    this.finish()
-                }else{
-                    actionMode?.title = "${selectedObjects.size} ${getString(R.string.selected)}"
-                    this.menu.findItem(R.id.select_between).isVisible = false
-                    if(selectedObjects.size == 2){
-                        val selectedIDs = selectedObjects.sortedBy { it.id }
-                        val resultsInMiddle = withContext(Dispatchers.IO){
-                            commandTemplateViewModel.getRecordsBetweenTwoItems(selectedIDs.first().id, selectedIDs.last().id)
-                        }.toMutableList()
-                        this.menu.findItem(R.id.select_between).isVisible = resultsInMiddle.isNotEmpty()
+            },
+            onImportFromClipboard = {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val count = withContext(Dispatchers.IO) {
+                        commandTemplateViewModel.importFromClipboard()
                     }
+                    snackbarHostState.showSnackbar("${getString(R.string.items_imported)} ($count)")
                 }
+            },
+        )
+    }
+
+    private fun toggleSelection(item: CommandTemplate) {
+        val next = selectedIds.toMutableSet()
+        if (!next.add(item.id)) next.remove(item.id)
+        selectedIds = next
+
+        if (next.isEmpty()) {
+            actionMode?.finish()
+            actionMode = null
+            return
+        }
+
+        if (actionMode == null) {
+            actionMode = (requireActivity() as AppCompatActivity).startSupportActionMode(contextualActionBar)
+        } else {
+            actionMode?.title = "${next.size} ${getString(R.string.selected)}"
+        }
+        updateSelectBetweenVisibility()
+    }
+
+    private fun updateSelectBetweenVisibility() {
+        val selectBetweenItem = actionMode?.menu?.findItem(R.id.select_between) ?: return
+        selectBetweenItem.isVisible = false
+        if (selectedIds.size == 2) {
+            val sorted = selectedIds.sorted()
+            viewLifecycleOwner.lifecycleScope.launch {
+                val resultsInMiddle = withContext(Dispatchers.IO) {
+                    commandTemplateViewModel.getRecordsBetweenTwoItems(sorted.first(), sorted.last())
+                }
+                selectBetweenItem.isVisible = resultsInMiddle.isNotEmpty()
             }
         }
     }
 
     private val contextualActionBar = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
-            mode!!.menuInflater.inflate(R.menu.templates_menu_context, menu)
-            mode.title = "${selectedObjects.size} ${getString(R.string.selected)}"
+            menu?.add(Menu.NONE, R.id.select_between, Menu.NONE, R.string.select_between)?.apply {
+                setIcon(R.drawable.baseline_compare_arrows_24)
+                setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            }
+            menu?.add(Menu.NONE, R.id.select_all, Menu.NONE, R.string.select_all)?.apply {
+                setIcon(R.drawable.ic_select_all)
+                setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            }
+            menu?.add(Menu.NONE, R.id.delete, Menu.NONE, R.string.delete)?.apply {
+                setIcon(R.drawable.baseline_delete_24)
+                setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            }
+            mode?.title = "${selectedIds.size} ${getString(R.string.selected)}"
             return true
         }
 
-        override fun onPrepareActionMode(
-            mode: ActionMode?,
-            menu: Menu?
-        ): Boolean {
-            return false
+        override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+            val selectBetweenItem = menu?.findItem(R.id.select_between)
+            selectBetweenItem?.isVisible = false
+            if (selectedIds.size == 2) {
+                val sorted = selectedIds.sorted()
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val resultsInMiddle = withContext(Dispatchers.IO) {
+                        commandTemplateViewModel.getRecordsBetweenTwoItems(sorted.first(), sorted.last())
+                    }
+                    selectBetweenItem?.isVisible = resultsInMiddle.isNotEmpty()
+                }
+            }
+            return true
         }
 
-        override fun onActionItemClicked(
-            mode: ActionMode?,
-            item: MenuItem?
-        ): Boolean {
+        override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
             return when (item!!.itemId) {
                 R.id.select_between -> {
-                    lifecycleScope.launch {
-                        val selectedIDs = selectedObjects.sortedBy { it.id }
-                        val resultsInMiddle = withContext(Dispatchers.IO){
-                            commandTemplateViewModel.getRecordsBetweenTwoItems(selectedIDs.first().id, selectedIDs.last().id)
-                        }.toMutableList()
-                        if (resultsInMiddle.isNotEmpty()){
-                            selectedObjects.addAll(resultsInMiddle)
-                            templatesAdapter.checkMultipleItems(selectedObjects.map { it.id })
-                            actionMode?.title = "${selectedObjects.count()} ${getString(R.string.selected)}"
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        val sorted = selectedIds.sorted()
+                        if (sorted.size >= 2) {
+                            val resultsInMiddle = withContext(Dispatchers.IO) {
+                                commandTemplateViewModel.getRecordsBetweenTwoItems(sorted.first(), sorted.last())
+                            }
+                            if (resultsInMiddle.isNotEmpty()) {
+                                selectedIds = selectedIds + resultsInMiddle.map { it.id }.toSet()
+                                mode?.title = "${selectedIds.size} ${getString(R.string.selected)}"
+                            }
                         }
                         mode?.menu?.findItem(R.id.select_between)?.isVisible = false
                     }
                     true
                 }
+
                 R.id.delete_results -> {
-                    val deleteDialog = MaterialAlertDialogBuilder(requireContext())
-                    deleteDialog.setTitle(getString(R.string.you_are_going_to_delete_multiple_items))
-                    deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-                    deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-                        for (obj in selectedObjects){
-                            commandTemplateViewModel.delete(obj)
+                    MaterialAlertDialogBuilder(requireContext())
+                        .setTitle(getString(R.string.you_are_going_to_delete_multiple_items))
+                        .setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int ->
+                            dialogInterface.cancel()
                         }
-                        clearCheckedItems()
-                        actionMode?.finish()
-                    }
-                    deleteDialog.show()
+                        .setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
+                            val toDelete = currentItems.filter { it.id in selectedIds }
+                            for (obj in toDelete) {
+                                commandTemplateViewModel.delete(obj)
+                            }
+                            selectedIds = emptySet()
+                            mode?.finish()
+                        }
+                        .show()
                     true
                 }
+
                 R.id.select_all -> {
-                    templatesAdapter.checkAll(templatesList)
-                    selectedObjects.clear()
-                    templatesList.forEach { selectedObjects.add(it) }
-                    mode?.title = "(${selectedObjects.size}) ${resources.getString(R.string.all_items_selected)}"
+                    selectedIds = currentItems.map { it.id }.toSet()
+                    mode?.title = "(${selectedIds.size}) ${resources.getString(R.string.all_items_selected)}"
                     true
                 }
+
                 R.id.invert_selected -> {
-                    templatesAdapter.invertSelected(templatesList)
-                    val invertedList = arrayListOf<CommandTemplate>()
-                    templatesList.forEach {
-                        if (!selectedObjects.contains(it)!!) invertedList.add(it)
-                    }
-                    selectedObjects.clear()
-                    selectedObjects.addAll(invertedList)
-                    actionMode!!.title = "${selectedObjects.size} ${getString(R.string.selected)}"
-                    if (invertedList.isEmpty()) actionMode?.finish()
+                    selectedIds = currentItems.filter { it.id !in selectedIds }.map { it.id }.toSet()
+                    mode?.title = "${selectedIds.size} ${getString(R.string.selected)}"
+                    if (selectedIds.isEmpty()) mode?.finish()
                     true
                 }
+
                 R.id.export_clipboard -> {
-                    lifecycleScope.launch{
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        val selectedObjects = currentItems.filter { it.id in selectedIds }
                         val output = jsonFormat.encodeToString(
                             CommandTemplateExport(
-                                templates = selectedObjects.toList(),
+                                templates = selectedObjects,
                                 shortcuts = listOf()
                             )
                         )
-
                         val clipboard: ClipboardManager =
                             requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setText(output)
-                        Snackbar.make(recyclerView, getString(R.string.copied_to_clipboard), Snackbar.LENGTH_LONG).show()
-                        clearCheckedItems()
-                        actionMode?.finish()
+                        clipboard.text = output
+                        view?.let {
+                            com.google.android.material.snackbar.Snackbar.make(
+                                it,
+                                getString(R.string.copied_to_clipboard),
+                                com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                            ).show()
+                        }
+                        selectedIds = emptySet()
+                        mode?.finish()
                     }
                     true
                 }
+
                 else -> false
             }
         }
 
         override fun onDestroyActionMode(mode: ActionMode?) {
             actionMode = null
-            clearCheckedItems()
+            selectedIds = emptySet()
         }
     }
-
-    private fun clearCheckedItems(){
-        templatesAdapter.clearCheckeditems()
-        selectedObjects.clear()
-    }
-
-    private var simpleCallback: ItemTouchHelper.SimpleCallback =
-        object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT ) {
-            override fun onMove(recyclerView: RecyclerView,viewHolder: RecyclerView.ViewHolder,target: RecyclerView.ViewHolder
-            ): Boolean {
-                return false
-            }
-
-            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                val position = viewHolder.bindingAdapterPosition
-                when (direction) {
-                    ItemTouchHelper.LEFT -> {
-                        val deletedItem = templatesList[position]
-                        templatesAdapter.notifyItemChanged(position)
-                        UiUtil.showGenericDeleteDialog(requireContext(), deletedItem.title){
-                            commandTemplateViewModel.delete(deletedItem)
-                        }
-                    }
-
-                }
-            }
-
-            override fun onChildDraw(
-                c: Canvas,
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder,
-                dX: Float,
-                dY: Float,
-                actionState: Int,
-                isCurrentlyActive: Boolean
-            ) {
-                RecyclerViewSwipeDecorator.Builder(
-                    context,
-                    c,
-                    recyclerView,
-                    viewHolder,
-                    dX,
-                    dY,
-                    actionState,
-                    isCurrentlyActive
-                )
-                    .addSwipeLeftBackgroundColor(Color.RED)
-                    .addSwipeLeftActionIcon(R.drawable.baseline_delete_24)
-                    .create()
-                    .decorate()
-                super.onChildDraw(
-                    c,
-                    recyclerView,
-                    viewHolder,
-                    dX,
-                    dY,
-                    actionState,
-                    isCurrentlyActive
-                )
-            }
-        }
 }

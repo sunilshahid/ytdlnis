@@ -98,7 +98,7 @@ class DownloadViewModel(private val application: Application) : AndroidViewModel
     val savedDownloadsCount : Flow<Int>
     val scheduledDownloadsCount : Flow<Int>
     val pausedAllDownloads = MediatorLiveData(PausedAllDownloadsState.HIDDEN)
-    private val pausedAllDownloadsFlow : Flow<PausedAllDownloadsState>
+    val pausedAllDownloadsFlow : Flow<PausedAllDownloadsState>
     private var isPausingResuming = false
     enum class PausedAllDownloadsState {
         PAUSE, RESUME, PROCESSING, HIDDEN

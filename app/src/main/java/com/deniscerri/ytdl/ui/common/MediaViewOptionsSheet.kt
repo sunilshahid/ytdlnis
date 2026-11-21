@@ -2,15 +2,47 @@ package com.deniscerri.ytdl.ui.common
 
 import android.content.DialogInterface
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.ArrayAdapter
-import android.widget.AutoCompleteTextView
-import android.widget.TextView
-import androidx.core.view.isVisible
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.fragment.app.setFragmentResult
 import com.deniscerri.ytdl.R
+import com.deniscerri.ytdl.ui.compose.host.ComposeSheetFragment
 import com.deniscerri.ytdl.ui.play.PlayField
 import com.deniscerri.ytdl.ui.play.PlaySort
 import com.deniscerri.ytdl.ui.play.PlayViewPrefs
@@ -27,17 +59,14 @@ import com.deniscerri.ytdl.vault.VaultPickerField
 import com.deniscerri.ytdl.vault.VaultPickerSortBy
 import com.deniscerri.ytdl.vault.VaultSettings
 import com.deniscerri.ytdl.vault.VaultSortBy
-import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.button.MaterialButtonToggleGroup
-import com.google.android.material.chip.Chip
-import com.google.android.material.chip.ChipGroup
 
 /**
  * Shared bottom sheet for configuring Layout, Sort, Order (with labels adapted to the
  * active sort field), and visible metadata fields across Device Files, Play, and Private Vault.
+ *
+ * Migrated to Jetpack Compose (replaces dialog_media_view_options.xml).
  */
-class MediaViewOptionsSheet : BottomSheetDialogFragment() {
+class MediaViewOptionsSheet : ComposeSheetFragment() {
 
     enum class Mode {
         DEVICE,
@@ -47,19 +76,17 @@ class MediaViewOptionsSheet : BottomSheetDialogFragment() {
     }
 
     private var changed = false
-    private var suppressListeners = false
 
     // Transient working state for Mode.VAULT & Mode.VAULT_PICKER (persisted by VaultActivity on result).
-    private var vaultLayout = VaultLayoutMode.GRID
-    private var vaultSort = VaultSortBy.DATE
-    private var vaultDescending = true
-    private var vaultFields: MutableSet<VaultField> = VaultSettings.DEFAULT_VISIBLE_FIELDS.toMutableSet()
+    private var vaultLayout by mutableStateOf(VaultLayoutMode.GRID)
+    private var vaultSort by mutableStateOf(VaultSortBy.DATE)
+    private var vaultDescending by mutableStateOf(true)
+    private var vaultFields by mutableStateOf(VaultSettings.DEFAULT_VISIBLE_FIELDS.toSet())
 
-    private var pickerLayout = VaultLayoutMode.GRID
-    private var pickerSort = VaultPickerSortBy.DATE
-    private var pickerDescending = true
-    private var pickerFields: MutableSet<VaultPickerField> =
-        VaultSettings.DEFAULT_PICKER_VISIBLE_FIELDS.toMutableSet()
+    private var pickerLayout by mutableStateOf(VaultLayoutMode.GRID)
+    private var pickerSort by mutableStateOf(VaultPickerSortBy.DATE)
+    private var pickerDescending by mutableStateOf(true)
+    private var pickerFields by mutableStateOf(VaultSettings.DEFAULT_PICKER_VISIBLE_FIELDS.toSet())
 
     private val mode: Mode by lazy {
         val raw = arguments?.getString(ARG_MODE).orEmpty()
@@ -81,7 +108,7 @@ class MediaViewOptionsSheet : BottomSheetDialogFragment() {
             if (rawFields != null) {
                 vaultFields = rawFields.mapNotNull { name ->
                     runCatching { VaultField.valueOf(name) }.getOrNull()
-                }.toMutableSet()
+                }.toSet()
             }
         } else if (mode == Mode.VAULT_PICKER) {
             val source = savedInstanceState ?: arguments
@@ -96,7 +123,7 @@ class MediaViewOptionsSheet : BottomSheetDialogFragment() {
             if (rawFields != null) {
                 pickerFields = rawFields.mapNotNull { name ->
                     runCatching { VaultPickerField.valueOf(name) }.getOrNull()
-                }.toMutableSet()
+                }.toSet()
             }
         }
     }
@@ -110,357 +137,187 @@ class MediaViewOptionsSheet : BottomSheetDialogFragment() {
         }
     }
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View = inflater.inflate(R.layout.dialog_media_view_options, container, false)
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    @Composable
+    override fun Content() {
         val context = requireContext()
-
-        val titleView = view.findViewById<TextView>(R.id.view_options_title)
-        val summaryView = view.findViewById<TextView>(R.id.view_options_summary)
-        val showSection = view.findViewById<View>(R.id.view_show_section)
-        val showGroup = view.findViewById<MaterialButtonToggleGroup>(R.id.view_show_mode_group)
-        val carouselSwitch = view.findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.view_show_carousel)
-        val layoutGroup = view.findViewById<MaterialButtonToggleGroup>(R.id.view_layout_group)
-        val sortValue = view.findViewById<AutoCompleteTextView>(R.id.view_sort_value)
-        val orderGroup = view.findViewById<MaterialButtonToggleGroup>(R.id.view_order_group)
-        val orderPrimary = view.findViewById<MaterialButton>(R.id.view_order_primary)
-        val orderSecondary = view.findViewById<MaterialButton>(R.id.view_order_secondary)
-        val fieldsSummary = view.findViewById<TextView>(R.id.view_fields_summary)
-        val fieldsGroup = view.findViewById<ChipGroup>(R.id.view_fields_group)
-        val resetBtn = view.findViewById<MaterialButton>(R.id.view_options_reset)
-        val doneBtn = view.findViewById<MaterialButton>(R.id.view_options_done)
-
-        when (mode) {
-            Mode.DEVICE -> {
-                titleView.setText(R.string.device_view_options)
-                summaryView.setText(R.string.device_view_options_summary)
-                fieldsSummary.setText(R.string.device_fields_summary)
-                showSection.isVisible = true
-            }
-            Mode.PLAY -> {
-                titleView.setText(R.string.play_view_options)
-                summaryView.setText(R.string.play_view_options_summary)
-                fieldsSummary.setText(R.string.device_fields_summary)
-                showSection.isVisible = false
-            }
-            Mode.VAULT -> {
-                titleView.setText(R.string.vault_view_options)
-                summaryView.setText(R.string.vault_view_options_summary)
-                fieldsSummary.setText(R.string.vault_fields_summary)
-                showSection.isVisible = false
-            }
-            Mode.VAULT_PICKER -> {
-                titleView.setText(R.string.vault_view_options)
-                summaryView.setText(R.string.vault_picker_view_options_summary)
-                fieldsSummary.setText(R.string.vault_picker_fields_summary)
-                showSection.isVisible = false
-            }
-        }
-
-        fun currentSortCategory(): SortCategory = when (mode) {
-            Mode.DEVICE -> DeviceFilesPrefs.sort(context).category
-            Mode.PLAY -> PlayViewPrefs.sort(context).category
-            Mode.VAULT -> vaultSort.category
-            Mode.VAULT_PICKER -> pickerSort.category
-        }
-
-        fun currentDescending(): Boolean = when (mode) {
-            Mode.DEVICE -> DeviceFilesPrefs.newestFirst(context)
-            Mode.PLAY -> PlayViewPrefs.descending(context)
-            Mode.VAULT -> vaultDescending
-            Mode.VAULT_PICKER -> pickerDescending
-        }
-
-        fun setDescending(descending: Boolean) {
-            when (mode) {
-                Mode.DEVICE -> DeviceFilesPrefs.setNewestFirst(context, descending)
-                Mode.PLAY -> PlayViewPrefs.setDescending(context, descending)
-                Mode.VAULT -> vaultDescending = descending
-                Mode.VAULT_PICKER -> pickerDescending = descending
-            }
-        }
-
-        fun renderOrder() {
-            val category = currentSortCategory()
-            val (primaryRes, secondaryRes) = SortOrderLabels.orderLabelRes(category)
-            orderPrimary.setText(primaryRes)
-            orderSecondary.setText(secondaryRes)
-            val isPrimary = SortOrderLabels.isPrimarySelected(category, currentDescending())
-            suppressListeners = true
-            orderGroup.check(if (isPrimary) R.id.view_order_primary else R.id.view_order_secondary)
-            suppressListeners = false
-        }
-
-        fun addFieldChip(labelRes: Int, checked: Boolean, onToggle: (Boolean) -> Unit) {
-            val chip = Chip(requireContext()).apply {
-                text = getString(labelRes)
-                isCheckable = true
-                isCheckedIconVisible = true
-                isChecked = checked
-                setOnCheckedChangeListener { _, isChecked ->
-                    if (!suppressListeners) {
-                        onToggle(isChecked)
-                        changed = true
-                    }
-                }
-            }
-            fieldsGroup.addView(chip)
-        }
-
-        fun renderFields() {
-            fieldsGroup.removeAllViews()
-            when (mode) {
-                Mode.DEVICE -> {
-                    val selected = DeviceFilesPrefs.fields(context)
-                    DeviceField.entries.forEach { field ->
-                        addFieldChip(field.labelRes, field in selected) { checked ->
-                            val current = DeviceFilesPrefs.fields(context).toMutableSet()
-                            if (checked) current.add(field) else current.remove(field)
-                            DeviceFilesPrefs.setFields(context, current)
-                        }
-                    }
-                }
-                Mode.PLAY -> {
-                    val selected = PlayViewPrefs.fields(context)
-                    PlayField.entries.forEach { field ->
-                        addFieldChip(field.labelRes, field in selected) { checked ->
-                            val current = PlayViewPrefs.fields(context).toMutableSet()
-                            if (checked) current.add(field) else current.remove(field)
-                            PlayViewPrefs.setFields(context, current)
-                        }
-                    }
-                }
-                Mode.VAULT -> {
-                    VaultField.entries.forEach { field ->
-                        addFieldChip(field.labelRes, field in vaultFields) { checked ->
-                            if (checked) vaultFields.add(field) else vaultFields.remove(field)
-                        }
-                    }
-                }
-                Mode.VAULT_PICKER -> {
-                    VaultPickerField.entries.forEach { field ->
-                        addFieldChip(field.labelRes, field in pickerFields) { checked ->
-                            if (checked) pickerFields.add(field) else pickerFields.remove(field)
-                        }
-                    }
-                }
-            }
-        }
-
-        fun renderAll() {
-            suppressListeners = true
-            when (mode) {
-                Mode.DEVICE -> {
-                    showGroup.check(
-                        when (DeviceFilesPrefs.showMode(context)) {
-                            DeviceShowMode.ALL_FOLDERS -> R.id.view_show_all_folders
-                            DeviceShowMode.FILES -> R.id.view_show_files
-                            DeviceShowMode.FOLDERS -> R.id.view_show_folders
-                        }
-                    )
-                    layoutGroup.check(
-                        when (DeviceFilesPrefs.layout(context)) {
-                            DeviceLayoutMode.LIST -> R.id.view_layout_list
-                            DeviceLayoutMode.GRID -> R.id.view_layout_grid
-                        }
-                    )
-                    val sorts = DeviceSort.entries.map { getString(it.labelRes) }
-                    sortValue.setAdapter(
-                        ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, sorts)
-                    )
-                    sortValue.setText(getString(DeviceFilesPrefs.sort(context).labelRes), false)
-                    carouselSwitch?.isVisible = true
-                    carouselSwitch?.isChecked = DeviceFilesPrefs.showCarousel(context)
-                }
-                Mode.PLAY -> {
-                    carouselSwitch?.isVisible = false
-                    layoutGroup.check(
-                        when (PlayViewPrefs.layout(context)) {
-                            DeviceLayoutMode.LIST -> R.id.view_layout_list
-                            DeviceLayoutMode.GRID -> R.id.view_layout_grid
-                        }
-                    )
-                    val sorts = PlaySort.entries.map { getString(it.labelRes) }
-                    sortValue.setAdapter(
-                        ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, sorts)
-                    )
-                    sortValue.setText(getString(PlayViewPrefs.sort(context).labelRes), false)
-                }
-                Mode.VAULT -> {
-                    layoutGroup.check(
-                        when (vaultLayout) {
-                            VaultLayoutMode.LIST -> R.id.view_layout_list
-                            VaultLayoutMode.GRID -> R.id.view_layout_grid
-                        }
-                    )
-                    val sorts = VaultSortBy.entries.map { getString(it.labelRes) }
-                    sortValue.setAdapter(
-                        ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, sorts)
-                    )
-                    sortValue.setText(getString(vaultSort.labelRes), false)
-                }
-                Mode.VAULT_PICKER -> {
-                    layoutGroup.check(
-                        when (pickerLayout) {
-                            VaultLayoutMode.LIST -> R.id.view_layout_list
-                            VaultLayoutMode.GRID -> R.id.view_layout_grid
-                        }
-                    )
-                    val sorts = VaultPickerSortBy.entries.map { getString(it.labelRes) }
-                    sortValue.setAdapter(
-                        ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, sorts)
-                    )
-                    sortValue.setText(getString(pickerSort.labelRes), false)
-                }
-            }
-            suppressListeners = false
-            renderOrder()
-            renderFields()
-        }
-
-        renderAll()
-
-        if (mode == Mode.DEVICE) {
-            showGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
-                if (!isChecked || suppressListeners) return@addOnButtonCheckedListener
-                val selected = when (checkedId) {
-                    R.id.view_show_files -> DeviceShowMode.FILES
-                    R.id.view_show_folders -> DeviceShowMode.FOLDERS
-                    else -> DeviceShowMode.ALL_FOLDERS
-                }
-                if (DeviceFilesPrefs.showMode(context) != selected) {
-                    DeviceFilesPrefs.setShowMode(context, selected)
+        MediaViewOptionsContent(
+            mode = mode,
+            vaultLayout = vaultLayout,
+            vaultSort = vaultSort,
+            vaultDescending = vaultDescending,
+            vaultFields = vaultFields,
+            pickerLayout = pickerLayout,
+            pickerSort = pickerSort,
+            pickerDescending = pickerDescending,
+            pickerFields = pickerFields,
+            onDeviceShowModeChanged = { newMode ->
+                if (DeviceFilesPrefs.showMode(context) != newMode) {
+                    DeviceFilesPrefs.setShowMode(context, newMode)
                     changed = true
                 }
-            }
-
-            carouselSwitch?.setOnCheckedChangeListener { _, isChecked ->
-                if (suppressListeners) return@setOnCheckedChangeListener
+            },
+            onDeviceCarouselChanged = { isChecked ->
                 DeviceFilesPrefs.setShowCarousel(context, isChecked)
                 changed = true
-            }
-        }
-
-        layoutGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (!isChecked || suppressListeners) return@addOnButtonCheckedListener
-            val isGrid = checkedId == R.id.view_layout_grid
-            when (mode) {
-                Mode.DEVICE -> {
-                    val target = if (isGrid) DeviceLayoutMode.GRID else DeviceLayoutMode.LIST
-                    if (DeviceFilesPrefs.layout(context) != target) {
-                        DeviceFilesPrefs.setLayout(context, target)
-                        changed = true
+            },
+            onLayoutChanged = { isGrid ->
+                when (mode) {
+                    Mode.DEVICE -> {
+                        val target = if (isGrid) DeviceLayoutMode.GRID else DeviceLayoutMode.LIST
+                        if (DeviceFilesPrefs.layout(context) != target) {
+                            DeviceFilesPrefs.setLayout(context, target)
+                            changed = true
+                        }
+                    }
+                    Mode.PLAY -> {
+                        val target = if (isGrid) DeviceLayoutMode.GRID else DeviceLayoutMode.LIST
+                        if (PlayViewPrefs.layout(context) != target) {
+                            PlayViewPrefs.setLayout(context, target)
+                            changed = true
+                        }
+                    }
+                    Mode.VAULT -> {
+                        val target = if (isGrid) VaultLayoutMode.GRID else VaultLayoutMode.LIST
+                        if (vaultLayout != target) {
+                            vaultLayout = target
+                            changed = true
+                        }
+                    }
+                    Mode.VAULT_PICKER -> {
+                        val target = if (isGrid) VaultLayoutMode.GRID else VaultLayoutMode.LIST
+                        if (pickerLayout != target) {
+                            pickerLayout = target
+                            changed = true
+                        }
                     }
                 }
-                Mode.PLAY -> {
-                    val target = if (isGrid) DeviceLayoutMode.GRID else DeviceLayoutMode.LIST
-                    if (PlayViewPrefs.layout(context) != target) {
-                        PlayViewPrefs.setLayout(context, target)
-                        changed = true
+            },
+            onSortChanged = { position ->
+                when (mode) {
+                    Mode.DEVICE -> {
+                        DeviceSort.entries.getOrNull(position)?.let { sort ->
+                            if (DeviceFilesPrefs.sort(context) != sort) {
+                                DeviceFilesPrefs.setSort(context, sort)
+                                DeviceFilesPrefs.setNewestFirst(
+                                    context,
+                                    SortOrderLabels.defaultDescending(sort.category)
+                                )
+                                changed = true
+                            }
+                        }
+                    }
+                    Mode.PLAY -> {
+                        PlaySort.entries.getOrNull(position)?.let { sort ->
+                            if (PlayViewPrefs.sort(context) != sort) {
+                                PlayViewPrefs.setSort(context, sort)
+                                PlayViewPrefs.setDescending(
+                                    context,
+                                    SortOrderLabels.defaultDescending(sort.category)
+                                )
+                                changed = true
+                            }
+                        }
+                    }
+                    Mode.VAULT -> {
+                        VaultSortBy.entries.getOrNull(position)?.let { sort ->
+                            if (vaultSort != sort) {
+                                vaultSort = sort
+                                vaultDescending = SortOrderLabels.defaultDescending(sort.category)
+                                changed = true
+                            }
+                        }
+                    }
+                    Mode.VAULT_PICKER -> {
+                        VaultPickerSortBy.entries.getOrNull(position)?.let { sort ->
+                            if (pickerSort != sort) {
+                                pickerSort = sort
+                                pickerDescending = SortOrderLabels.defaultDescending(sort.category)
+                                changed = true
+                            }
+                        }
                     }
                 }
-                Mode.VAULT -> {
-                    val target = if (isGrid) VaultLayoutMode.GRID else VaultLayoutMode.LIST
-                    if (vaultLayout != target) {
-                        vaultLayout = target
-                        changed = true
+            },
+            onDescendingChanged = { descending ->
+                when (mode) {
+                    Mode.DEVICE -> {
+                        if (DeviceFilesPrefs.newestFirst(context) != descending) {
+                            DeviceFilesPrefs.setNewestFirst(context, descending)
+                            changed = true
+                        }
+                    }
+                    Mode.PLAY -> {
+                        if (PlayViewPrefs.descending(context) != descending) {
+                            PlayViewPrefs.setDescending(context, descending)
+                            changed = true
+                        }
+                    }
+                    Mode.VAULT -> {
+                        if (vaultDescending != descending) {
+                            vaultDescending = descending
+                            changed = true
+                        }
+                    }
+                    Mode.VAULT_PICKER -> {
+                        if (pickerDescending != descending) {
+                            pickerDescending = descending
+                            changed = true
+                        }
                     }
                 }
-                Mode.VAULT_PICKER -> {
-                    val target = if (isGrid) VaultLayoutMode.GRID else VaultLayoutMode.LIST
-                    if (pickerLayout != target) {
-                        pickerLayout = target
-                        changed = true
-                    }
-                }
-            }
-        }
-
-        orderGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (!isChecked || suppressListeners) return@addOnButtonCheckedListener
-            val primarySelected = checkedId == R.id.view_order_primary
-            val desc = SortOrderLabels.descendingForButton(currentSortCategory(), primarySelected)
-            if (currentDescending() != desc) {
-                setDescending(desc)
+            },
+            onFieldToggled = { fieldName, isChecked ->
                 changed = true
+                when (mode) {
+                    Mode.DEVICE -> {
+                        val field = runCatching { DeviceField.valueOf(fieldName) }.getOrNull() ?: return@MediaViewOptionsContent
+                        val current = DeviceFilesPrefs.fields(context).toMutableSet()
+                        if (isChecked) current.add(field) else current.remove(field)
+                        DeviceFilesPrefs.setFields(context, current)
+                    }
+                    Mode.PLAY -> {
+                        val field = runCatching { PlayField.valueOf(fieldName) }.getOrNull() ?: return@MediaViewOptionsContent
+                        val current = PlayViewPrefs.fields(context).toMutableSet()
+                        if (isChecked) current.add(field) else current.remove(field)
+                        PlayViewPrefs.setFields(context, current)
+                    }
+                    Mode.VAULT -> {
+                        val field = runCatching { VaultField.valueOf(fieldName) }.getOrNull() ?: return@MediaViewOptionsContent
+                        val current = vaultFields.toMutableSet()
+                        if (isChecked) current.add(field) else current.remove(field)
+                        vaultFields = current
+                    }
+                    Mode.VAULT_PICKER -> {
+                        val field = runCatching { VaultPickerField.valueOf(fieldName) }.getOrNull() ?: return@MediaViewOptionsContent
+                        val current = pickerFields.toMutableSet()
+                        if (isChecked) current.add(field) else current.remove(field)
+                        pickerFields = current
+                    }
+                }
+            },
+            onReset = {
+                when (mode) {
+                    Mode.DEVICE -> DeviceFilesPrefs.reset(context)
+                    Mode.PLAY -> PlayViewPrefs.reset(context)
+                    Mode.VAULT -> {
+                        vaultLayout = VaultLayoutMode.GRID
+                        vaultSort = VaultSortBy.DATE
+                        vaultDescending = true
+                        vaultFields = VaultSettings.DEFAULT_VISIBLE_FIELDS.toSet()
+                    }
+                    Mode.VAULT_PICKER -> {
+                        pickerLayout = VaultLayoutMode.GRID
+                        pickerSort = VaultPickerSortBy.DATE
+                        pickerDescending = true
+                        pickerFields = VaultSettings.DEFAULT_PICKER_VISIBLE_FIELDS.toSet()
+                    }
+                }
+                changed = true
+            },
+            onDone = {
+                dismiss()
             }
-        }
-
-        sortValue.setOnItemClickListener { _, _, position, _ ->
-            when (mode) {
-                Mode.DEVICE -> {
-                    DeviceSort.entries.getOrNull(position)?.let { sort ->
-                        if (DeviceFilesPrefs.sort(context) != sort) {
-                            DeviceFilesPrefs.setSort(context, sort)
-                            DeviceFilesPrefs.setNewestFirst(
-                                context,
-                                SortOrderLabels.defaultDescending(sort.category)
-                            )
-                            changed = true
-                        }
-                    }
-                }
-                Mode.PLAY -> {
-                    PlaySort.entries.getOrNull(position)?.let { sort ->
-                        if (PlayViewPrefs.sort(context) != sort) {
-                            PlayViewPrefs.setSort(context, sort)
-                            PlayViewPrefs.setDescending(
-                                context,
-                                SortOrderLabels.defaultDescending(sort.category)
-                            )
-                            changed = true
-                        }
-                    }
-                }
-                Mode.VAULT -> {
-                    VaultSortBy.entries.getOrNull(position)?.let { sort ->
-                        if (vaultSort != sort) {
-                            vaultSort = sort
-                            vaultDescending = SortOrderLabels.defaultDescending(sort.category)
-                            changed = true
-                        }
-                    }
-                }
-                Mode.VAULT_PICKER -> {
-                    VaultPickerSortBy.entries.getOrNull(position)?.let { sort ->
-                        if (pickerSort != sort) {
-                            pickerSort = sort
-                            pickerDescending = SortOrderLabels.defaultDescending(sort.category)
-                            changed = true
-                        }
-                    }
-                }
-            }
-            renderOrder()
-        }
-
-        resetBtn.setOnClickListener {
-            when (mode) {
-                Mode.DEVICE -> DeviceFilesPrefs.reset(context)
-                Mode.PLAY -> PlayViewPrefs.reset(context)
-                Mode.VAULT -> {
-                    vaultLayout = VaultLayoutMode.GRID
-                    vaultSort = VaultSortBy.DATE
-                    vaultDescending = true
-                    vaultFields = VaultSettings.DEFAULT_VISIBLE_FIELDS.toMutableSet()
-                }
-                Mode.VAULT_PICKER -> {
-                    pickerLayout = VaultLayoutMode.GRID
-                    pickerSort = VaultPickerSortBy.DATE
-                    pickerDescending = true
-                    pickerFields = VaultSettings.DEFAULT_PICKER_VISIBLE_FIELDS.toMutableSet()
-                }
-            }
-            changed = true
-            renderAll()
-        }
-
-        doneBtn.setOnClickListener { dismiss() }
+        )
     }
 
     override fun onDismiss(dialog: DialogInterface) {
@@ -555,5 +412,341 @@ class MediaViewOptionsSheet : BottomSheetDialogFragment() {
                     )
                 }
             }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun MediaViewOptionsContent(
+    mode: MediaViewOptionsSheet.Mode,
+    vaultLayout: VaultLayoutMode,
+    vaultSort: VaultSortBy,
+    vaultDescending: Boolean,
+    vaultFields: Set<VaultField>,
+    pickerLayout: VaultLayoutMode,
+    pickerSort: VaultPickerSortBy,
+    pickerDescending: Boolean,
+    pickerFields: Set<VaultPickerField>,
+    onDeviceShowModeChanged: (DeviceShowMode) -> Unit,
+    onDeviceCarouselChanged: (Boolean) -> Unit,
+    onLayoutChanged: (isGrid: Boolean) -> Unit,
+    onSortChanged: (position: Int) -> Unit,
+    onDescendingChanged: (Boolean) -> Unit,
+    onFieldToggled: (fieldName: String, isChecked: Boolean) -> Unit,
+    onReset: () -> Unit,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+
+    val titleRes = when (mode) {
+        MediaViewOptionsSheet.Mode.DEVICE -> R.string.device_view_options
+        MediaViewOptionsSheet.Mode.PLAY -> R.string.play_view_options
+        MediaViewOptionsSheet.Mode.VAULT, MediaViewOptionsSheet.Mode.VAULT_PICKER -> R.string.vault_view_options
+    }
+
+    val summaryRes = when (mode) {
+        MediaViewOptionsSheet.Mode.DEVICE -> R.string.device_view_options_summary
+        MediaViewOptionsSheet.Mode.PLAY -> R.string.play_view_options_summary
+        MediaViewOptionsSheet.Mode.VAULT -> R.string.vault_view_options_summary
+        MediaViewOptionsSheet.Mode.VAULT_PICKER -> R.string.vault_picker_view_options_summary
+    }
+
+    val fieldsSummaryRes = when (mode) {
+        MediaViewOptionsSheet.Mode.VAULT -> R.string.vault_fields_summary
+        MediaViewOptionsSheet.Mode.VAULT_PICKER -> R.string.vault_picker_fields_summary
+        else -> R.string.device_fields_summary
+    }
+
+    val isGrid = when (mode) {
+        MediaViewOptionsSheet.Mode.DEVICE -> DeviceFilesPrefs.layout(context) == DeviceLayoutMode.GRID
+        MediaViewOptionsSheet.Mode.PLAY -> PlayViewPrefs.layout(context) == DeviceLayoutMode.GRID
+        MediaViewOptionsSheet.Mode.VAULT -> vaultLayout == VaultLayoutMode.GRID
+        MediaViewOptionsSheet.Mode.VAULT_PICKER -> pickerLayout == VaultLayoutMode.GRID
+    }
+
+    val sortCategory: SortCategory = when (mode) {
+        MediaViewOptionsSheet.Mode.DEVICE -> DeviceFilesPrefs.sort(context).category
+        MediaViewOptionsSheet.Mode.PLAY -> PlayViewPrefs.sort(context).category
+        MediaViewOptionsSheet.Mode.VAULT -> vaultSort.category
+        MediaViewOptionsSheet.Mode.VAULT_PICKER -> pickerSort.category
+    }
+
+    val isDescending = when (mode) {
+        MediaViewOptionsSheet.Mode.DEVICE -> DeviceFilesPrefs.newestFirst(context)
+        MediaViewOptionsSheet.Mode.PLAY -> PlayViewPrefs.descending(context)
+        MediaViewOptionsSheet.Mode.VAULT -> vaultDescending
+        MediaViewOptionsSheet.Mode.VAULT_PICKER -> pickerDescending
+    }
+
+    val sortLabels = when (mode) {
+        MediaViewOptionsSheet.Mode.DEVICE -> DeviceSort.entries.map { stringResource(it.labelRes) }
+        MediaViewOptionsSheet.Mode.PLAY -> PlaySort.entries.map { stringResource(it.labelRes) }
+        MediaViewOptionsSheet.Mode.VAULT -> VaultSortBy.entries.map { stringResource(it.labelRes) }
+        MediaViewOptionsSheet.Mode.VAULT_PICKER -> VaultPickerSortBy.entries.map { stringResource(it.labelRes) }
+    }
+
+    val currentSortIndex = when (mode) {
+        MediaViewOptionsSheet.Mode.DEVICE -> DeviceSort.entries.indexOf(DeviceFilesPrefs.sort(context)).coerceAtLeast(0)
+        MediaViewOptionsSheet.Mode.PLAY -> PlaySort.entries.indexOf(PlayViewPrefs.sort(context)).coerceAtLeast(0)
+        MediaViewOptionsSheet.Mode.VAULT -> VaultSortBy.entries.indexOf(vaultSort).coerceAtLeast(0)
+        MediaViewOptionsSheet.Mode.VAULT_PICKER -> VaultPickerSortBy.entries.indexOf(pickerSort).coerceAtLeast(0)
+    }
+
+    val (orderPrimaryRes, orderSecondaryRes) = SortOrderLabels.orderLabelRes(sortCategory)
+    val isPrimary = SortOrderLabels.isPrimarySelected(sortCategory, isDescending)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+    ) {
+        // Title & Summary
+        Text(
+            text = stringResource(titleRes),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = stringResource(summaryRes),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+
+        // Show Section (Mode.DEVICE only)
+        if (mode == MediaViewOptionsSheet.Mode.DEVICE) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.device_show_label),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            val currentShowMode = DeviceFilesPrefs.showMode(context)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = currentShowMode == DeviceShowMode.ALL_FOLDERS,
+                    onClick = { onDeviceShowModeChanged(DeviceShowMode.ALL_FOLDERS) },
+                    label = { Text(stringResource(R.string.device_show_all_folders), fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = currentShowMode == DeviceShowMode.FILES,
+                    onClick = { onDeviceShowModeChanged(DeviceShowMode.FILES) },
+                    label = { Text(stringResource(R.string.device_show_files), fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = currentShowMode == DeviceShowMode.FOLDERS,
+                    onClick = { onDeviceShowModeChanged(DeviceShowMode.FOLDERS) },
+                    label = { Text(stringResource(R.string.device_show_folders), fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.device_show_carousel),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Switch(
+                    checked = DeviceFilesPrefs.showCarousel(context),
+                    onCheckedChange = onDeviceCarouselChanged
+                )
+            }
+        }
+
+        // Layout Section
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.device_layout_label),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = !isGrid,
+                onClick = { onLayoutChanged(false) },
+                label = { Text(stringResource(R.string.list)) },
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = isGrid,
+                onClick = { onLayoutChanged(true) },
+                label = { Text(stringResource(R.string.grid)) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // Sort Section
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.device_sort_label),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+
+        var sortExpanded by remember { mutableStateOf(false) }
+        ExposedDropdownMenuBox(
+            expanded = sortExpanded,
+            onExpandedChange = { sortExpanded = !sortExpanded },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            OutlinedTextField(
+                value = sortLabels.getOrElse(currentSortIndex) { "" },
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortExpanded) },
+                modifier = Modifier
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    .fillMaxWidth()
+            )
+            ExposedDropdownMenu(
+                expanded = sortExpanded,
+                onDismissRequest = { sortExpanded = false }
+            ) {
+                sortLabels.forEachIndexed { index, label ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            sortExpanded = false
+                            onSortChanged(index)
+                        }
+                    )
+                }
+            }
+        }
+
+        // Order Section
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.device_order_label),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = isPrimary,
+                onClick = {
+                    val desc = SortOrderLabels.descendingForButton(sortCategory, true)
+                    onDescendingChanged(desc)
+                },
+                label = { Text(stringResource(orderPrimaryRes)) },
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = !isPrimary,
+                onClick = {
+                    val desc = SortOrderLabels.descendingForButton(sortCategory, false)
+                    onDescendingChanged(desc)
+                },
+                label = { Text(stringResource(orderSecondaryRes)) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // Fields Section
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.device_fields_label),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = stringResource(fieldsSummaryRes),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+        )
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            when (mode) {
+                MediaViewOptionsSheet.Mode.DEVICE -> {
+                    val selected = DeviceFilesPrefs.fields(context)
+                    DeviceField.entries.forEach { field ->
+                        FilterChip(
+                            selected = field in selected,
+                            onClick = { onFieldToggled(field.name, field !in selected) },
+                            label = { Text(stringResource(field.labelRes)) }
+                        )
+                    }
+                }
+                MediaViewOptionsSheet.Mode.PLAY -> {
+                    val selected = PlayViewPrefs.fields(context)
+                    PlayField.entries.forEach { field ->
+                        FilterChip(
+                            selected = field in selected,
+                            onClick = { onFieldToggled(field.name, field !in selected) },
+                            label = { Text(stringResource(field.labelRes)) }
+                        )
+                    }
+                }
+                MediaViewOptionsSheet.Mode.VAULT -> {
+                    VaultField.entries.forEach { field ->
+                        FilterChip(
+                            selected = field in vaultFields,
+                            onClick = { onFieldToggled(field.name, field !in vaultFields) },
+                            label = { Text(stringResource(field.labelRes)) }
+                        )
+                    }
+                }
+                MediaViewOptionsSheet.Mode.VAULT_PICKER -> {
+                    VaultPickerField.entries.forEach { field ->
+                        FilterChip(
+                            selected = field in pickerFields,
+                            onClick = { onFieldToggled(field.name, field !in pickerFields) },
+                            label = { Text(stringResource(field.labelRes)) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Action Buttons: Reset & Done
+        Spacer(modifier = Modifier.height(20.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onReset) {
+                Text(stringResource(R.string.reset))
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(onClick = onDone) {
+                Text(stringResource(R.string.done))
+            }
+        }
     }
 }

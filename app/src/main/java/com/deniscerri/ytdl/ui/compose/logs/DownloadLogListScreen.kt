@@ -206,7 +206,7 @@ private fun SwipeDeleteBackground() {
 
 /**
  * 1:1 with `log_card.xml`: transparent card, 5 dp corners, 5 dp primary stroke while checked,
- * 20×10 dp content padding, 30 dp file icon, 15 sp bold title, 12 sp chips.
+ * 20Ãƒâ€”10 dp content padding, 30 dp file icon, 15 sp bold title, 12 sp chips.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

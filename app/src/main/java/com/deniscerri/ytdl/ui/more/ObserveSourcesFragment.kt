@@ -1,21 +1,24 @@
 package com.deniscerri.ytdl.ui.more
 
-import android.annotation.SuppressLint
-import android.content.DialogInterface
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
-import android.widget.RelativeLayout
-import androidx.fragment.app.Fragment
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.asFlow
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.preference.PreferenceManager
-import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
@@ -29,115 +32,217 @@ import com.deniscerri.ytdl.database.models.observeSources.ObserveSourcesItem
 import com.deniscerri.ytdl.database.repository.ObserveSourcesRepository
 import com.deniscerri.ytdl.database.viewmodel.DownloadViewModel
 import com.deniscerri.ytdl.database.viewmodel.ObserveSourcesViewModel
-import com.deniscerri.ytdl.ui.adapter.ObserveSourcesAdapter
+import com.deniscerri.ytdl.ui.compose.components.ConfirmDialog
+import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
+import com.deniscerri.ytdl.ui.compose.observesources.ObserveLinksDialog
+import com.deniscerri.ytdl.ui.compose.observesources.ObserveSourceDetailsSheet
+import com.deniscerri.ytdl.ui.compose.observesources.ObserveSourceSettingsSheet
+import com.deniscerri.ytdl.ui.compose.observesources.ObserveSourcesScreen
 import com.deniscerri.ytdl.util.UiUtil
 import com.deniscerri.ytdl.work.background.ObserveSourceWorker
-import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.chip.Chip
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
+/**
+ * Observe sources screen (Phase 3).
+ *
+ * Hosts [ObserveSourcesScreen], [ObserveSourceDetailsSheet], [ObserveSourceSettingsSheet]
+ * and [ObserveLinksDialog] inside [ComposeFragment].
+ *
+ * Replaces `fragment_observe_sources.xml` and `ObserveSourcesAdapter`.
+ */
+class ObserveSourcesFragment : ComposeFragment() {
 
-class ObserveSourcesFragment : Fragment(), ObserveSourcesAdapter.OnItemClickListener {
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var listAdapter: ObserveSourcesAdapter
-    private lateinit var topAppBar: MaterialToolbar
+    private lateinit var mainActivity: MainActivity
     private lateinit var observeSourcesViewModel: ObserveSourcesViewModel
     private lateinit var downloadViewModel: DownloadViewModel
-    private lateinit var noResults : RelativeLayout
-    private lateinit var mainActivity: MainActivity
     private lateinit var preferences: SharedPreferences
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        mainActivity = activity as MainActivity
+
+    private var selectedDetailsItem by mutableStateOf<ObserveSourcesItem?>(null)
+    private var settingsItem by mutableStateOf<ObserveSourcesItem?>(null)
+    private var linkDialogData by mutableStateOf<Pair<String, List<String>>?>(null)
+    private var showDeleteAllConfirm by mutableStateOf(false)
+    private var itemToDelete by mutableStateOf<ObserveSourcesItem?>(null)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         preferences = PreferenceManager.getDefaultSharedPreferences(requireContext())
-        return inflater.inflate(R.layout.fragment_observe_sources, container, false)
-    }
-
-    @SuppressLint("RestrictedApi")
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-        topAppBar = view.findViewById(R.id.toolbar)
-        topAppBar.setNavigationOnClickListener { mainActivity.onBackPressedDispatcher.onBackPressed() }
-        noResults = view.findViewById(R.id.no_results)
-
-        listAdapter =
-            ObserveSourcesAdapter(
-                this,
-                mainActivity
-            )
-        val newSource = view.findViewById<Chip>(R.id.newSource)
-        recyclerView = view.findViewById(R.id.source_recyclerView)
-        recyclerView.layoutManager = GridLayoutManager(context, resources.getInteger(R.integer.grid_size))
-        recyclerView.adapter = listAdapter
-
         observeSourcesViewModel = ViewModelProvider(this)[ObserveSourcesViewModel::class.java]
         downloadViewModel = ViewModelProvider(this)[DownloadViewModel::class.java]
-        observeSourcesViewModel.items.observe(viewLifecycleOwner) {
-            if (it.isEmpty()) noResults.visibility = View.VISIBLE
-            else noResults.visibility = View.GONE
-            listAdapter.submitList(it)
-        }
-        initMenu()
+    }
 
-        newSource.setOnClickListener {
-            showDialog(null)
-        }
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        mainActivity = activity as MainActivity
+    }
 
-        var previousRunning: Set<Long> = emptySet()
-        WorkManager.getInstance(requireContext())
-            .getWorkInfosByTagLiveData("observeSources")
-            .observe(viewLifecycleOwner) { infos ->
+    @Composable
+    override fun Content() {
+        val itemsFlow = remember { observeSourcesViewModel.items.asFlow() }
+        val items by itemsFlow.collectAsState(initial = emptyList())
+
+        var runningIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+
+        DisposableEffect(viewLifecycleOwner) {
+            var previousRunning = emptySet<Long>()
+            val liveData = WorkManager.getInstance(requireContext())
+                .getWorkInfosByTagLiveData("observeSources")
+            val observer = Observer<List<WorkInfo>> { infos ->
                 val running = infos
                     .filter { it.state == WorkInfo.State.RUNNING }
                     .flatMap { it.tags }
-                    .mapNotNull { it.toLongOrNull() }   // only the id.toString() tags survive
+                    .mapNotNull { it.toLongOrNull() }
                     .toSet()
 
-                // a run that was running and no longer is => just finished
                 (previousRunning - running).forEach { _ ->
-                    Snackbar.make(requireView(), getString(R.string.check_complete), Snackbar.LENGTH_SHORT).show()
+                    view?.let { v ->
+                        Snackbar.make(v, getString(R.string.check_complete), Snackbar.LENGTH_SHORT).show()
+                    }
                 }
                 previousRunning = running
-                listAdapter.setRunningIds(running)
+                runningIds = running
             }
-    }
+            liveData.observe(viewLifecycleOwner, observer)
+            onDispose {
+                liveData.removeObserver(observer)
+            }
+        }
 
+        ObserveSourcesScreen(
+            items = items,
+            runningIds = runningIds,
+            onBack = {
+                mainActivity.onBackPressedDispatcher.onBackPressed()
+            },
+            onNewSource = {
+                showDialog(null)
+            },
+            onDeleteAll = {
+                showDeleteAllConfirm = true
+            },
+            onItemClick = { item ->
+                selectedDetailsItem = item
+            },
+            onItemLongClick = { item ->
+                itemToDelete = item
+            },
+        )
 
-    private fun initMenu() {
-        topAppBar.setOnMenuItemClickListener { m: MenuItem ->
-            when (m.itemId) {
-                R.id.delete_sources -> {
-                    val deleteDialog = MaterialAlertDialogBuilder(requireContext())
-                    deleteDialog.setTitle(getString(R.string.confirm_delete_history))
-                    deleteDialog.setMessage(getString(R.string.confirm_delete_sources_desc))
-                    deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-                    deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-                        observeSourcesViewModel.deleteAll()
+        selectedDetailsItem?.let { item ->
+            // Keep the item in details sync with the latest DB state
+            val latestItem = items.find { it.id == item.id } ?: item
+            ObserveSourceDetailsSheet(
+                item = latestItem,
+                onDismiss = { selectedDetailsItem = null },
+                onOpenSettings = {
+                    settingsItem = latestItem
+                },
+                onCheckNow = {
+                    onItemSearch(latestItem)
+                },
+                onPauseResume = {
+                    onPauseResume(latestItem)
+                },
+                onEdit = {
+                    selectedDetailsItem = null
+                    showDialog(latestItem.url)
+                },
+                onDelete = {
+                    selectedDetailsItem = null
+                    itemToDelete = latestItem
+                },
+                onOpenLink = { url ->
+                    runCatching {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                     }
-                    deleteDialog.show()
-                }
-            }
-            true
+                },
+                onCopyLink = { url ->
+                    UiUtil.copyToClipboard(url, requireActivity())
+                },
+                onShowLinkList = { title, links ->
+                    linkDialogData = title to links
+                },
+            )
+        }
+
+        settingsItem?.let { item ->
+            ObserveSourceSettingsSheet(
+                item = item,
+                onDismiss = { settingsItem = null },
+                onReScanFromScratch = {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        observeSourcesViewModel.resetProcessedLinks(item)
+                    }
+                    settingsItem = null
+                },
+                onSkipBacklog = {
+                    view?.let { v ->
+                        Snackbar.make(v, getString(R.string.observe_updating), Snackbar.LENGTH_SHORT).show()
+                    }
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        observeSourcesViewModel.markCurrentAsProcessed(item)
+                    }
+                    settingsItem = null
+                },
+                onUnskipIgnored = {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        observeSourcesViewModel.clearIgnoredLinks(item)
+                    }
+                    settingsItem = null
+                },
+            )
+        }
+
+        linkDialogData?.let { (title, links) ->
+            ObserveLinksDialog(
+                title = title,
+                links = links,
+                onCopy = { joined ->
+                    UiUtil.copyToClipboard(joined, requireActivity())
+                },
+                onDismiss = { linkDialogData = null },
+            )
+        }
+
+        if (showDeleteAllConfirm) {
+            ConfirmDialog(
+                title = stringResource(R.string.confirm_delete_history),
+                message = stringResource(R.string.confirm_delete_sources_desc),
+                onConfirm = {
+                    observeSourcesViewModel.deleteAll()
+                    showDeleteAllConfirm = false
+                },
+                onDismiss = { showDeleteAllConfirm = false },
+            )
+        }
+
+        itemToDelete?.let { item ->
+            ConfirmDialog(
+                title = stringResource(R.string.confirm_delete_history),
+                message = item.name,
+                onConfirm = {
+                    observeSourcesViewModel.delete(item)
+                    itemToDelete = null
+                },
+                onDismiss = { itemToDelete = null },
+            )
         }
     }
 
-    private fun showDialog(url: String?){
+    private fun showDialog(url: String?) {
         lifecycleScope.launch {
             val bundle = Bundle()
-            bundle.putSerializable("type", downloadViewModel.getDownloadType(
-                DownloadType.valueOf(preferences.getString("download_type", "auto")!!), "")
+            bundle.putSerializable(
+                "type", downloadViewModel.getDownloadType(
+                    DownloadType.valueOf(preferences.getString("download_type", "auto")!!), ""
+                )
             )
 
-            if (url != null){
-                val item = withContext(Dispatchers.IO){
+            if (url != null) {
+                val item = withContext(Dispatchers.IO) {
                     observeSourcesViewModel.getByURL(url)
                 }
                 bundle.putParcelable("item", item)
@@ -145,9 +250,9 @@ class ObserveSourcesFragment : Fragment(), ObserveSourcesAdapter.OnItemClickList
 
             findNavController().navigate(R.id.observeSourcesBottomSheetDialog, bundle)
         }
-
     }
-    fun onItemSearch(item: ObserveSourcesItem) {
+
+    private fun onItemSearch(item: ObserveSourcesItem) {
         runCatching {
             val workConstraints = Constraints.Builder()
             val workRequest = OneTimeWorkRequestBuilder<ObserveSourceWorker>()
@@ -163,57 +268,21 @@ class ObserveSourcesFragment : Fragment(), ObserveSourcesAdapter.OnItemClickList
                 workRequest.build()
             )
         }.onFailure {
-            Snackbar.make(requireView(), it.message.toString(), Snackbar.LENGTH_SHORT).show()
+            view?.let { v ->
+                Snackbar.make(v, it.message.toString(), Snackbar.LENGTH_SHORT).show()
+            }
         }
     }
 
-    override fun onItemStart(item: ObserveSourcesItem, position: Int) {
-        lifecycleScope.launch {
-            withContext(Dispatchers.IO){
+    private fun onPauseResume(item: ObserveSourcesItem) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (item.status == ObserveSourcesRepository.SourceStatus.ACTIVE) {
+                observeSourcesViewModel.stopObserving(item)
+            } else {
                 item.status = ObserveSourcesRepository.SourceStatus.ACTIVE
                 item.runCount = 0
                 observeSourcesViewModel.insertUpdate(item)
             }
-            listAdapter.notifyItemChanged(position)
-        }
-
-    }
-
-
-    override fun onItemClick(item: ObserveSourcesItem, position: Int) {
-        UiUtil.showObserveSourceDetailsCard(
-            item = item,
-            context = requireActivity(),
-            onCheckNow = { onItemSearch(item) },
-            onPauseResume = {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    if (item.status == ObserveSourcesRepository.SourceStatus.ACTIVE) {
-                        observeSourcesViewModel.stopObserving(item)
-                    } else {
-                        item.status = ObserveSourcesRepository.SourceStatus.ACTIVE
-                        item.runCount = 0
-                        observeSourcesViewModel.insertUpdate(item)
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        listAdapter.notifyItemChanged(position)
-                    }
-                }
-            },
-            onEdit = { showDialog(item.url) },
-            onDelete = { observeSourcesViewModel.delete(item) },
-            onReScanFromScratch = { lifecycleScope.launch(Dispatchers.IO) { observeSourcesViewModel.resetProcessedLinks(item) } },
-            onSkipBacklog = {
-                Snackbar.make(requireView(), getString(R.string.observe_updating), Snackbar.LENGTH_SHORT).show()
-                lifecycleScope.launch(Dispatchers.IO) { observeSourcesViewModel.markCurrentAsProcessed(item) }
-            },
-            onUnskipIgnored = { lifecycleScope.launch(Dispatchers.IO) { observeSourcesViewModel.clearIgnoredLinks(item) } },
-        )
-    }
-
-    override fun onDelete(item: ObserveSourcesItem) {
-        UiUtil.showGenericDeleteDialog(requireContext(), item.name){
-            observeSourcesViewModel.delete(item)
         }
     }
 }
