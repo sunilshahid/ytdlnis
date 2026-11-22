@@ -133,7 +133,7 @@ object NavbarUtil {
         allItems.forEach { item ->
             val name = context.resources.getResourceEntryName(item.itemId)
             if (used.add(name)) {
-                item.isVisible = false
+                item.isVisible = (name == "playFragment")
                 result.add(item)
             }
         }

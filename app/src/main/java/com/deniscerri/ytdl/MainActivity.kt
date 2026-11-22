@@ -166,28 +166,17 @@ class MainActivity : BaseActivity() {
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                doOnAttach {
-                                    post {
-                                        if (isDestroyed || isFinishing) return@post
-                                        val existing = supportFragmentManager.findFragmentById(R.id.frame_layout) as? NavHostFragment
-                                        val host = if (existing != null) {
-                                            supportFragmentManager.beginTransaction()
-                                                .replace(R.id.frame_layout, existing)
-                                                .setPrimaryNavigationFragment(existing)
-                                                .commitNowAllowingStateLoss()
-                                            existing
-                                        } else {
-                                            NavHostFragment.create(0).also { fragment ->
-                                                supportFragmentManager.beginTransaction()
-                                                    .replace(R.id.frame_layout, fragment)
-                                                    .setPrimaryNavigationFragment(fragment)
-                                                    .commitNowAllowingStateLoss()
-                                            }
-                                        }
-                                        navHostFragment = host
-                                        navController = host.navController
-                                        initNavController(savedInstanceState)
-                                    }
+                                val existing = supportFragmentManager.findFragmentById(R.id.frame_layout) as? NavHostFragment
+                                val host = existing ?: NavHostFragment.create(0).also { fragment ->
+                                    supportFragmentManager.beginTransaction()
+                                        .replace(R.id.frame_layout, fragment)
+                                        .setPrimaryNavigationFragment(fragment)
+                                        .commitNowAllowingStateLoss()
+                                }
+                                navHostFragment = host
+                                navController = host.navController
+                                if (runCatching { navController.graph }.getOrNull() == null) {
+                                    initNavController(savedInstanceState)
                                 }
                             }
                         }

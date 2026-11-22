@@ -2,6 +2,7 @@ package com.deniscerri.ytdl.ui.compose.home
 
 import com.deniscerri.ytdl.database.models.ResultItem
 import com.deniscerri.ytdl.database.models.SearchSuggestionItem
+import com.deniscerri.ytdl.database.viewmodel.ResultViewModel
 
 /**
  * State for the Home screen (Phase 4a & 4b).
@@ -21,4 +22,6 @@ data class HomeUiState(
     val copiedUrl: String? = null,
     val showDownloadAllFab: Boolean = false,
     val totalCount: Int = 0,
+    val failedQueries: List<ResultViewModel.FailedQuery> = emptyList(),
+    val availableUpdates: List<ResultViewModel.AvailableUpdate> = emptyList(),
 )

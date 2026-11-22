@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Context.CLIPBOARD_SERVICE
-import android.content.DialogInterface
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.util.Patterns
@@ -34,7 +33,6 @@ import com.deniscerri.ytdl.ui.compose.host.ComposeFragment
 import com.deniscerri.ytdl.util.Extensions.isURL
 import com.deniscerri.ytdl.util.NotificationUtil
 import com.deniscerri.ytdl.util.UiUtil
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,8 +43,7 @@ import kotlinx.coroutines.withContext
 /**
  * HomeFragment hosting the Jetpack Compose [HomeScreen] (Phase 4).
  */
-class HomeFragment : ComposeFragment(),
-    FailedFetchesBottomSheetDialog.Listener, UpdatesDialog.Listener {
+class HomeFragment : ComposeFragment(), UpdatesDialog.Listener {
 
     private lateinit var mainActivity: MainActivity
     private lateinit var resultViewModel: ResultViewModel
@@ -133,6 +130,20 @@ class HomeFragment : ComposeFragment(),
                 uiState = uiState.copy(isLoading = resUi.processing)
             }
         }
+
+        // Collect failed queries
+        lifecycleScope.launch {
+            resultViewModel.failedQueries.collectLatest { failed ->
+                uiState = uiState.copy(failedQueries = failed)
+            }
+        }
+
+        // Collect available updates
+        lifecycleScope.launch {
+            resultViewModel.availableUpdates.collectLatest { updates ->
+                uiState = uiState.copy(availableUpdates = updates)
+            }
+        }
     }
 
     private fun handleArguments() {
@@ -197,6 +208,10 @@ class HomeFragment : ComposeFragment(),
     }
 
     private fun startSearch(query: String) {
+        uiState = uiState.copy(
+            searchQuery = query,
+            isSearchActive = false,
+        )
         if (query.isBlank()) return
 
         // Stealth Vault Trigger
@@ -204,11 +219,6 @@ class HomeFragment : ComposeFragment(),
             startActivity(com.deniscerri.ytdl.vault.ui.VaultActivity.createIntent(requireContext()))
             return
         }
-
-        uiState = uiState.copy(
-            searchQuery = query,
-            isSearchActive = false,
-        )
 
         if (sharedPreferences?.getBoolean("incognito", false) != true) {
             resultViewModel.addSearchQueryToHistory(query)
@@ -304,8 +314,42 @@ class HomeFragment : ComposeFragment(),
             onSuggestionClick = { text ->
                 startSearch(text)
             },
-            onSuggestionLongClick = { text ->
-                showDeleteHistoryDialog(text)
+            onDeleteHistoryItem = { text ->
+                resultViewModel.removeSearchQueryFromHistory(text)
+                updateSearchSuggestions(uiState.searchQuery)
+            },
+            onConfirmDeleteSelected = {
+                val selected = uiState.selectedItemIds.toList()
+                resultViewModel.deleteSelected(selected)
+                uiState = uiState.copy(
+                    isSelectionMode = false,
+                    selectedItemIds = emptySet(),
+                )
+            },
+            onDeleteAllFailed = {
+                resultViewModel.clearFailedQueries()
+            },
+            onRetryAllFailed = {
+                val queries = resultViewModel.failedQueries.value.map { it.query }
+                queries.forEach { resultViewModel.removeFailedQuery(it) }
+                resultViewModel.retryFailedQueries(queries)
+            },
+            onRetryFailedItem = { item ->
+                resultViewModel.removeFailedQuery(item.query)
+                resultViewModel.retryFailedQueries(listOf(item.query))
+            },
+            onDownloadAnywayFailed = { item ->
+                resultViewModel.removeFailedQuery(item.query)
+                onDownloadAnyway(item.query)
+            },
+            onUpdateSelected = { update ->
+                onUpdateSelected(update)
+            },
+            onDismissUpdate = { update ->
+                resultViewModel.dismissUpdate(update)
+            },
+            onDismissAllUpdates = {
+                resultViewModel.dismissAllUpdates()
             },
             onItemClick = { item ->
                 if (uiState.isSelectionMode) {
@@ -392,42 +436,36 @@ class HomeFragment : ComposeFragment(),
                 }
             },
             onDeleteSelectedClick = {
-                showDeleteSelectedDialog()
+                // Handled in Compose HomeScreen dialog
+            },
+            onClearResults = {
+                resultViewModel.clearResults()
+                uiState = uiState.copy(
+                    searchQuery = "",
+                    suggestions = emptyList(),
+                    showDownloadAllFab = false,
+                    selectedItemIds = emptySet(),
+                    isSelectionMode = false,
+                )
+            },
+            onClearSearchHistory = {
+                resultViewModel.deleteAllSearchQueryHistory()
+                uiState = uiState.copy(suggestions = emptyList())
+            },
+            onCopyUrls = {
+                lifecycleScope.launch {
+                    val urls = withContext(Dispatchers.IO) { resultViewModel.getURLs() }
+                    UiUtil.copyToClipboard(urls.distinct().joinToString("\n"), requireActivity())
+                }
             },
         )
-    }
-
-    private fun showDeleteHistoryDialog(text: String) {
-        val deleteDialog = MaterialAlertDialogBuilder(requireContext())
-        deleteDialog.setTitle(getString(R.string.you_are_going_to_delete) + " \"" + text + "\"!")
-        deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-        deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-            resultViewModel.removeSearchQueryFromHistory(text)
-            updateSearchSuggestions(uiState.searchQuery)
-        }
-        deleteDialog.show()
-    }
-
-    private fun showDeleteSelectedDialog() {
-        val deleteDialog = MaterialAlertDialogBuilder(requireContext())
-        deleteDialog.setTitle(getString(R.string.you_are_going_to_delete_multiple_items))
-        deleteDialog.setNegativeButton(getString(R.string.cancel)) { dialogInterface: DialogInterface, _: Int -> dialogInterface.cancel() }
-        deleteDialog.setPositiveButton(getString(R.string.ok)) { _: DialogInterface?, _: Int ->
-            val selected = uiState.selectedItemIds.toList()
-            resultViewModel.deleteSelected(selected)
-            uiState = uiState.copy(
-                isSelectionMode = false,
-                selectedItemIds = emptySet(),
-            )
-        }
-        deleteDialog.show()
     }
 
     fun scrollToTop() {
         // Compose scroll-to-top hook
     }
 
-    override fun onDownloadAnyway(url: String) {
+    fun onDownloadAnyway(url: String) {
         lifecycleScope.launch {
             val type = DownloadType.valueOf(sharedPreferences?.getString("preferred_download_type", "video") ?: "video")
             if (sharedPreferences?.getBoolean("download_card", true) == true) {
@@ -476,10 +514,5 @@ class HomeFragment : ComposeFragment(),
                 }
             }
         }
-    }
-
-    private fun showFailedFetches() {
-        if (childFragmentManager.findFragmentByTag("failedFetches") != null) return
-        FailedFetchesBottomSheetDialog().show(childFragmentManager, "failedFetches")
     }
 }

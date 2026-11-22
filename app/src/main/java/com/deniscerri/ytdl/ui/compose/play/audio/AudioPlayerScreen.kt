@@ -31,8 +31,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
@@ -53,10 +55,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -81,13 +86,13 @@ import kotlin.math.abs
  * Implements:
  * - Header: Collapse down-chevron pill [ v ] + Track Title & Artist + Queue button
  * - Center: Rounded album artwork with ambient glow & swipe-to-skip gesture
- * - Scrubber: Elapsed time pill [ 0:03 ] + continuous Slider + Total time pill [ 4:12 ]
+ * - Scrubber: Elapsed time pill [ 0:03 ] + thick M3 wavy seek bar + Total time pill [ 4:12 ]
  * - Actions: Expressive pill chips [ ♡ Like ] [ Audio ] [ ≡♫ Lyrics ]
  * - Controls: Expressive squircle containers [ ⤨ ] [ ◀◀ ] [ || (Hero tall pill) ] [ ▶▶ ] [ 🔁 ]
  * - Speed indicator: [ 1x ] clickable to cycle speeds
  * - Interactive Audio Details & Queue modal bottom sheets
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AudioPlayerScreen(
     onBackClick: () -> Unit,
@@ -150,6 +155,12 @@ fun AudioPlayerScreen(
     val progressFraction = if (duration > 0) {
         (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
     } else 0f
+
+    // Thick rounded stroke shared by the wavy track and its unfilled guide line.
+    val density = LocalDensity.current
+    val waveStroke = remember(density) {
+        Stroke(width = with(density) { 8.dp.toPx() }, cap = StrokeCap.Round)
+    }
 
     Box(
         modifier = modifier
@@ -347,27 +358,45 @@ fun AudioPlayerScreen(
                     )
                 }
 
-                // Continuous Slider
-                Slider(
-                    value = if (isScrubbing) scrubProgress else progressFraction,
-                    onValueChange = { fraction ->
-                        isScrubbing = true
-                        scrubProgress = fraction
-                    },
-                    onValueChangeFinished = {
-                        isScrubbing = false
-                        val targetMs = (scrubProgress * duration).toLong()
-                        PlaybackController.seekTo(targetMs)
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = accentContainerColor,
-                        activeTrackColor = accentContainerColor,
-                        inactiveTrackColor = Color(0xFF383445)
-                    ),
+                // Wavy seek bar: LinearWavyProgressIndicator renders the Material 3 Expressive wavy
+                // track (flattened when paused, flowing when playing) while the Slider handles scrubbing.
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 6.dp)
-                )
+                        .padding(horizontal = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LinearWavyProgressIndicator(
+                        progress = { if (isScrubbing) scrubProgress else progressFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp),
+                        color = accentContainerColor,
+                        trackColor = Color(0xFF383445),
+                        stroke = waveStroke,
+                        trackStroke = waveStroke,
+                        amplitude = { _ -> if (state.playing) 1f else 0f },
+                    )
+
+                    Slider(
+                        value = if (isScrubbing) scrubProgress else progressFraction,
+                        onValueChange = { fraction: Float ->
+                            isScrubbing = true
+                            scrubProgress = fraction
+                        },
+                        onValueChangeFinished = {
+                            isScrubbing = false
+                            val targetMs = (scrubProgress * duration).toLong()
+                            PlaybackController.seekTo(targetMs)
+                        },
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentContainerColor,
+                            activeTrackColor = Color.Transparent,
+                            inactiveTrackColor = Color.Transparent
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
                 // Total or Remaining time pill [ 4:12 ]
                 Surface(

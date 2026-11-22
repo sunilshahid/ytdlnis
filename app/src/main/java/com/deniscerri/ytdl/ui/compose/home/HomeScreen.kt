@@ -27,9 +27,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -44,6 +51,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -58,6 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -67,15 +76,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.deniscerri.ytdl.R
 import com.deniscerri.ytdl.database.models.ResultItem
+import com.deniscerri.ytdl.database.viewmodel.ResultViewModel
 import com.deniscerri.ytdl.ui.compose.components.EmptyState
 import com.deniscerri.ytdl.ui.compose.components.YtdlChip
+import com.deniscerri.ytdl.ui.compose.dialogs.FailedFetchesSheet
 
 /**
  * Screen composable for the Home tab (Phase 4a & 4b).
  *
  * Implements:
- * - Expressive Header: "YTD.Ex" (YTD. in red, Ex in light green)
- * - M3 SearchBar with leading search lens and trailing provider dropdown (more_vert)
+ * - Expressive Header: "YTD.Ex" (YTD in red, .Ex in light green)
+ * - M3 SearchBar with leading search lens and trailing overflow menu (more_vert) offering
+ *   clear results / clear search history / copy URLs alongside the search-provider switch
  * - Search suggestions, provider chips, paged result cards,
  * - Playlist filter chips, multi-selection mode, and floating action buttons.
  */
@@ -104,9 +116,26 @@ fun HomeScreen(
     onSelectAllClick: () -> Unit = {},
     onInvertSelectionClick: () -> Unit = {},
     onDeleteSelectedClick: () -> Unit = {},
+    onDeleteHistoryItem: (String) -> Unit = {},
+    onConfirmDeleteSelected: () -> Unit = {},
+    onDeleteAllFailed: () -> Unit = {},
+    onRetryAllFailed: () -> Unit = {},
+    onRetryFailedItem: (ResultViewModel.FailedQuery) -> Unit = {},
+    onDownloadAnywayFailed: (ResultViewModel.FailedQuery) -> Unit = {},
+    onUpdateSelected: (ResultViewModel.AvailableUpdate) -> Unit = {},
+    onDismissUpdate: (ResultViewModel.AvailableUpdate) -> Unit = {},
+    onDismissAllUpdates: () -> Unit = {},
+    onClearResults: () -> Unit = {},
+    onClearSearchHistory: () -> Unit = {},
+    onCopyUrls: () -> Unit = {},
 ) {
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    var queryToDelete by remember { mutableStateOf<String?>(null) }
+    var showDeleteSelectedDialog by remember { mutableStateOf(false) }
+    var showFailedFetchesSheet by remember { mutableStateOf(false) }
+    var showUpdatesDialog by remember { mutableStateOf(false) }
 
     BackHandler(enabled = state.isSearchActive || state.isSelectionMode) {
         if (state.isSelectionMode) {
@@ -152,7 +181,10 @@ fun HomeScreen(
                                 contentDescription = stringResource(R.string.invert_selected),
                             )
                         }
-                        IconButton(onClick = onDeleteSelectedClick) {
+                        IconButton(onClick = {
+                            showDeleteSelectedDialog = true
+                            onDeleteSelectedClick()
+                        }) {
                             Icon(
                                 painter = painterResource(R.drawable.baseline_delete_24),
                                 contentDescription = stringResource(R.string.delete),
@@ -238,7 +270,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(paddingValues),
         ) {
-            // 1. App Header / Logo: YTDLnis.Ex (YTDL in red, nis in onSurface, .Ex in light green)
+            // 1. App Header / Logo: YTD.Ex (YTD in red, .Ex in light green)
             if (!state.isSelectionMode && !state.isSearchActive) {
                 Row(
                     modifier = Modifier
@@ -254,15 +286,7 @@ fun HomeScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                             ) {
-                                append("YTDL")
-                            }
-                            withStyle(
-                                SpanStyle(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            ) {
-                                append("nis")
+                                append("YTD")
                             }
                             withStyle(
                                 SpanStyle(
@@ -323,35 +347,149 @@ fun HomeScreen(
                                 }
                             },
                             trailingIcon = {
-                                if (state.searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { onSearchQueryChange("") }) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.baseline_close_24),
-                                            contentDescription = stringResource(R.string.clear),
-                                        )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (state.searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { onSearchQueryChange("") }) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.baseline_close_24),
+                                                contentDescription = stringResource(R.string.clear),
+                                            )
+                                        }
                                     }
-                                } else {
                                     Box {
                                         IconButton(onClick = { showProviderMenu = true }) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.baseline_more_vert_24),
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                            if (state.failedQueries.isNotEmpty() || state.availableUpdates.isNotEmpty()) {
+                                                BadgedBox(
+                                                    badge = {
+                                                        Badge(
+                                                            containerColor = if (state.failedQueries.isNotEmpty()) {
+                                                                MaterialTheme.colorScheme.error
+                                                            } else {
+                                                                MaterialTheme.colorScheme.primary
+                                                            }
+                                                        )
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.baseline_more_vert_24),
+                                                        contentDescription = stringResource(R.string.more),
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            } else {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.baseline_more_vert_24),
+                                                    contentDescription = stringResource(R.string.more),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
                                         }
                                         DropdownMenu(
                                             expanded = showProviderMenu,
                                             onDismissRequest = { showProviderMenu = false }
                                         ) {
+                                            // Search provider switch
                                             state.providers.forEach { provider ->
                                                 DropdownMenuItem(
                                                     text = { Text(provider.name) },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                             painter = painterResource(R.drawable.ic_search),
+                                                             contentDescription = null,
+                                                        )
+                                                    },
+                                                    trailingIcon = {
+                                                        if (provider.value == state.selectedProvider) {
+                                                            Icon(
+                                                                painter = painterResource(R.drawable.ic_check),
+                                                                contentDescription = stringResource(R.string.selected),
+                                                            )
+                                                        }
+                                                    },
                                                     onClick = {
                                                         onProviderSelected(provider.value)
                                                         showProviderMenu = false
                                                     }
                                                 )
                                             }
+
+                                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                                            if (state.failedQueries.isNotEmpty()) {
+                                                DropdownMenuItem(
+                                                    text = { Text(stringResource(R.string.failed_to_fetch) + " (${state.failedQueries.size})") },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            painter = painterResource(R.drawable.baseline_error_24),
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.error,
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showProviderMenu = false
+                                                        showFailedFetchesSheet = true
+                                                    }
+                                                )
+                                            }
+
+                                            if (state.availableUpdates.isNotEmpty()) {
+                                                DropdownMenuItem(
+                                                    text = { Text(stringResource(R.string.update) + " (${state.availableUpdates.size})") },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            painter = painterResource(R.drawable.ic_down),
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showProviderMenu = false
+                                                        showUpdatesDialog = true
+                                                    }
+                                                )
+                                            }
+
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.remove_results)) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_delete_all),
+                                                        contentDescription = null,
+                                                    )
+                                                },
+                                                enabled = state.results.isNotEmpty(),
+                                                onClick = {
+                                                    showProviderMenu = false
+                                                    onClearResults()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.remove_search_history)) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_history),
+                                                        contentDescription = null,
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showProviderMenu = false
+                                                    onClearSearchHistory()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.copy_urls)) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_copy),
+                                                        contentDescription = null,
+                                                    )
+                                                },
+                                                enabled = state.results.isNotEmpty(),
+                                                onClick = {
+                                                    showProviderMenu = false
+                                                    onCopyUrls()
+                                                }
+                                            )
                                         }
                                     }
                                 }
@@ -389,7 +527,10 @@ fun HomeScreen(
                                     onSearchActiveChange(false)
                                     onSuggestionClick(query)
                                 },
-                                onLongClick = onSuggestionLongClick,
+                                onLongClick = { query ->
+                                    queryToDelete = query
+                                    onSuggestionLongClick(query)
+                                },
                                 onAppendToSearch = onSearchQueryChange,
                             )
                         }
@@ -475,5 +616,191 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // Dialog: Delete single search history suggestion
+    if (queryToDelete != null) {
+        val text = queryToDelete!!
+        AlertDialog(
+            onDismissRequest = { queryToDelete = null },
+            title = {
+                Text(stringResource(R.string.you_are_going_to_delete) + " \"$text\"!")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteHistoryItem(text)
+                        queryToDelete = null
+                    }
+                ) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { queryToDelete = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // Dialog: Delete multiple selected items
+    if (showDeleteSelectedDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedDialog = false },
+            title = {
+                Text(stringResource(R.string.you_are_going_to_delete_multiple_items))
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onConfirmDeleteSelected()
+                        showDeleteSelectedDialog = false
+                    }
+                ) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectedDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // ModalBottomSheet: Failed Fetches
+    if (showFailedFetchesSheet && state.failedQueries.isNotEmpty()) {
+        FailedFetchesSheet(
+            failedQueries = state.failedQueries,
+            onDismiss = { showFailedFetchesSheet = false },
+            onDeleteAll = {
+                onDeleteAllFailed()
+                showFailedFetchesSheet = false
+            },
+            onRetryAll = {
+                onRetryAllFailed()
+                showFailedFetchesSheet = false
+            },
+            onRetryItem = { query ->
+                onRetryFailedItem(query)
+                if (state.failedQueries.size <= 1) {
+                    showFailedFetchesSheet = false
+                }
+            },
+            onDownloadAnyway = { query ->
+                onDownloadAnywayFailed(query)
+                if (state.failedQueries.size <= 1) {
+                    showFailedFetchesSheet = false
+                }
+            },
+        )
+    }
+
+    // Dialog: Available Updates
+    if (showUpdatesDialog && state.availableUpdates.isNotEmpty()) {
+        val summary = pluralStringResource(
+            R.plurals.updates_available_summary,
+            state.availableUpdates.size,
+            state.availableUpdates.size,
+        )
+        AlertDialog(
+            onDismissRequest = { showUpdatesDialog = false },
+            title = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.update),
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            text = {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.availableUpdates, key = {
+                        when (it) {
+                            is ResultViewModel.AvailableUpdate.App -> "app_${it.release.tag_name}"
+                            is ResultViewModel.AvailableUpdate.Package -> "pkg_${it.item.title}_${it.release.version}"
+                        }
+                    }) { update ->
+                        val updateTitle = when (update) {
+                            is ResultViewModel.AvailableUpdate.App -> stringResource(
+                                R.string.version_ready_to_download,
+                                update.release.tag_name
+                            )
+                            is ResultViewModel.AvailableUpdate.Package -> "${update.item.title} (${update.release.version})"
+                        }
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    showUpdatesDialog = false
+                                    onUpdateSelected(update)
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_down),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = updateTitle,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                                IconButton(onClick = { onDismissUpdate(update) }) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.baseline_close_24),
+                                        contentDescription = stringResource(R.string.close),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDismissAllUpdates()
+                        showUpdatesDialog = false
+                    }
+                ) {
+                    Text(stringResource(R.string.dismiss))
+                }
+            }
+        )
     }
 }
