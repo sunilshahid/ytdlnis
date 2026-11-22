@@ -10,7 +10,6 @@
         android:id="@+id/video_player"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        app:animation_enabled="false"
         app:controller_layout_id="@layout/exo_player_control_view"
         app:keep_content_on_player_reset="true"
         app:resize_mode="fit"

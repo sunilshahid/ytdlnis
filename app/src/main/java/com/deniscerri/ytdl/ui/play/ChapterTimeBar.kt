@@ -8,6 +8,7 @@ import android.util.AttributeSet
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.DefaultTimeBar
+import com.deniscerri.ytdl.R
 import kotlin.math.roundToInt
 
 /**
@@ -17,11 +18,17 @@ import kotlin.math.roundToInt
  * background colour so the played/unplayed bar looks physically split at each boundary.
  */
 @OptIn(UnstableApi::class)
-class ChapterTimeBar @JvmOverloads constructor(
-    context: Context,
-    attrs: AttributeSet? = null,
-    defStyleAttr: Int = 0
-) : DefaultTimeBar(context, attrs, defStyleAttr) {
+class ChapterTimeBar : DefaultTimeBar {
+
+    constructor(context: Context) : super(context)
+
+    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs) {
+        initAttributes(context, attrs, 0)
+    }
+
+    constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) : super(context, attrs, defStyleAttr) {
+        initAttributes(context, attrs, defStyleAttr)
+    }
 
     private val density = resources.displayMetrics.density
     private val notchWidthPx = 2.5f * density
@@ -31,27 +38,33 @@ class ChapterTimeBar @JvmOverloads constructor(
         color = Color.argb(235, 0, 0, 0)
     }
 
-    private val barHeightPx: Float
-    private val barGravity: Int
+    private var barHeightPx: Float = 3.5f * density
+    private var barGravity: Int = DefaultTimeBar.BAR_GRAVITY_CENTER
 
     private var chapterFractions = FloatArray(0)
 
-    init {
-        val styled = context.obtainStyledAttributes(
-            attrs,
-            androidx.media3.ui.R.styleable.DefaultTimeBar,
-            defStyleAttr,
-            0
-        )
-        barHeightPx = styled.getDimension(
-            androidx.media3.ui.R.styleable.DefaultTimeBar_bar_height,
-            3.5f * density
-        )
-        barGravity = styled.getInt(
-            androidx.media3.ui.R.styleable.DefaultTimeBar_bar_gravity,
-            DefaultTimeBar.BAR_GRAVITY_CENTER
-        )
-        styled.recycle()
+    private fun initAttributes(context: Context, attrs: AttributeSet?, defStyleAttr: Int) {
+        if (attrs == null) return
+        try {
+            val styled = context.obtainStyledAttributes(
+                attrs,
+                R.styleable.DefaultTimeBar,
+                defStyleAttr,
+                0
+            )
+            barHeightPx = styled.getDimension(
+                R.styleable.DefaultTimeBar_bar_height,
+                3.5f * density
+            )
+            barGravity = styled.getInt(
+                R.styleable.DefaultTimeBar_bar_gravity,
+                DefaultTimeBar.BAR_GRAVITY_CENTER
+            )
+            styled.recycle()
+        } catch (_: Throwable) {
+            barHeightPx = 3.5f * density
+            barGravity = DefaultTimeBar.BAR_GRAVITY_CENTER
+        }
     }
 
     /** Updates the segment boundaries. Cheap no-op when nothing changed. */
