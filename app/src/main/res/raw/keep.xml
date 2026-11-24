@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@id/exo_*,@layout/exo_*,@string/exo_*,@drawable/exo_*,@color/exo_*,@dimen/exo_*,@style/Exo*" />

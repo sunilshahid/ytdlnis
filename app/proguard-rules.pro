@@ -74,6 +74,31 @@
 -dontwarn androidx.room.paging.**
 
 -dontwarn com.google.android.exoplayer2.**
+
+# AndroidX Media3 (ExoPlayer) ProGuard rules
+-keep class androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+
+# Keep Media3 UI R$id and R$layout fields so PlayerControlViewLayoutManager and PlayerView can look up view IDs
+-keep class androidx.media3.ui.R$* {
+    public static <fields>;
+}
+-keepclassmembers class androidx.media3.ui.R$* {
+    public static <fields>;
+}
+
+# Keep all exo_* resource IDs in application and library R classes
+-keepclassmembers class **.R$id {
+    public static final int exo_*;
+    public static int exo_*;
+}
+-keepclassmembers class **.R$layout {
+    public static final int exo_*;
+    public static int exo_*;
+}
+-keepclassmembers class **.R$styleable {
+    public static <fields>;
+}
 # Retain generic signatures of TypeToken and its subclasses with R8 version 3.0 and higher.
 -keep,allowobfuscation,allowshrinking class com.google.gson.reflect.TypeToken
 -keep,allowobfuscation,allowshrinking class * extends com.google.gson.reflect.TypeToken
