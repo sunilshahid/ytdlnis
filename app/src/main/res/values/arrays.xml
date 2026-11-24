@@ -206,14 +206,18 @@
 
     <array name="themes">
         <item>@string/system</item>
-        <item>@string/dark</item>
         <item>@string/light</item>
+        <item>@string/theme_dusk</item>
+        <item>@string/dark</item>
+        <item>@string/theme_oled</item>
     </array>
 
     <array name="themes_values">
         <item>System</item>
-        <item>Dark</item>
         <item>Light</item>
+        <item>Dusk</item>
+        <item>Dark</item>
+        <item>OLED</item>
     </array>
 
     <array name="accents">

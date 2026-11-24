@@ -1,20 +1,24 @@
 package com.deniscerri.ytdl.ui.compose.settings
 
-import android.content.Context
+import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -36,10 +40,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.preference.PreferenceManager
 import com.deniscerri.ytdl.R
-import com.deniscerri.ytdl.ui.compose.components.ConfirmDialog
 import com.deniscerri.ytdl.ui.compose.components.SingleChoiceDialog
+import com.deniscerri.ytdl.ui.compose.settings.appearance.CustomColorPickerDialog
+import com.deniscerri.ytdl.ui.compose.settings.appearance.PaletteSwatch
+import com.deniscerri.ytdl.ui.compose.settings.appearance.ScallopedButton
+import com.deniscerri.ytdl.ui.compose.settings.appearance.ThemePreviewCard
+import com.deniscerri.ytdl.ui.compose.theme.PaletteCatalog
+import com.deniscerri.ytdl.ui.compose.theme.ThemeController
+import com.deniscerri.ytdl.ui.compose.theme.ThemeMode
+import com.deniscerri.ytdl.ui.compose.theme.buildColorScheme
+import com.deniscerri.ytdl.ui.compose.theme.resolveScheme
 import com.deniscerri.ytdl.util.LocaleUtil
 import com.deniscerri.ytdl.util.ThemeUtil
 
@@ -51,7 +64,12 @@ fun AppearanceSettingsScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
+    val config by ThemeController.config.collectAsStateWithLifecycle()
+    val isSystemDark = isSystemInDarkTheme()
+
     var showIconPicker by remember { mutableStateOf(false) }
+    var showCustomColorDialog by remember { mutableStateOf(false) }
+    var showFontDialog by remember { mutableStateOf(false) }
 
     val supported = remember { LocaleUtil.supportedLocales(context) }
     var currentLanguageSummary by remember {
@@ -59,12 +77,7 @@ fun AppearanceSettingsScreen(
     }
     var showLanguageDialog by remember { mutableStateOf(false) }
 
-    val themes = stringArrayResource(R.array.themes).toList()
-    val themeValues = stringArrayResource(R.array.themes_values).toList()
-    var pendingThemeValue by remember { mutableStateOf<String?>(null) }
-
-    val accents = stringArrayResource(R.array.accents).toList()
-    val accentValues = stringArrayResource(R.array.accents_values).toList()
+    val currentFont = prefs.getString("app_font", "system") ?: "system"
 
     val hideThumbnailsEntries = stringArrayResource(R.array.hide_thumbnail).toList()
     val hideThumbnailsValues = stringArrayResource(R.array.hide_thumbnail_values).toList()
@@ -77,6 +90,244 @@ fun AppearanceSettingsScreen(
         ?.let { stringResource(it.nameResource) } ?: stringResource(R.string.defaultValue)
 
     SettingsScreenColumn(modifier = modifier) {
+        // Section: Theme
+        SettingsCategory(title = stringResource(R.string.Theme))
+
+        val themeModes = listOf(
+            ThemeMode.SYSTEM to stringResource(R.string.system),
+            ThemeMode.LIGHT to stringResource(R.string.light),
+            ThemeMode.DUSK to stringResource(R.string.theme_dusk),
+            ThemeMode.DARK to stringResource(R.string.dark),
+            ThemeMode.OLED to stringResource(R.string.theme_oled),
+        )
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        ) {
+            items(themeModes) { (mode, label) ->
+                val previewDark = when (mode) {
+                    ThemeMode.LIGHT -> false
+                    ThemeMode.SYSTEM -> isSystemDark
+                    else -> true
+                }
+                val previewScheme = resolveScheme(context, config.copy(mode = mode), previewDark)
+                ThemePreviewCard(
+                    title = label,
+                    mode = mode,
+                    previewScheme = previewScheme,
+                    selected = config.mode == mode,
+                    onClick = {
+                        ThemeController.update { it.copy(mode = mode) }
+                        (context as? android.app.Activity)?.let { _ ->
+                            ThemeUtil.applyNightMode(prefs)
+                        }
+                    }
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Section: Palette
+        SettingsCategory(title = stringResource(R.string.palette))
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        ) {
+            items(PaletteCatalog.entries) { entry ->
+                val scheme = buildColorScheme(
+                    seed = entry.seed,
+                    dark = when (config.mode) {
+                        ThemeMode.LIGHT -> false
+                        ThemeMode.SYSTEM -> isSystemDark
+                        else -> true
+                    },
+                    variant = entry.variant,
+                    contrast = if (config.highContrast) 1.0 else 0.0,
+                )
+                val swatchColors = listOf(
+                    scheme.primaryContainer,
+                    scheme.tertiaryContainer,
+                    scheme.primary,
+                    scheme.surfaceContainerHighest,
+                )
+                val isSelected = !config.materialYou && config.paletteId == entry.id
+                PaletteSwatch(
+                    colors = swatchColors,
+                    selected = isSelected,
+                    label = stringResource(entry.nameRes),
+                    onClick = {
+                        ThemeController.update {
+                            it.copy(paletteId = entry.id, customSeed = null, materialYou = false)
+                        }
+                    }
+                )
+            }
+
+            // Custom palette swatch if selected
+            if (config.paletteId == "custom" && config.customSeed != null) {
+                item {
+                    val customScheme = buildColorScheme(
+                        seed = config.customSeed!!,
+                        dark = when (config.mode) {
+                            ThemeMode.LIGHT -> false
+                            ThemeMode.SYSTEM -> isSystemDark
+                            else -> true
+                        },
+                        contrast = if (config.highContrast) 1.0 else 0.0,
+                    )
+                    val customSwatchColors = listOf(
+                        customScheme.primaryContainer,
+                        customScheme.tertiaryContainer,
+                        customScheme.primary,
+                        customScheme.surfaceContainerHighest,
+                    )
+                    PaletteSwatch(
+                        colors = customSwatchColors,
+                        selected = !config.materialYou,
+                        label = stringResource(R.string.palette_custom),
+                        onClick = {
+                            showCustomColorDialog = true
+                        }
+                    )
+                }
+            }
+
+            // Scalloped Button for "+ Make" custom palette
+            item {
+                ScallopedButton(
+                    label = stringResource(R.string.palette_make),
+                    onClick = {
+                        showCustomColorDialog = true
+                    }
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Section: Color & type
+        SettingsCategory(title = stringResource(R.string.color_and_type))
+
+        // Material You switch (API 31+)
+        SettingsSwitchPreference(
+            title = stringResource(R.string.material_you),
+            summary = stringResource(R.string.material_you_summary),
+            key = "material_you",
+            defaultValue = false,
+            enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+            iconRes = R.drawable.baseline_color_lens_24,
+            onCheckedChange = { isChecked ->
+                ThemeController.update { it.copy(materialYou = isChecked) }
+                (context as? android.app.Activity)?.let { activity ->
+                    ThemeUtil.updateTheme(activity)
+                }
+            }
+        )
+
+        // Font
+        SettingsPreference(
+            title = stringResource(R.string.font),
+            summary = if (currentFont == "space_grotesk") stringResource(R.string.font_space_grotesk) else stringResource(R.string.font_system),
+            iconRes = R.drawable.baseline_format_size_24,
+            showChevron = true,
+            onClick = { showFontDialog = true }
+        )
+
+        // High contrast
+        SettingsSwitchPreference(
+            title = stringResource(R.string.high_contrast),
+            summary = stringResource(R.string.pure_theme_summary),
+            key = "high_contrast",
+            defaultValue = false,
+            iconRes = R.drawable.ic_theme_circle,
+            onCheckedChange = { isChecked ->
+                ThemeController.update { it.copy(highContrast = isChecked) }
+                ThemeUtil.updateThemes()
+            }
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        // Section: Motion & feel
+        SettingsCategory(title = stringResource(R.string.motion_and_feel))
+
+        SettingsSwitchPreference(
+            title = stringResource(R.string.haptics_enabled),
+            summary = stringResource(R.string.haptics_summary),
+            key = "haptics_enabled",
+            defaultValue = true,
+            iconRes = R.drawable.ic_clock,
+        )
+
+        SettingsSwitchPreference(
+            title = stringResource(R.string.smooth_motion),
+            summary = stringResource(R.string.smooth_motion_summary),
+            key = "smooth_motion",
+            defaultValue = true,
+            iconRes = R.drawable.ic_speed,
+        )
+
+        SettingsSwitchPreference(
+            title = stringResource(R.string.reduce_motion),
+            summary = stringResource(R.string.reduce_motion_summary),
+            key = "reduce_motion",
+            defaultValue = false,
+            iconRes = R.drawable.baseline_loop_24,
+            onCheckedChange = { isChecked ->
+                ThemeController.update { it.copy(reduceMotion = isChecked) }
+            }
+        )
+
+        SettingsSwitchPreference(
+            title = stringResource(R.string.glass_dock),
+            summary = stringResource(R.string.glass_dock_summary),
+            key = "glass_dock",
+            defaultValue = false,
+            iconRes = R.drawable.ic_lines,
+        )
+
+        SettingsSwitchPreference(
+            title = stringResource(R.string.fullscreen_mode),
+            summary = stringResource(R.string.fullscreen_mode_summary),
+            key = "fullscreen_mode",
+            defaultValue = false,
+            iconRes = R.drawable.ic_aspect_ratio,
+        )
+
+        SettingsSwitchPreference(
+            title = stringResource(R.string.compact_mode),
+            summary = stringResource(R.string.compact_mode_summary),
+            key = "compact_mode",
+            defaultValue = false,
+            iconRes = R.drawable.ic_card,
+            onCheckedChange = { isChecked ->
+                ThemeController.update { it.copy(compact = isChecked) }
+            }
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        // Section: App icon
+        SettingsCategory(title = stringResource(R.string.app_icon))
+
+        SettingsPreference(
+            title = stringResource(R.string.app_icon),
+            summary = currentIconSummary,
+            iconRes = R.drawable.ic_frame,
+            showChevron = true,
+            onClick = {
+                if (onOpenIconPicker != null) onOpenIconPicker() else showIconPicker = true
+            }
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        // Section: Layout
         SettingsCategory(title = stringResource(R.string.appearance))
 
         // Language
@@ -91,55 +342,6 @@ fun AppearanceSettingsScreen(
                 } else {
                     showLanguageDialog = true
                 }
-            }
-        )
-
-        // Theme
-        SettingsListPreference(
-            title = stringResource(R.string.Theme),
-            key = "ytdlnis_theme",
-            defaultValue = "System",
-            entries = themes,
-            entryValues = themeValues,
-            iconRes = R.drawable.ic_theme_circle,
-            onValueChange = { newValue ->
-                pendingThemeValue = newValue
-            }
-        )
-
-        // App Icon
-        SettingsPreference(
-            title = stringResource(R.string.app_icon),
-            summary = currentIconSummary,
-            iconRes = R.drawable.ic_frame,
-            showChevron = true,
-            onClick = {
-                if (onOpenIconPicker != null) onOpenIconPicker() else showIconPicker = true
-            }
-        )
-
-        // Accent
-        SettingsListPreference(
-            title = stringResource(R.string.accents),
-            key = "theme_accent",
-            defaultValue = "blue",
-            entries = accents,
-            entryValues = accentValues,
-            iconRes = R.drawable.baseline_color_lens_24,
-            onValueChange = {
-                ThemeUtil.updateThemes()
-            }
-        )
-
-        // High contrast / Pure black
-        SettingsSwitchPreference(
-            title = stringResource(R.string.high_contrast),
-            summary = stringResource(R.string.pure_theme_summary),
-            key = "high_contrast",
-            defaultValue = false,
-            iconRes = R.drawable.ic_theme_circle,
-            onCheckedChange = {
-                ThemeUtil.updateThemes()
             }
         )
 
@@ -193,18 +395,34 @@ fun AppearanceSettingsScreen(
         )
     }
 
-    pendingThemeValue?.let { themeVal ->
-        ConfirmDialog(
-            title = stringResource(R.string.app_icon_change),
-            message = null,
-            onConfirm = {
-                prefs.edit().putString("ytdlnis_theme", themeVal).commit()
-                ThemeUtil.updateThemes()
-                pendingThemeValue = null
+    if (showFontDialog) {
+        val fontOptions = listOf(
+            stringResource(R.string.font_system),
+            stringResource(R.string.font_space_grotesk)
+        )
+        val selectedIdx = if (currentFont == "space_grotesk") 1 else 0
+        SingleChoiceDialog(
+            title = stringResource(R.string.font),
+            options = fontOptions,
+            selectedIndex = selectedIdx,
+            onSelect = { which ->
+                val chosen = if (which == 1) "space_grotesk" else "system"
+                prefs.edit().putString("app_font", chosen).apply()
+                showFontDialog = false
             },
-            onDismiss = {
-                pendingThemeValue = null
-            }
+            onDismiss = { showFontDialog = false }
+        )
+    }
+
+    if (showCustomColorDialog) {
+        CustomColorPickerDialog(
+            initialColor = config.customSeed,
+            onSelectColor = { seedColor ->
+                ThemeController.update {
+                    it.copy(paletteId = "custom", customSeed = seedColor, materialYou = false)
+                }
+            },
+            onDismiss = { showCustomColorDialog = false }
         )
     }
 
