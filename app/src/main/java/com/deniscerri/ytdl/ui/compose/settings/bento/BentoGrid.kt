@@ -107,6 +107,7 @@ fun BentoReorderSheet(
     onMove: (fromIndex: Int, toIndex: Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    @Suppress("DEPRECATION")
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(

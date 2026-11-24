@@ -30,7 +30,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.deniscerri.ytdl.ui.compose.theme.ThemeController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -68,12 +71,20 @@ fun PreferenceCard(
     onLongClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
+    val config by ThemeController.config.collectAsStateWithLifecycle()
+    val isCompact = config.compact
+    val reduceMotion = config.reduceMotion
+
     val shape = RoundedCornerShape(20.dp)
     val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     val interactionSource = remember { MutableInteractionSource() }
 
     val scale = remember { Animatable(1f) }
-    LaunchedEffect(interactionSource) {
+    LaunchedEffect(interactionSource, reduceMotion) {
+        if (reduceMotion) {
+            scale.snapTo(1f)
+            return@LaunchedEffect
+        }
         var pressJob: Job? = null
         interactionSource.interactions.collect { interaction ->
             when (interaction) {
@@ -132,6 +143,7 @@ fun PreferenceCard(
             badgeColor = badgeColor,
             iconTint = iconTint,
             trailing = actualTrailing,
+            isCompact = isCompact,
         )
     }
 
@@ -182,12 +194,18 @@ private fun PreferenceCardContent(
     badgeColor: Color?,
     iconTint: Color?,
     trailing: (@Composable () -> Unit)?,
+    isCompact: Boolean = false,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 64.dp)
-            .padding(start = 14.dp, top = 11.dp, end = 16.dp, bottom = 11.dp),
+            .defaultMinSize(minHeight = if (isCompact) 52.dp else 64.dp)
+            .padding(
+                start = 14.dp,
+                top = if (isCompact) 6.dp else 11.dp,
+                end = 16.dp,
+                bottom = if (isCompact) 6.dp else 11.dp
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (iconRes != null) {

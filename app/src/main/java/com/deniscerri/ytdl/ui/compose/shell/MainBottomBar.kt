@@ -36,9 +36,9 @@ import com.deniscerri.ytdl.R
  * Model representing a primary navigation tab in the Single-Activity shell.
  */
 data class ShellNavTab(
-    @IdRes val id: Int,
-    @StringRes val labelRes: Int,
-    @DrawableRes val iconRes: Int,
+    @param:IdRes val id: Int,
+    @param:StringRes val labelRes: Int,
+    @param:DrawableRes val iconRes: Int,
     val badgeCount: Int = 0,
 )
 
@@ -54,6 +54,10 @@ fun MainBottomBar(
     modifier: Modifier = Modifier,
     visible: Boolean = true,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = androidx.compose.runtime.remember { androidx.preference.PreferenceManager.getDefaultSharedPreferences(context) }
+    val isGlassDock = prefs.getBoolean("glass_dock", false)
+
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -62,9 +66,13 @@ fun MainBottomBar(
     ) {
         NavigationBar(
             modifier = Modifier.fillMaxWidth(),
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            containerColor = if (isGlassDock) {
+                MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.72f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            },
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            tonalElevation = 3.dp
+            tonalElevation = if (isGlassDock) 0.dp else 3.dp
         ) {
             tabs.forEach { tab ->
                 val isSelected = selectedId == tab.id

@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBar
@@ -36,6 +37,7 @@ import com.deniscerri.ytdl.ui.compose.components.PreferenceCard
  * Single Compose shell host for the Settings screen.
  * Replaces legacy `activity_settings.xml`.
  */
+@Suppress("DEPRECATION")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsHostScreen(
@@ -122,13 +124,23 @@ fun SettingsHostScreen(
                     }
                 }
             } else {
-                TopAppBar(
+                val isLookFeel = title == stringResource(R.string.appearance) || title == stringResource(R.string.look_and_feel)
+                LargeTopAppBar(
                     title = {
-                        Text(
-                            text = title.ifBlank { stringResource(R.string.settings) },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Column {
+                            Text(
+                                text = title.ifBlank { stringResource(R.string.settings) },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (isLookFeel) {
+                                Text(
+                                    text = stringResource(R.string.look_and_feel_summary),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     },
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
@@ -150,6 +162,7 @@ fun SettingsHostScreen(
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ),
                 )
             }

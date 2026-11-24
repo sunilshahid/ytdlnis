@@ -266,6 +266,7 @@ fun SettingsListPreference(
  *
  * If [key] is supplied and [value] is null, state is automatically wired to [SharedPreferences].
  */
+@Suppress("DEPRECATION")
 @Composable
 fun SettingsSliderPreference(
     title: String,

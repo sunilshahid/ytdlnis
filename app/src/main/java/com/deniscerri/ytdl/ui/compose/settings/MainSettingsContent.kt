@@ -63,7 +63,7 @@ fun MainSettingsContent(
             BentoCardSpec(
                 id = "downloads",
                 title = context.getString(R.string.downloads),
-                subtitle = state.downloadingSummary.ifBlank { context.getString(R.string.downloading_summary) },
+                subtitle = state.downloadingSummary.ifBlank { null },
                 iconRes = R.drawable.ic_downloads,
                 hue = 250f,
                 fullWidth = true,

@@ -121,7 +121,7 @@ fun AppearanceSettingsScreen(
                     onClick = {
                         ThemeController.update { it.copy(mode = mode) }
                         (context as? android.app.Activity)?.let { _ ->
-                            ThemeUtil.applyNightMode(prefs)
+                            ThemeUtil.applyNightMode(context)
                         }
                     }
                 )

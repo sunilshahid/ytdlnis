@@ -346,6 +346,7 @@ fun CookiesScreen(
                             }
 
                             if (swipeGestures) {
+                                @Suppress("DEPRECATION")
                                 val dismissState = rememberSwipeToDismissBoxState(
                                     confirmValueChange = { value ->
                                         if (value == SwipeToDismissBoxValue.EndToStart) {
