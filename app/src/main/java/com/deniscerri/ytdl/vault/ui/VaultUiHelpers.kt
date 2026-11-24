@@ -1,5 +1,6 @@
 package com.deniscerri.ytdl.vault.ui
 
+import android.text.TextUtils
 import android.widget.EditText
 
 internal object VaultUiHelpers {
@@ -11,7 +12,7 @@ internal object VaultUiHelpers {
         val editable = editText.text ?: return CharArray(0)
         val len = editable.length
         val chars = CharArray(len)
-        editable.getChars(0, len, chars, 0)
+        TextUtils.getChars(editable, 0, len, chars, 0)
         editable.clear()
         return chars
     }

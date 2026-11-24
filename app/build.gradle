@@ -1,7 +1,6 @@
 plugins {
     id 'com.android.application'
     id 'com.google.android.libraries.mapsplatform.secrets-gradle-plugin' version '2.0.1'
-    id 'org.jetbrains.kotlin.android'
     id 'com.google.devtools.ksp'
     id "org.jetbrains.kotlin.plugin.serialization" version "2.3.0"
     id "org.jetbrains.kotlin.plugin.parcelize" version "2.3.0"
@@ -24,9 +23,14 @@ if (isBeta) {
     versionExt += "-beta"
 }
 
+base {
+    // `archivesBaseName` was removed in Gradle 9 (it was a BasePluginConvention property).
+    archivesName = "YTDLnis-Extended-${versionMajor}.${versionMinor}.${versionPatch}${versionExt}"
+}
+
 android {
-    namespace 'com.deniscerri.ytdl'
-    compileSdk = 36
+    namespace = 'com.deniscerri.ytdl'
+    compileSdk = 37
 
     // Vendored NDK + CMake for the dav1d AV1 software decoder JNI build.
     ndkPath = "${rootDir}/third_party/android-ndk-r27c"
@@ -34,8 +38,8 @@ android {
 
     externalNativeBuild {
         cmake {
-            path 'src/main/jni/CMakeLists.txt'
-            version '3.22.1'
+            path = 'src/main/jni/CMakeLists.txt'
+            version = '3.22.1'
         }
     }
 
@@ -47,24 +51,23 @@ android {
             properties.load(new FileInputStream(propertiesFile))
             signingConfigs {
                 debug {
-                    storeFile file(properties["signingConfig.storeFile"])
-                    storePassword properties["signingConfig.storePassword"]
-                    keyAlias properties["signingConfig.keyAlias"]
-                    keyPassword properties["signingConfig.keyPassword"]
+                    storeFile = file(properties["signingConfig.storeFile"])
+                    storePassword = properties["signingConfig.storePassword"]
+                    keyAlias = properties["signingConfig.keyAlias"]
+                    keyPassword = properties["signingConfig.keyPassword"]
                 }
             }
         }
     }catch(IOException ignored){}
     defaultConfig {
-        applicationId "com.deniscerri.ytdl.extended"
-        minSdk 24
-        targetSdk 36
-        versionCode versionMajor * 1000000 + versionMinor * 10000 + versionPatch * 100 + versionBuild
-        versionName "${versionMajor}.${versionMinor}.${versionPatch}${versionExt}"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        archivesBaseName = "YTDLnis-Extended-$versionName"
+        applicationId = "com.deniscerri.ytdl.extended"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = versionMajor * 1000000 + versionMinor * 10000 + versionPatch * 100 + versionBuild
+        versionName = "${versionMajor}.${versionMinor}.${versionPatch}${versionExt}"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
-            useSupportLibrary true
+            useSupportLibrary = true
         }
 
         // AV1 software decoder (dav1d) native lib is only built/available for arm64-v8a.
@@ -94,76 +97,61 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
+            minifyEnabled = true
+            shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            debuggable false
-            signingConfig signingConfigs.debug
+            debuggable = false
+            signingConfig = signingConfigs.debug
+            // Shortcuts need the concrete package name (AGP does not expand ${applicationId} in res XML).
+            resValue("string", "app_package_name", "com.deniscerri.ytdl.extended")
         }
 
         debug {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            debuggable true
-            signingConfig signingConfigs.debug
+            // Install side by side with a stable build of the same app: the debug APK becomes
+            // com.deniscerri.ytdl.extended.debug instead of replacing it. ContentProvider
+            // authorities use ${applicationId}, so they follow the suffix automatically.
+            applicationIdSuffix = ".debug"
+            resValue("string", "app_package_name", "com.deniscerri.ytdl.extended.debug")
+            minifyEnabled = false
+            // AGP 9 rejects 'proguard-android.txt' (it carries -dontoptimize). Moot here because
+            // debug does not minify, but the file reference is resolved eagerly at configuration time.
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            debuggable = true
+            signingConfig = signingConfigs.debug
         }
     }
 
-    flavorDimensions "version"
+    flavorDimensions += "version"
     productFlavors {
         github {
-            dimension "version"
-            isDefault true
+            dimension = "version"
+            isDefault = true
         }
         foss {
-            dimension "version"
+            dimension = "version"
         }
         izzy {
-            dimension "version"
+            dimension = "version"
         }
     }
 
-
-    android.applicationVariants.configureEach { variant ->
-        variant.outputs.each { output ->
-            def baseAbiVersionCode = project.abiCodes.get(output.getFilter(com.android.build.OutputFile.ABI))
-            if (baseAbiVersionCode != null) {
-                output.versionCodeOverride = (100 * project.android.defaultConfig.versionCode) + baseAbiVersionCode
-            } else {
-                output.versionCodeOverride = 100 * project.android.defaultConfig.versionCode
-            }
-
-            def abi = output.getFilter(com.android.build.OutputFile.ABI) ?: "universal"
-            if (variant.flavorName == "github") {
-                output.outputFileName = "YTDLnis-Extended-${versionName}-${abi}-${variant.buildType.name}-${variant.flavorName}.apk"
-            } else {
-                output.outputFileName = "YTDLnis-Extended-${versionName}-${variant.flavorName}-${abi}-${variant.buildType.name}.apk"
-            }
-        }
-    }
 
     buildFeatures {
-        buildConfig true
-        compose true
+        buildConfig = true
+        compose = true
+        resValues = true
     }
 
     compileOptions {
-        coreLibraryDesugaringEnabled true
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = '17'
+        coreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     splits {
         abi {
-            enable false
+            enable = false
         }
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion "1.10.1"
     }
 
     dependenciesInfo {
@@ -174,17 +162,52 @@ android {
     }
     packagingOptions {
         jniLibs {
-            useLegacyPackaging true
+            useLegacyPackaging = true
         }
     }
     lint {
         disable 'MissingTranslation', 'RestrictedApi'
-        abortOnError false
-        checkReleaseBuilds false
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 
     androidResources {
-        generateLocaleConfig true
+        generateLocaleConfig = true
+    }
+}
+
+// AGP 9 removed the legacy `android.applicationVariants` Variant API (and `OutputFile.ABI`).
+// `androidComponents.onVariants` is the replacement; `versionCode` and `outputFileName` are
+// Property<...> there instead of the old `versionCodeOverride` / `outputFileName` fields.
+// Behaviour is unchanged: splits are disabled, so each variant has a single "universal" output
+// whose version code is 100x the variant version code (plus the per-ABI offset when splits return).
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def vName = "${versionMajor}.${versionMinor}.${versionPatch}${versionExt}"
+        def baseVersionCode = 100 * (versionMajor * 1000000 + versionMinor * 10000 + versionPatch * 100 + versionBuild)
+        variant.outputs.each { output ->
+            def abi = output.filters.find {
+                it.filterType == com.android.build.api.variant.FilterConfiguration.FilterType.ABI
+            }?.identifier
+            def baseAbiVersionCode = abi == null ? null : project.abiCodes.get(abi)
+            output.versionCode.set(baseAbiVersionCode != null ? baseVersionCode + baseAbiVersionCode : baseVersionCode)
+
+            def abiName = abi ?: "universal"
+            if (variant.flavorName == "github") {
+                output.outputFileName.set("YTDLnis-Extended-${vName}-${abiName}-${variant.buildType}-${variant.flavorName}.apk")
+            } else {
+                output.outputFileName.set("YTDLnis-Extended-${vName}-${variant.flavorName}-${abiName}-${variant.buildType}.apk")
+            }
+        }
+    }
+}
+
+// AGP 9 bundles Kotlin, so `android.kotlinOptions` no longer exists; compiler options moved to
+// the top-level `kotlin { compilerOptions { } }` block. `composeOptions.kotlinCompilerExtensionVersion`
+// is gone too - since Kotlin 2.0 the Compose compiler is versioned by the Kotlin plugin itself.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
@@ -282,9 +305,8 @@ dependencies {
     implementation "com.anggrayudi:storage:1.5.5"
     implementation 'me.zhanghai.android.fastscroll:library:1.3.0'
     implementation 'com.google.accompanist:accompanist-webview:0.36.0'
-    // NOTE: material3 1.5.0 requires AGP 9.1.0 + compileSdk 37 (project is AGP 8.13.2 / compileSdk 36).
-    // Do not bump until the AGP/compileSdk upgrade happens.
-    implementation 'androidx.compose.material3:material3-android:1.4.0'
+    // material3 1.5.0 requires AGP 9.1+ and compileSdk 37.
+    implementation 'androidx.compose.material3:material3-android:1.5.0'
     // Compose migration (Phase 1).
     // NOTE: activity-compose 1.9.1 is present in files-2.1 but its descriptor was cached by an older
     // Gradle (metadata-2.106). This project runs Gradle 8.13 / metadata-2.107, so 1.9.1 is NOT

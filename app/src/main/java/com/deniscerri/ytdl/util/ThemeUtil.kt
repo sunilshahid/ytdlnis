@@ -74,8 +74,8 @@ object ThemeUtil {
     }
 
     sealed class AppIcon(
-        @StringRes val nameResource: Int,
-        @DrawableRes val iconResource: Int,
+        @param:StringRes val nameResource: Int,
+        @param:DrawableRes val iconResource: Int,
         val activityAlias: String
     ) {
         object Default : AppIcon(R.string.auto, R.mipmap.ic_launcher, "Default")

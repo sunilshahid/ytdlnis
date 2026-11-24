@@ -140,7 +140,7 @@ object Extensions {
             if (this is EditText) {
                 this.addTextChangedListener(highlightWatcher)
                 this.setText(highlight.toSpannedString(this.text.toString()))
-            }else if (this is TextView) {
+            } else {
                 this.addTextChangedListener(highlightWatcher)
                 this.text = highlight.toSpannedString(this.text.toString())
             }

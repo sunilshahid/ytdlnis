@@ -62,7 +62,7 @@ object DefaultPreferences {
         if (force || !prefs.contains("history_quick_action")) editor.putString("history_quick_action", "share")
         if (force || !prefs.contains("locale")) editor.putString("locale", "")
         if (force || !prefs.contains("start_destination")) editor.putString("start_destination", "Home")
-        if (force || !prefs.contains("navigation_bar")) editor.putString("navigation_bar", "Home,History,Queue,More")
+        if (force || !prefs.contains("navigation_bar")) editor.putString("navigation_bar", "homeFragment,historyFragment,downloadQueueMainFragment,playFragment,moreFragment,-terminalActivity")
         if (force || !prefs.contains("label_visibility")) editor.putString("label_visibility", "always")
         if (force || !prefs.contains("search_engine")) editor.putString("search_engine", "ytsearch")
         if (force || !prefs.contains("check_clipboard_home")) editor.putBoolean("check_clipboard_home", true)

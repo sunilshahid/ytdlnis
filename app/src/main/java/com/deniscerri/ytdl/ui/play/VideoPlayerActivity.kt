@@ -333,6 +333,7 @@ class VideoPlayerActivity : BaseActivity() {
     }
 
     private fun updateSubtitleButtonTint() {
+        if (!::playerView.isInitialized) return
         val btn = playerView.findViewById<ImageButton>(R.id.video_subtitles) ?: return
         val active = VideoPlayerOverlays.isSubtitleActive(attachedPlayer ?: PlaybackController.player())
         val available = VideoPlayerOverlays.hasTextTracks(attachedPlayer ?: PlaybackController.player())
@@ -360,11 +361,13 @@ class VideoPlayerActivity : BaseActivity() {
             // The preview pauses playback on purpose; do not flip the button or drop the
             // screen-on flag while the user is still dragging.
             val heldForPreview = isScrubbingSeekBar && resumeAfterScrub
-            playerView.keepScreenOn = isPlaying || heldForPreview
-            if (!heldForPreview) {
-                playerView.findViewById<ImageButton>(androidx.media3.ui.R.id.exo_play_pause)?.setImageResource(
-                    if (isPlaying) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play
-                )
+            if (::playerView.isInitialized) {
+                playerView.keepScreenOn = isPlaying || heldForPreview
+                if (!heldForPreview) {
+                    playerView.findViewById<ImageButton>(androidx.media3.ui.R.id.exo_play_pause)?.setImageResource(
+                        if (isPlaying) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play
+                    )
+                }
             }
             if (isPlaying) {
                 renderedFirstFrame = true
@@ -404,6 +407,7 @@ class VideoPlayerActivity : BaseActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
@@ -605,6 +609,7 @@ class VideoPlayerActivity : BaseActivity() {
     }
 
     private fun updateDurationDisplay() {
+        if (!::playerView.isInitialized) return
         val durationView = playerView.findViewById<TextView>(androidx.media3.ui.R.id.exo_duration) ?: return
         val duration = currentDuration()
         if (showRemainingTime) {
@@ -644,7 +649,7 @@ class VideoPlayerActivity : BaseActivity() {
                 if (miniScrubPreview) {
                     val durationMs = currentDuration()
                     if (!item?.localUri.isNullOrBlank() && durationMs > 0L) {
-                        scrubFrameLoader.prewarm(item?.localUri, durationMs)
+                        scrubFrameLoader.prewarm(item.localUri, durationMs)
                     }
                 } else {
                     // Full-screen live video scrubbing: hide bitmap overlay & seek ExoPlayer keyframes live.
@@ -813,6 +818,7 @@ class VideoPlayerActivity : BaseActivity() {
 
     /** Keeps the chapter pill in lock-step with the rest of the HUD and the lock state. */
     private fun refreshChapterBarVisibility() {
+        if (!::playerView.isInitialized) return
         val bar = playerView.findViewById<View>(R.id.video_chapter_bar) ?: return
         val hasChapters = PlaybackController.state.value.chapters.isNotEmpty()
         bar.visibility = if (hasChapters && controllerVisible && !locked) View.VISIBLE else View.GONE
@@ -888,6 +894,34 @@ class VideoPlayerActivity : BaseActivity() {
     }
 
     private fun renderState(state: PlaybackController.UiState) {
+        val item = state.currentItem
+        val player = attachedPlayer
+        val isReadyOrPlaying = player != null && (
+            player.playbackState == Player.STATE_READY ||
+            player.isPlaying ||
+            player.currentPosition > 0L ||
+            (player.videoSize.width > 0 && player.videoSize.height > 0)
+        )
+
+        if (item != null && item.mediaId != posterMediaId) {
+            posterMediaId = item.mediaId
+            renderedFirstFrame = isReadyOrPlaying
+        } else if (isReadyOrPlaying) {
+            renderedFirstFrame = true
+        }
+
+        val isBuffering = player != null && player.playbackState == Player.STATE_BUFFERING && player.playWhenReady
+        val loading = state.error == null && (!renderedFirstFrame || isBuffering)
+        uiState = uiState.copy(
+            artworkUri = item?.artworkUri,
+            showPoster = !renderedFirstFrame && !item?.artworkUri.isNullOrBlank(),
+            isLoading = loading,
+            showLoadingText = !renderedFirstFrame,
+            errorMessage = state.error
+        )
+
+        if (!::playerView.isInitialized) return
+
         val durationMs = state.durationMs.takeIf { it > 0L } ?: currentDuration()
         VideoPlayerOverlays.updateChapterUi(
             playerView = playerView,
@@ -899,14 +933,7 @@ class VideoPlayerActivity : BaseActivity() {
         trackSponsorSegments(state)
         updateSubtitleButtonTint()
         updateDurationDisplay()
-        val item = state.currentItem ?: return
-        val player = attachedPlayer
-        val isReadyOrPlaying = player != null && (
-            player.playbackState == Player.STATE_READY ||
-            player.isPlaying ||
-            player.currentPosition > 0L ||
-            (player.videoSize.width > 0 && player.videoSize.height > 0)
-        )
+        if (item == null) return
 
         // Set video title
         playerView.findViewById<TextView>(R.id.video_title)?.text = item.title
@@ -917,23 +944,9 @@ class VideoPlayerActivity : BaseActivity() {
             if (isPlayingNow) R.drawable.ic_lyrics_pause else R.drawable.ic_lyrics_play
         )
 
-        if (item.mediaId != posterMediaId) {
-            posterMediaId = item.mediaId
-            renderedFirstFrame = isReadyOrPlaying
-        } else if (isReadyOrPlaying) {
-            renderedFirstFrame = true
+        if (renderedFirstFrame) {
             playerView.findViewById<View>(androidx.media3.ui.R.id.exo_shutter)?.visibility = View.GONE
         }
-
-        val isBuffering = player != null && player.playbackState == Player.STATE_BUFFERING && player.playWhenReady
-        val loading = state.error == null && (!renderedFirstFrame || isBuffering)
-        uiState = uiState.copy(
-            artworkUri = item.artworkUri,
-            showPoster = !renderedFirstFrame && !item.artworkUri.isNullOrBlank(),
-            isLoading = loading,
-            showLoadingText = !renderedFirstFrame,
-            errorMessage = state.error
-        )
     }
 
     private fun retryPlayback() {
@@ -970,8 +983,9 @@ class VideoPlayerActivity : BaseActivity() {
     }
 
     private fun setupImmersiveMode() {
+        val targetView = if (::playerView.isInitialized) playerView else window.decorView
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, playerView).apply {
+        WindowInsetsControllerCompat(window, targetView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE

@@ -186,7 +186,8 @@ class CookieViewModel(private val application: Application) : AndroidViewModel(a
                 val cookieFile = File(c)
                 if (! cookieFile.exists()) updateCookiesFile()
                 cookieFile.readText().let {
-                    clipboard.setText(it)
+                    val clip = android.content.ClipData.newPlainText("cookies", it)
+                    clipboard.setPrimaryClip(clip)
                 }
             }
 

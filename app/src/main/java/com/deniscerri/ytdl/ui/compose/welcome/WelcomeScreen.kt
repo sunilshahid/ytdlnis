@@ -64,7 +64,7 @@ import com.deniscerri.ytdl.R
  */
 data class WelcomePermissionItem(
     val id: String,
-    @DrawableRes val iconRes: Int,
+    @param:DrawableRes val iconRes: Int,
     val title: String,
     val summary: String,
     val required: Boolean,

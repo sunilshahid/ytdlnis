@@ -3,6 +3,7 @@ package com.deniscerri.ytdl.database.dao
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.RoomWarnings
 import androidx.room.Transaction
 import com.deniscerri.ytdl.database.models.TerminalItem
 import com.deniscerri.ytdl.util.Extensions.appendLineToLog
@@ -11,9 +12,11 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TerminalDao {
 
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
     @Query("SELECT id,command FROM terminalDownloads ORDER BY id")
     fun getActiveTerminalDownloads() : List<TerminalItem>
 
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
     @Query("SELECT id,command FROM terminalDownloads ORDER BY id")
     fun getActiveTerminalDownloadsFlow() : Flow<List<TerminalItem>>
 

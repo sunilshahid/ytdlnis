@@ -3,6 +3,7 @@ package com.deniscerri.ytdl.ui.play
 import android.os.Bundle
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import com.deniscerri.ytdl.playback.LikedStore
 import com.deniscerri.ytdl.playback.PlaybackController
 import com.deniscerri.ytdl.ui.BaseActivity
@@ -17,6 +18,7 @@ import com.deniscerri.ytdl.ui.play.lyrics.LyricsSheetFragment
 class AudioPlayerActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         PlaybackController.init(this)
         LikedStore.init(this)

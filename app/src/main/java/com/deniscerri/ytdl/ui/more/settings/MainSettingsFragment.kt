@@ -63,7 +63,7 @@ class MainSettingsFragment : ComposeFragment() {
 
     private fun updateState() {
         if (!isAdded) return
-        val isRtl = TextUtilsCompat.getLayoutDirectionFromLocale(LocaleUtil.currentLocale()) == ViewCompat.LAYOUT_DIRECTION_RTL
+        val isRtl = TextUtilsCompat.getLayoutDirectionFromLocale(LocaleUtil.currentLocale()) == View.LAYOUT_DIRECTION_RTL
         val separator = if (isRtl) "،" else ","
         uiState = MainSettingsUiState(
             appearanceSummary = "${getString(R.string.Theme)}$separator ${getString(R.string.accents)}$separator ${getString(R.string.app_icon)}",

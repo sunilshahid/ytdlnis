@@ -256,7 +256,7 @@ object MkSession {
             val args: Array<String>
             if (useBash) {
                 // Run through the linker: app-private files can't be execve'd directly on Android 10+.
-                env.add("LD_LIBRARY_PATH=${bashDir!!.absolutePath}")
+                env.add("LD_LIBRARY_PATH=${bashDir.absolutePath}")
                 // readline needs terminfo to know the terminal auto-wraps; ncurses only knows the Termux path.
                 env.add("TERMINFO=${bashDir.child("terminfo").absolutePath}")
                 val bash = bashDir.child("bash").absolutePath
