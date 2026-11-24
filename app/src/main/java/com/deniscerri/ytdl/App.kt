@@ -41,6 +41,7 @@ class App : Application() {
         val sharedPreferences =  PreferenceManager.getDefaultSharedPreferences(this@App)
         setDefaultValues()
         ThemeUtil.init(this)
+        com.deniscerri.ytdl.ui.compose.theme.ThemeController.init(this)
 
         val processName = getProcessNameImpl()
         if (processName.endsWith(":incognito_process") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {

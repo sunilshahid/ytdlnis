@@ -25,12 +25,12 @@ object ThemeUtil {
 
     fun applyNightMode(context: Context) {
         val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-        val theme = sharedPreferences.getString("ytdlnis_theme", "System")!!
-        when (theme) {
-            "Light" -> {
+        val theme = sharedPreferences.getString("ytdlnis_theme", "System") ?: "System"
+        when (theme.lowercase()) {
+            "light" -> {
                 AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
             }
-            "Dark" -> {
+            "dark", "dusk", "oled" -> {
                 AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
             }
             else -> {
@@ -112,31 +112,38 @@ object ThemeUtil {
 
     fun updateTheme(activity: Activity) {
         applyNightMode(activity)
-        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(activity)
+        val prefs = PreferenceManager.getDefaultSharedPreferences(activity)
+        val dynamic = (prefs.getBoolean("material_you", false) || prefs.getString("theme_accent", "blue") == "Default") && android.os.Build.VERSION.SDK_INT >= 31
 
-        //update accent
-        when (sharedPreferences.getString("theme_accent","blue")) {
-            "Default" -> {
-                DynamicColors.applyToActivityIfAvailable(activity)
-                activity.setTheme(R.style.BaseTheme)
-            }
-            "blue" -> activity.setTheme(R.style.Theme_Blue)
-            "red" -> activity.setTheme(R.style.Theme_Red)
-            "green" -> activity.setTheme(R.style.Theme_Green)
-            "purple" -> activity.setTheme(R.style.Theme_Purple)
-            "yellow" -> activity.setTheme(R.style.Theme_Yellow)
-            "orange" -> activity.setTheme(R.style.Theme_Orange)
-            "monochrome" -> activity.setTheme(R.style.Theme_Monochrome)
+        // 1. Always install the concrete window theme first.
+        activity.setTheme(
+            if (dynamic) R.style.BaseTheme
+            else themeResFor(prefs.getString("theme_accent", "blue"))
+        )
+
+        // 2. Then layer dynamic colours on top (mutates the current theme instance).
+        if (dynamic) {
+            DynamicColors.applyToActivityIfAvailable(activity)
         }
 
-        //high contrast theme
-        if (sharedPreferences.getBoolean("high_contrast",false)) {
+        if (prefs.getBoolean("high_contrast", false)) {
             activity.theme.applyStyle(R.style.Pure, true)
         }
 
-        val theme = sharedPreferences.getString("ytdlnis_theme", "System")!!
-        val iconMode = sharedPreferences.getString("ytdlnis_icon", "Default")!!
-        updateAppIcon(activity,theme, iconMode)
+        val theme = prefs.getString("ytdlnis_theme", "System") ?: "System"
+        val iconMode = prefs.getString("ytdlnis_icon", "Default") ?: "Default"
+        updateAppIcon(activity, theme, iconMode)
+    }
+
+    private fun themeResFor(accent: String?): Int = when (accent?.lowercase()) {
+        "blue" -> R.style.Theme_Blue
+        "red" -> R.style.Theme_Red
+        "green" -> R.style.Theme_Green
+        "purple" -> R.style.Theme_Purple
+        "yellow" -> R.style.Theme_Yellow
+        "orange" -> R.style.Theme_Orange
+        "monochrome" -> R.style.Theme_Monochrome
+        else -> R.style.Theme_Blue
     }
 
     fun getThemeColor(context: Context, colorCode: Int): Int {
