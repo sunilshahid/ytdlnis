@@ -88,9 +88,11 @@
 }
 
 # Keep all exo_* resource IDs in application and library R classes
+-keep class **.R$id {
+    public static <fields>;
+}
 -keepclassmembers class **.R$id {
-    public static final int exo_*;
-    public static int exo_*;
+    public static <fields>;
 }
 -keepclassmembers class **.R$layout {
     public static final int exo_*;
