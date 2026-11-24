@@ -31,8 +31,8 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import com.deniscerri.ytdl.ui.compose.components.YtdlSwitch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -170,7 +170,7 @@ fun TemplateEditorSheet(
                 text = stringResource(R.string.preferred_command_template),
                 style = MaterialTheme.typography.bodyMedium
             )
-            Switch(
+            YtdlSwitch(
                 checked = preferredCommandTemplate,
                 onCheckedChange = { preferredCommandTemplate = it }
             )
@@ -186,7 +186,7 @@ fun TemplateEditorSheet(
                 text = stringResource(R.string.use_as_extra_command),
                 style = MaterialTheme.typography.bodyMedium
             )
-            Switch(
+            YtdlSwitch(
                 checked = useAsExtraCommand,
                 onCheckedChange = {
                     useAsExtraCommand = it
@@ -235,7 +235,7 @@ fun TemplateEditorSheet(
                     text = stringResource(R.string.use_as_extra_command_data_fetching),
                     style = MaterialTheme.typography.bodyMedium
                 )
-                Switch(
+                YtdlSwitch(
                     checked = useAsExtraCommandDataFetching,
                     onCheckedChange = { useAsExtraCommandDataFetching = it }
                 )

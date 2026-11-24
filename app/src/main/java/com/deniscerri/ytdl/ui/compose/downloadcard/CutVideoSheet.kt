@@ -26,8 +26,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import com.deniscerri.ytdl.ui.compose.components.YtdlSwitch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -224,7 +224,7 @@ fun CutVideoSheet(
                     text = stringResource(R.string.merge_cuts),
                     style = MaterialTheme.typography.bodyMedium
                 )
-                Switch(
+                YtdlSwitch(
                     checked = mergeCuts,
                     onCheckedChange = { mergeCuts = it }
                 )

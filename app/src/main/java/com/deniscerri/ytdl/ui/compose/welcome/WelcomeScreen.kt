@@ -42,9 +42,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.deniscerri.ytdl.ui.compose.components.YtdlSwitch
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -569,7 +569,7 @@ private fun WelcomeUpdatesPage(
 
                     Spacer(Modifier.width(12.dp))
 
-                    Switch(
+                    YtdlSwitch(
                         checked = updateApp,
                         onCheckedChange = onUpdateAppChanged,
                     )
@@ -627,7 +627,7 @@ private fun WelcomeUpdatesPage(
 
                 Spacer(Modifier.width(12.dp))
 
-                Switch(
+                YtdlSwitch(
                     checked = autoUpdateYtdlp,
                     onCheckedChange = onAutoUpdateYtdlpChanged,
                 )

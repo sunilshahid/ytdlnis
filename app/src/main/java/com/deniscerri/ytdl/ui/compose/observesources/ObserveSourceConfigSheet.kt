@@ -32,9 +32,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import com.deniscerri.ytdl.ui.compose.components.YtdlSwitch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -540,7 +540,7 @@ fun ObserveSourceConfigContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = stringResource(R.string.retry_missing_downloads), style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = retryMissingDownloads, onCheckedChange = { retryMissingDownloads = it })
+            YtdlSwitch(checked = retryMissingDownloads, onCheckedChange = { retryMissingDownloads = it })
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -550,7 +550,7 @@ fun ObserveSourceConfigContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = stringResource(R.string.get_new_uploads), style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = getOnlyNewUploads, onCheckedChange = { getOnlyNewUploads = it })
+            YtdlSwitch(checked = getOnlyNewUploads, onCheckedChange = { getOnlyNewUploads = it })
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -560,7 +560,7 @@ fun ObserveSourceConfigContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = stringResource(R.string.sync_with_source), style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = syncWithSource, onCheckedChange = { syncWithSource = it })
+            YtdlSwitch(checked = syncWithSource, onCheckedChange = { syncWithSource = it })
         }
 
         Spacer(modifier = Modifier.height(20.dp))

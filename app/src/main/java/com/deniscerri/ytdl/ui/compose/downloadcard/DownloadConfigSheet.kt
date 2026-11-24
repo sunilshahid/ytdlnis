@@ -32,9 +32,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.deniscerri.ytdl.ui.compose.components.YtdlSwitch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -487,7 +487,7 @@ private fun VideoOptionsSection(
                     TextButton(onClick = onPickSubtitles) {
                         Text("Languages")
                     }
-                    Switch(
+                    YtdlSwitch(
                         checked = state.embedSubtitles,
                         onCheckedChange = { onEvent(DownloadConfigEvent.ToggleEmbedSubtitles(it)) }
                     )
@@ -604,7 +604,7 @@ private fun ConfigSwitchRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(text = title, style = MaterialTheme.typography.bodyMedium)
-        Switch(
+        YtdlSwitch(
             checked = checked,
             onCheckedChange = onCheckedChange
         )
@@ -686,7 +686,7 @@ private fun CutRangeSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(text = stringResource(R.string.merge_cuts), style = MaterialTheme.typography.bodyMedium)
-                        Switch(
+                        YtdlSwitch(
                             checked = mergeCuts,
                             onCheckedChange = onToggleMergeCuts
                         )

@@ -37,10 +37,10 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
+import com.deniscerri.ytdl.ui.compose.components.YtdlSwitch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -181,7 +181,7 @@ fun CookiesScreen(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Medium,
                         )
-                        Switch(
+                        YtdlSwitch(
                             checked = useCookies,
                             onCheckedChange = onUseCookiesChanged,
                         )
@@ -218,7 +218,7 @@ fun CookiesScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(
+                        YtdlSwitch(
                             checked = youtubeAccountCookies,
                             onCheckedChange = onYoutubeAccountCookiesChanged,
                             enabled = useCookies,
@@ -282,7 +282,7 @@ fun CookiesScreen(
                                     }
                                 }
 
-                                Switch(
+                                YtdlSwitch(
                                     checked = checkYoutubeCookies,
                                     onCheckedChange = onCheckYoutubeCookiesChanged,
                                 )
@@ -422,7 +422,7 @@ private fun CookieCard(
                 )
             }
 
-            Switch(
+            YtdlSwitch(
                 checked = item.enabled,
                 onCheckedChange = onEnabledChange,
             )

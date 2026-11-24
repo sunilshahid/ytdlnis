@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+import com.deniscerri.ytdl.ui.compose.components.YtdlSwitch
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -137,7 +137,7 @@ fun MainSettingsContent(
             summary = stringResource(R.string.automatic_backup_summary),
             iconRes = R.drawable.ic_clock,
             trailing = {
-                Switch(
+                YtdlSwitch(
                     checked = state.automaticBackup,
                     onCheckedChange = null,
                 )

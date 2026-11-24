@@ -32,9 +32,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import com.deniscerri.ytdl.ui.compose.components.YtdlSwitch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -461,7 +461,7 @@ private fun SwitchRow(
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
         )
-        Switch(
+        YtdlSwitch(
             checked = checked,
             onCheckedChange = null,
             enabled = enabled,
